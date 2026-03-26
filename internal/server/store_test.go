@@ -926,6 +926,278 @@ func TestOrphanCleanup(t *testing.T) {
 	}
 }
 
+// ── Analytics tests ───────────────────────────────────────────────────────────
+
+func TestSummaryRecordAndGet(t *testing.T) {
+	store := newTestStore(t)
+	u1 := makeUser(t, store, "sum-user1")
+	u2 := makeUser(t, store, "sum-user2")
+
+	teamID := "default"
+
+	// Record summary for user1
+	s1 := &shared.AISummary{
+		UserID:      &u1.ID,
+		TeamID:      &teamID,
+		Type:        "daily",
+		PeriodStart: time.Now().UTC().Add(-24 * time.Hour),
+		PeriodEnd:   time.Now().UTC(),
+		SummaryText: "User 1 daily summary",
+		GeneratedAt: time.Now().UTC(),
+	}
+	if err := store.RecordSummary(s1); err != nil {
+		t.Fatalf("RecordSummary user1: %v", err)
+	}
+
+	// Record summary for user2
+	s2 := &shared.AISummary{
+		UserID:      &u2.ID,
+		TeamID:      &teamID,
+		Type:        "weekly",
+		PeriodStart: time.Now().UTC().Add(-7 * 24 * time.Hour),
+		PeriodEnd:   time.Now().UTC(),
+		SummaryText: "User 2 weekly summary",
+		GeneratedAt: time.Now().UTC(),
+	}
+	if err := store.RecordSummary(s2); err != nil {
+		t.Fatalf("RecordSummary user2: %v", err)
+	}
+
+	// GetSummaries — no user filter: should return both
+	all, err := store.GetSummaries(teamID, nil, nil, 10)
+	if err != nil {
+		t.Fatalf("GetSummaries all: %v", err)
+	}
+	if len(all) != 2 {
+		t.Errorf("expected 2 summaries, got %d", len(all))
+	}
+
+	// GetSummaries — filter by user1
+	byUser1, err := store.GetSummaries(teamID, &u1.ID, nil, 10)
+	if err != nil {
+		t.Fatalf("GetSummaries by user1: %v", err)
+	}
+	if len(byUser1) != 1 {
+		t.Fatalf("expected 1 summary for user1, got %d", len(byUser1))
+	}
+	if byUser1[0].SummaryText != "User 1 daily summary" {
+		t.Errorf("unexpected summary text: %q", byUser1[0].SummaryText)
+	}
+
+	// GetSummaries — filter by type weekly
+	weeklyType := "weekly"
+	byType, err := store.GetSummaries(teamID, nil, &weeklyType, 10)
+	if err != nil {
+		t.Fatalf("GetSummaries by type: %v", err)
+	}
+	if len(byType) != 1 {
+		t.Errorf("expected 1 weekly summary, got %d", len(byType))
+	}
+	if byType[0].SummaryText != "User 2 weekly summary" {
+		t.Errorf("unexpected summary text for weekly: %q", byType[0].SummaryText)
+	}
+}
+
+func TestProjectStatsUpsert(t *testing.T) {
+	store := newTestStore(t)
+	u := makeUser(t, store, "ps-user")
+
+	ps := &shared.ProjectStats{
+		UserID:      u.ID,
+		ProjectPath: "/home/user/myproject",
+		ProjectName: "myproject",
+		Model:       "claude-sonnet",
+		InputTokens: 100,
+		OutputTokens: 50,
+		CostUSD:     0.25,
+		LinesAdded:  10,
+		LinesRemoved: 2,
+		WebSearchCount: 1,
+		SyncedAt:    time.Now().UTC(),
+	}
+
+	// First upsert — insert
+	if err := store.UpsertProjectStats(ps); err != nil {
+		t.Fatalf("UpsertProjectStats (insert): %v", err)
+	}
+
+	stats, err := store.GetProjectStats(u.ID)
+	if err != nil {
+		t.Fatalf("GetProjectStats: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 stat, got %d", len(stats))
+	}
+	if stats[0].InputTokens != 100 {
+		t.Errorf("expected input_tokens 100, got %d", stats[0].InputTokens)
+	}
+
+	// Second upsert — update values
+	ps.InputTokens = 200
+	ps.OutputTokens = 80
+	ps.CostUSD = 0.50
+	ps.LinesAdded = 20
+	ps.SyncedAt = time.Now().UTC()
+
+	if err := store.UpsertProjectStats(ps); err != nil {
+		t.Fatalf("UpsertProjectStats (update): %v", err)
+	}
+
+	stats2, err := store.GetProjectStats(u.ID)
+	if err != nil {
+		t.Fatalf("GetProjectStats after update: %v", err)
+	}
+	if len(stats2) != 1 {
+		t.Fatalf("expected 1 stat after upsert, got %d", len(stats2))
+	}
+	if stats2[0].InputTokens != 200 {
+		t.Errorf("expected input_tokens 200 after update, got %d", stats2[0].InputTokens)
+	}
+	if stats2[0].CostUSD != 0.50 {
+		t.Errorf("expected cost_usd 0.50 after update, got %f", stats2[0].CostUSD)
+	}
+	if stats2[0].LinesAdded != 20 {
+		t.Errorf("expected lines_added 20 after update, got %d", stats2[0].LinesAdded)
+	}
+}
+
+func TestDailyActivityUpsert(t *testing.T) {
+	store := newTestStore(t)
+	u := makeUser(t, store, "da-user")
+
+	da := &shared.DailyActivity{
+		UserID:        u.ID,
+		Date:          "2026-03-26",
+		MessageCount:  5,
+		SessionCount:  2,
+		ToolCallCount: 10,
+		SyncedAt:      time.Now().UTC(),
+	}
+
+	// First upsert — insert
+	if err := store.UpsertDailyActivity(da); err != nil {
+		t.Fatalf("UpsertDailyActivity (insert): %v", err)
+	}
+
+	activity, err := store.GetDailyActivity(u.ID, 30)
+	if err != nil {
+		t.Fatalf("GetDailyActivity: %v", err)
+	}
+	if len(activity) != 1 {
+		t.Fatalf("expected 1 activity record, got %d", len(activity))
+	}
+	if activity[0].MessageCount != 5 {
+		t.Errorf("expected message_count 5, got %d", activity[0].MessageCount)
+	}
+
+	// Second upsert — update counts
+	da.MessageCount = 15
+	da.SessionCount = 4
+	da.ToolCallCount = 25
+	da.SyncedAt = time.Now().UTC()
+
+	if err := store.UpsertDailyActivity(da); err != nil {
+		t.Fatalf("UpsertDailyActivity (update): %v", err)
+	}
+
+	activity2, err := store.GetDailyActivity(u.ID, 30)
+	if err != nil {
+		t.Fatalf("GetDailyActivity after update: %v", err)
+	}
+	if len(activity2) != 1 {
+		t.Fatalf("expected 1 activity record after upsert, got %d", len(activity2))
+	}
+	if activity2[0].MessageCount != 15 {
+		t.Errorf("expected message_count 15 after update, got %d", activity2[0].MessageCount)
+	}
+	if activity2[0].SessionCount != 4 {
+		t.Errorf("expected session_count 4 after update, got %d", activity2[0].SessionCount)
+	}
+	if activity2[0].ToolCallCount != 25 {
+		t.Errorf("expected tool_call_count 25 after update, got %d", activity2[0].ToolCallCount)
+	}
+}
+
+func TestAuditLog(t *testing.T) {
+	store := newTestStore(t)
+
+	target := "user:alice"
+	details := `{"note":"test"}`
+
+	// Record 3 audit entries: 2 of action "login", 1 of action "delete"
+	if err := store.RecordAudit("default", "admin", "login", &target, nil); err != nil {
+		t.Fatalf("RecordAudit 1: %v", err)
+	}
+	if err := store.RecordAudit("default", "admin", "login", &target, &details); err != nil {
+		t.Fatalf("RecordAudit 2: %v", err)
+	}
+	if err := store.RecordAudit("default", "admin", "delete", &target, &details); err != nil {
+		t.Fatalf("RecordAudit 3: %v", err)
+	}
+
+	// Get all — no action filter, page 1 (limit=10)
+	all, total, err := store.GetAuditLog("default", 10, 0, nil)
+	if err != nil {
+		t.Fatalf("GetAuditLog all: %v", err)
+	}
+	if total != 3 {
+		t.Errorf("expected total 3, got %d", total)
+	}
+	if len(all) != 3 {
+		t.Errorf("expected 3 entries, got %d", len(all))
+	}
+
+	// Paginated: limit=2, offset=0
+	page1, total2, err := store.GetAuditLog("default", 2, 0, nil)
+	if err != nil {
+		t.Fatalf("GetAuditLog page1: %v", err)
+	}
+	if total2 != 3 {
+		t.Errorf("expected total 3 on page1, got %d", total2)
+	}
+	if len(page1) != 2 {
+		t.Errorf("expected 2 entries on page1, got %d", len(page1))
+	}
+
+	// Paginated: limit=2, offset=2
+	page2, _, err := store.GetAuditLog("default", 2, 2, nil)
+	if err != nil {
+		t.Fatalf("GetAuditLog page2: %v", err)
+	}
+	if len(page2) != 1 {
+		t.Errorf("expected 1 entry on page2, got %d", len(page2))
+	}
+
+	// Filter by action "login"
+	loginAction := "login"
+	byLogin, loginTotal, err := store.GetAuditLog("default", 10, 0, &loginAction)
+	if err != nil {
+		t.Fatalf("GetAuditLog by action login: %v", err)
+	}
+	if loginTotal != 2 {
+		t.Errorf("expected 2 login entries, got %d", loginTotal)
+	}
+	if len(byLogin) != 2 {
+		t.Errorf("expected 2 login entries returned, got %d", len(byLogin))
+	}
+
+	// Filter by action "delete"
+	deleteAction := "delete"
+	byDelete, deleteTotal, err := store.GetAuditLog("default", 10, 0, &deleteAction)
+	if err != nil {
+		t.Fatalf("GetAuditLog by action delete: %v", err)
+	}
+	if deleteTotal != 1 {
+		t.Errorf("expected 1 delete entry, got %d", deleteTotal)
+	}
+	if len(byDelete) != 1 {
+		t.Errorf("expected 1 delete entry returned, got %d", len(byDelete))
+	}
+	if byDelete[0].Action != "delete" {
+		t.Errorf("expected action 'delete', got %q", byDelete[0].Action)
+	}
+}
+
 func TestDeleteOldPrompts(t *testing.T) {
 	store := newTestStore(t)
 	u := makeUser(t, store, "delete-user")
