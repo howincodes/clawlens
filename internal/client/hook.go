@@ -16,18 +16,25 @@ import (
 )
 
 // stdinData is a permissive struct that covers all hook stdin payloads.
+// Field names match what Claude Code actually sends on stdin.
 type stdinData struct {
-	SessionID      string          `json:"session_id"`
-	Input          string          `json:"input"`        // UserPromptSubmit
-	ToolName       string          `json:"tool_name"`    // PreToolUse
-	ToolInput      json.RawMessage `json:"tool_input"`   // PreToolUse
-	Response       string          `json:"response"`     // Stop
-	StopReason     string          `json:"stop_reason"`  // Stop
-	StopHookActive bool            `json:"stop_hook_active"`
-	Error          string          `json:"error"`        // StopFailure
-	CWD            string          `json:"cwd"`
-	Model          string          `json:"model"`
-	Reason         string          `json:"reason"` // SessionEnd
+	SessionID           string          `json:"session_id"`
+	Prompt              string          `json:"prompt"`                // UserPromptSubmit (Claude Code uses "prompt")
+	Input               string          `json:"input"`                // UserPromptSubmit (fallback field name)
+	ToolName            string          `json:"tool_name"`            // PreToolUse
+	ToolInput           json.RawMessage `json:"tool_input"`           // PreToolUse
+	LastAssistantMessage string         `json:"last_assistant_message"` // Stop (Claude Code uses this)
+	Response            string          `json:"response"`             // Stop (fallback)
+	StopReason          string          `json:"stop_reason"`          // Stop
+	StopHookActive      bool            `json:"stop_hook_active"`
+	Error               string          `json:"error"`                // StopFailure
+	CWD                 string          `json:"cwd"`
+	Model               string          `json:"model"`
+	Source              string          `json:"source"`               // SessionStart
+	Reason              string          `json:"reason"`               // SessionEnd
+	HookEventName       string          `json:"hook_event_name"`
+	PermissionMode      string          `json:"permission_mode"`
+	TranscriptPath      string          `json:"transcript_path"`
 }
 
 // readStdin reads all of stdin and returns it as a raw JSON message.
@@ -197,7 +204,11 @@ func HandlePrompt(cfg *Config, queue *Queue) error {
 	}
 
 	model := DetectModel(sd.Model, cfg)
-	promptText := sd.Input
+	// Claude Code sends the prompt as "prompt" field; fall back to "input"
+	promptText := sd.Prompt
+	if promptText == "" {
+		promptText = sd.Input
+	}
 	promptLength := len(promptText)
 
 	// Apply secret scrubbing.
@@ -363,7 +374,12 @@ func HandleStop(cfg *Config, queue *Queue) error {
 	}
 
 	model := DetectModel(sd.Model, cfg)
-	responseLength := len(sd.Response)
+	// Claude Code sends response as "last_assistant_message"; fall back to "response"
+	responseText := sd.LastAssistantMessage
+	if responseText == "" {
+		responseText = sd.Response
+	}
+	responseLength := len(responseText)
 	cost := creditCost(model, cfg)
 
 	var responseLengthPtr *int
@@ -372,8 +388,8 @@ func HandleStop(cfg *Config, queue *Queue) error {
 	}
 
 	var responseTextPtr *string
-	if cfg.CollectResponses && sd.Response != "" {
-		t := sd.Response
+	if cfg.CollectResponses && responseText != "" {
+		t := responseText
 		responseTextPtr = &t
 	}
 
