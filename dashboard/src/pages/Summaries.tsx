@@ -1,0 +1,218 @@
+import { useState, useEffect, useCallback } from 'react'
+import { getSummaries, generateSummary, getUsers } from '@/lib/api'
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Loader2, Sparkles, Calendar, Code, Clock } from 'lucide-react'
+import { useWSEvent } from '@/hooks/useWebSockets'
+
+const CATEGORY_COLORS: Record<string, string> = {
+  coding: 'bg-blue-500/10 text-blue-600',
+  debugging: 'bg-red-500/10 text-red-600',
+  refactoring: 'bg-purple-500/10 text-purple-600',
+  testing: 'bg-green-500/10 text-green-600',
+  documentation: 'bg-orange-500/10 text-orange-600',
+  planning: 'bg-teal-500/10 text-teal-600',
+  review: 'bg-pink-500/10 text-pink-600',
+}
+
+export function Summaries() {
+  const [data, setData] = useState<{ summaries: Record<string, unknown>[] }>({ summaries: [] })
+  const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
+  const [generateMessage, setGenerateMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [users, setUsers] = useState<Record<string, unknown>[]>([])
+  const [userId, setUserId] = useState('')
+  const [days, setDays] = useState('30')
+
+  // Load users on mount
+  useEffect(() => {
+    getUsers()
+      .then(res => setUsers(res?.users || []))
+      .catch(() => setUsers([]))
+  }, [])
+
+  const loadSummaries = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params: Record<string, string> = {}
+      if (days && days !== 'all') params.days = days
+      if (userId) params.userId = userId
+      const res = await getSummaries(params)
+      setData(res || { summaries: [] })
+    } catch (_err) {
+      console.error('Failed to load summaries')
+    } finally {
+      setLoading(false)
+    }
+  }, [userId, days])
+
+  useEffect(() => { loadSummaries() }, [loadSummaries])
+
+  // Listen to WebSocket for auto-refresh
+  useWSEvent('summary_generated', () => {
+    setGenerating(false)
+    setGenerateMessage({ type: 'success', text: 'Summary generated successfully!' })
+    loadSummaries()
+    setTimeout(() => setGenerateMessage(null), 5000)
+  })
+
+  const handleGenerate = async () => {
+    setGenerating(true)
+    setGenerateMessage(null)
+    try {
+      await generateSummary()
+      setGenerateMessage({ type: 'success', text: 'Summary generation started. It will appear shortly.' })
+      // Also re-fetch after a delay in case WS doesn't fire
+      setTimeout(() => {
+        loadSummaries()
+        setGenerating(false)
+      }, 8000)
+    } catch (_e) {
+      setGenerating(false)
+      setGenerateMessage({ type: 'error', text: 'Failed to generate summary. Please try again.' })
+    }
+  }
+
+  // Score progress bar helper
+  const scoreBar = (value: number | null | undefined, label: string, color: string) => {
+    const v = Number(value || 0)
+    return (
+      <div className="flex items-center gap-2 text-xs">
+        <span className="w-10 font-medium">{label}</span>
+        <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+          <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(v, 100)}%` }} />
+        </div>
+        <span className="w-8 text-right text-muted-foreground">{v}/100</span>
+      </div>
+    )
+  }
+
+  if (loading && data.summaries.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6 max-w-5xl mx-auto pb-10">
+      <div className="flex sm:items-center justify-between flex-col sm:flex-row gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">AI Summaries</h1>
+          <p className="text-muted-foreground">Automated intelligence briefs on engineering activity.</p>
+        </div>
+        <Button onClick={handleGenerate} disabled={generating}>
+          {generating ? (
+            <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating...</>
+          ) : (
+            <><Sparkles className="w-4 h-4 mr-2" /> Generate Now</>
+          )}
+        </Button>
+      </div>
+
+      {/* Toast message */}
+      {generateMessage && (
+        <div className={`p-3 rounded-lg text-sm font-medium ${
+          generateMessage.type === 'success'
+            ? 'bg-green-500/10 text-green-600 border border-green-200'
+            : 'bg-red-500/10 text-red-600 border border-red-200'
+        }`}>
+          {generateMessage.text}
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="flex justify-end gap-2">
+        <select
+          className="flex h-9 w-[180px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          value={userId}
+          onChange={e => setUserId(e.target.value)}
+        >
+          <option value="">User: All</option>
+          {users.map(u => <option key={String(u.id)} value={String(u.id)}>{String(u.name)}</option>)}
+        </select>
+        <select
+          className="flex h-9 w-[150px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          value={days}
+          onChange={e => setDays(e.target.value)}
+        >
+          <option value="7">Last 7 Days</option>
+          <option value="30">Last 30 Days</option>
+          <option value="90">Last 90 Days</option>
+          <option value="all">All Time</option>
+        </select>
+      </div>
+
+      {data.summaries.length === 0 ? (
+        <Card className="p-12 text-center border-dashed bg-muted/20">
+          <Sparkles className="mx-auto w-10 h-10 text-muted-foreground mb-4 opacity-50" />
+          <h3 className="text-lg font-medium mb-1">No AI summaries generated yet</h3>
+          <p className="text-sm text-muted-foreground">
+            Click Generate Now to create one.
+          </p>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {data.summaries.map((summary, idx) => {
+            const categories = summary.categories as Record<string, number> | undefined
+            const periodStart = summary.period_start ? new Date(String(summary.period_start)).toLocaleDateString() : ''
+            const periodEnd = summary.period_end ? new Date(String(summary.period_end)).toLocaleDateString() : ''
+            const userObj = summary.user as Record<string, unknown> | undefined
+            const userName = String(userObj?.name || (summary.type === 'weekly_team' ? 'Team Report' : `User ${summary.user_id || 'Unknown'}`))
+
+            return (
+              <Card key={String(summary.id || idx)} className="overflow-hidden hover:shadow-md transition-shadow">
+                <CardHeader className="pb-2">
+                  <div className="flex justify-between items-start mb-2 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      {summary.type === 'weekly_team'
+                        ? <Calendar className="w-4 h-4 text-primary" />
+                        : <Code className="w-4 h-4 text-muted-foreground" />
+                      }
+                      <Badge variant={summary.type === 'weekly_team' ? 'default' : 'secondary'} className="capitalize">
+                        {String(summary.type || '').replace(/_/g, ' ')}
+                      </Badge>
+                    </div>
+                    {(periodStart || periodEnd) && (
+                      <span className="text-xs text-muted-foreground font-medium flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {periodStart} - {periodEnd}
+                      </span>
+                    )}
+                  </div>
+                  <CardTitle className="text-lg">{String(userName)}</CardTitle>
+                </CardHeader>
+
+                <CardContent className="text-sm leading-relaxed text-muted-foreground pb-4 whitespace-pre-wrap">
+                  {String(summary.summary_text || '')}
+                </CardContent>
+
+                {/* Categories */}
+                {categories && Object.keys(categories).length > 0 && (
+                  <div className="px-6 pb-3 flex flex-wrap gap-2">
+                    {Object.entries(categories).map(([cat, pct]) => (
+                      <Badge key={cat} variant="outline" className={`text-xs capitalize ${CATEGORY_COLORS[cat] || ''}`}>
+                        {cat} {Number(pct)}%
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                {/* Scores */}
+                <CardFooter className="bg-muted/30 pt-4 pb-4 border-t">
+                  <div className="w-full space-y-2">
+                    {scoreBar(summary.productivity_score as number | undefined, 'Prod', 'bg-green-500')}
+                    {scoreBar(summary.prompt_quality_score as number | undefined, 'Quality', 'bg-blue-500')}
+                    {scoreBar(summary.model_efficiency_score as number | undefined, 'Effic', 'bg-purple-500')}
+                  </div>
+                </CardFooter>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
