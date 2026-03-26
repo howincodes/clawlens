@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"time"
+
+	"github.com/howincodes/clawlens/internal/shared"
 )
 
 // Config holds the local client configuration persisted to disk.
@@ -21,8 +23,9 @@ type Config struct {
 	CollectResponses bool      `json:"collect_responses"`
 	SecretScrub      string    `json:"secret_scrub"`
 	PromptMaxLength  int       `json:"prompt_max_length"`
-	ClientVersion    string    `json:"client_version"`
-	LastSync         time.Time `json:"last_sync"`
+	ClientVersion    string               `json:"client_version"`
+	LastSync         time.Time            `json:"last_sync"`
+	CreditWeights    shared.CreditWeights `json:"credit_weights"`
 }
 
 // ConfigDir returns the platform-specific directory where ClawLens stores its
