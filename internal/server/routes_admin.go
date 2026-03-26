@@ -572,11 +572,28 @@ func handleGetAuditLog(store *Store) http.HandlerFunc {
 
 func handleExport(store *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		team := TeamFromContext(r.Context())
 		exportType := r.PathValue("type")
-		writeJSON(w, http.StatusOK, map[string]string{
-			"type":   exportType,
-			"status": "not_implemented",
-		})
+		days := queryInt(r, "days", 30)
+		format := r.URL.Query().Get("format")
+		if format == "" {
+			format = "csv"
+		}
+
+		switch exportType {
+		case "prompts":
+			if format == "csv" {
+				w.Header().Set("Content-Type", "text/csv")
+				w.Header().Set("Content-Disposition", "attachment; filename=prompts.csv")
+				ExportPromptsCSV(store, team.ID, days, w) //nolint:errcheck
+			}
+		case "usage":
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Content-Disposition", "attachment; filename=usage.json")
+			ExportUsageJSON(store, team.ID, days, w) //nolint:errcheck
+		default:
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown export type"})
+		}
 	}
 }
 

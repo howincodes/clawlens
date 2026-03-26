@@ -516,6 +516,7 @@ func TestGenerateSummary(t *testing.T) {
 func TestExport(t *testing.T) {
 	_, mux, token := newAdminTestServer(t)
 
+	// CSV export for prompts
 	req := adminRequest(http.MethodGet, "/api/admin/export/prompts", nil, token)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -523,15 +524,28 @@ func TestExport(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d; body: %s", rec.Code, rec.Body.String())
 	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/csv" {
+		t.Errorf("expected Content-Type text/csv, got %q", ct)
+	}
 
-	var resp map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
+	// JSON export for usage
+	req2 := adminRequest(http.MethodGet, "/api/admin/export/usage", nil, token)
+	rec2 := httptest.NewRecorder()
+	mux.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rec2.Code, rec2.Body.String())
 	}
-	if resp["type"] != "prompts" {
-		t.Errorf("expected type=prompts, got %q", resp["type"])
+	if ct := rec2.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", ct)
 	}
-	if resp["status"] != "not_implemented" {
-		t.Errorf("expected status=not_implemented, got %q", resp["status"])
+
+	// Unknown export type returns 400
+	req3 := adminRequest(http.MethodGet, "/api/admin/export/unknown", nil, token)
+	rec3 := httptest.NewRecorder()
+	mux.ServeHTTP(rec3, req3)
+
+	if rec3.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unknown export type, got %d", rec3.Code)
 	}
 }
