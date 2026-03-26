@@ -2,8 +2,10 @@ package server
 
 import (
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -15,6 +17,7 @@ type Config struct {
 	DBPath        string
 	JWTSecret     string
 	Mode          string // "saas" or "selfhost"
+	DashboardDir  string // path to dashboard dist/ (empty = placeholder)
 }
 
 // Run initialises the store, wires all routes and middleware, starts background
@@ -53,41 +56,46 @@ func Run(cfg Config) error {
 	// method (clients use GET with the Upgrade header).
 	mux.HandleFunc("GET /ws", hub.HandleWS)
 
-	// Dashboard placeholder — exact "/" only so it doesn't swallow other routes.
-	// Registered without a method qualifier so that the more-specific patterns
-	// registered above take priority; the path guard inside ensures we only
-	// serve the placeholder for the root path.
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
+	// Dashboard — serve from dist/ directory if configured, otherwise placeholder.
+	if cfg.DashboardDir != "" {
+		if info, err := os.Stat(cfg.DashboardDir); err == nil && info.IsDir() {
+			log.Printf("Serving dashboard from %s", cfg.DashboardDir)
+			dashFS := os.DirFS(cfg.DashboardDir)
+			fileServer := http.FileServerFS(dashFS)
+			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				// Try to serve the file directly
+				path := r.URL.Path
+				if path == "/" {
+					path = "/index.html"
+				}
+				// Check if file exists in dist/
+				if f, err := fs.Stat(dashFS, strings.TrimPrefix(path, "/")); err == nil && !f.IsDir() {
+					fileServer.ServeHTTP(w, r)
+					return
+				}
+				// SPA fallback — serve index.html for all unknown paths
+				// (React Router handles client-side routing)
+				r.URL.Path = "/"
+				fileServer.ServeHTTP(w, r)
+			})
+		} else {
+			log.Printf("WARNING: dashboard dir %q not found, serving placeholder", cfg.DashboardDir)
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ClawLens</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 80px auto; padding: 0 1rem; color: #1a1a1a; }
-    h1   { font-size: 2rem; margin-bottom: 0.25rem; }
-    p    { color: #555; }
-    a    { color: #0066cc; }
-    code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
-  </style>
-</head>
-<body>
-  <h1>ClawLens</h1>
-  <p>Server is running. Use the API or connect the dashboard.</p>
-  <ul>
-    <li><a href="/api/v1/health"><code>GET /api/v1/health</code></a> — health check</li>
-    <li><code>POST /api/admin/login</code> — admin login</li>
-    <li><code>ws://&lt;host&gt;/ws</code> — WebSocket events</li>
-  </ul>
-</body>
-</html>`)
-	})
+	} else {
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/" {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprint(w, `<!DOCTYPE html><html><head><title>ClawLens</title></head>
+<body style="font-family:system-ui;max-width:640px;margin:80px auto;padding:0 1rem">
+<h1>ClawLens</h1><p>Server is running. Dashboard not configured.</p>
+<p>Set <code>--dashboard</code> flag or <code>DASHBOARD_DIR</code> env var to the dashboard dist/ path.</p>
+<ul><li><a href="/api/v1/health">/api/v1/health</a></li></ul>
+</body></html>`)
+		})
+	}
 
 	// ── Middleware stack ───────────────────────────────────────────────────────
 

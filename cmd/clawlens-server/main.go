@@ -18,6 +18,7 @@ func main() {
 	adminPass := flag.String("admin-password", envOr("ADMIN_PASSWORD", ""), "Admin password")
 	jwtSecret := flag.String("jwt-secret", envOr("JWT_SECRET", ""), "JWT secret")
 	mode := flag.String("mode", envOr("CLAWLENS_MODE", "selfhost"), "Mode: saas or selfhost")
+	dashDir := flag.String("dashboard", envOr("DASHBOARD_DIR", ""), "Path to dashboard dist/ directory")
 	flag.Parse()
 
 	if *adminPass == "" {
@@ -30,6 +31,7 @@ func main() {
 		DBPath:        *dbPath,
 		JWTSecret:     *jwtSecret,
 		Mode:          *mode,
+		DashboardDir:  *dashDir,
 	}
 
 	// Graceful shutdown
