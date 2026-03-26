@@ -572,6 +572,25 @@ func (s *Store) RotateUserToken(id string) (string, error) {
 	return newToken, nil
 }
 
+// GetUserStats returns aggregate prompt/session/cost stats for a single user.
+func (s *Store) GetUserStats(userID string) (map[string]any, error) {
+	var totalPrompts, promptsToday, totalSessions, sessionsToday, totalCost int
+
+	s.db.QueryRow(`SELECT COUNT(*) FROM prompt WHERE user_id = ?`, userID).Scan(&totalPrompts)                                              //nolint:errcheck
+	s.db.QueryRow(`SELECT COUNT(*) FROM prompt WHERE user_id = ? AND date(timestamp) = date('now')`, userID).Scan(&promptsToday)            //nolint:errcheck
+	s.db.QueryRow(`SELECT COUNT(*) FROM session WHERE user_id = ?`, userID).Scan(&totalSessions)                                            //nolint:errcheck
+	s.db.QueryRow(`SELECT COUNT(*) FROM session WHERE user_id = ? AND date(started_at) = date('now')`, userID).Scan(&sessionsToday)         //nolint:errcheck
+	s.db.QueryRow(`SELECT COALESCE(SUM(credit_cost), 0) FROM prompt WHERE user_id = ?`, userID).Scan(&totalCost)                            //nolint:errcheck
+
+	return map[string]any{
+		"total_prompts":  totalPrompts,
+		"prompts_today":  promptsToday,
+		"total_sessions": totalSessions,
+		"sessions_today": sessionsToday,
+		"total_cost":     totalCost,
+	}, nil
+}
+
 // CountUsers returns the number of users in the team.
 func (s *Store) CountUsers(teamID string) (int, error) {
 	var count int

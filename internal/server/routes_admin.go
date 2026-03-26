@@ -36,6 +36,8 @@ func RegisterAdminRoutes(mux *http.ServeMux, store *Store, hub *WSHub, jwtMgr *J
 	mux.Handle("POST /api/admin/summaries/generate", adminMW(http.HandlerFunc(handleGenerateSummary())))
 	mux.Handle("GET /api/admin/audit-log", adminMW(http.HandlerFunc(handleGetAuditLog(store))))
 	mux.Handle("GET /api/admin/export/{type}", adminMW(http.HandlerFunc(handleExport(store))))
+	mux.Handle("GET /api/admin/prompts", adminMW(http.HandlerFunc(handleGetAllPrompts(store))))
+	mux.Handle("PUT /api/admin/team/password", adminMW(http.HandlerFunc(handleChangePassword(store))))
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -233,11 +235,14 @@ func handleGetUser(store *Store, analytics *Analytics) http.HandlerFunc {
 			latestSummary = &summaries[0]
 		}
 
+		stats, _ := store.GetUserStats(id)
+
 		writeJSON(w, http.StatusOK, map[string]any{
 			"user":           user,
 			"devices":        devices,
 			"limits":         limits,
 			"latest_summary": latestSummary,
+			"stats":          stats,
 		})
 	}
 }
@@ -594,6 +599,84 @@ func handleExport(store *Store) http.HandlerFunc {
 		default:
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown export type"})
 		}
+	}
+}
+
+func handleGetAllPrompts(store *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		team := TeamFromContext(r.Context())
+		page := queryInt(r, "page", 1)
+		limit := queryInt(r, "limit", 50)
+
+		search := r.URL.Query().Get("search")
+		model := r.URL.Query().Get("model")
+		project := r.URL.Query().Get("project")
+		userID := r.URL.Query().Get("userId")
+		blockedStr := r.URL.Query().Get("blocked")
+
+		var searchPtr, modelPtr, projectPtr, userPtr *string
+		var blockedPtr *bool
+		if search != "" {
+			searchPtr = &search
+		}
+		if model != "" {
+			modelPtr = &model
+		}
+		if project != "" {
+			projectPtr = &project
+		}
+		if userID != "" {
+			userPtr = &userID
+		}
+		if blockedStr == "true" {
+			b := true
+			blockedPtr = &b
+		} else if blockedStr == "false" {
+			b := false
+			blockedPtr = &b
+		}
+
+		prompts, total, err := store.GetAllPrompts(team.ID, limit, (page-1)*limit, searchPtr, modelPtr, projectPtr, userPtr, blockedPtr)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to get prompts"})
+			return
+		}
+		if prompts == nil {
+			prompts = []shared.Prompt{}
+		}
+
+		writeJSON(w, http.StatusOK, shared.PaginatedResponse{Data: prompts, Total: total, Page: page, Limit: limit})
+	}
+}
+
+func handleChangePassword(store *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		team := TeamFromContext(r.Context())
+		var body struct {
+			CurrentPassword string `json:"current_password"`
+			NewPassword     string `json:"new_password"`
+		}
+		if err := readJSON(r, &body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+			return
+		}
+		// Verify current password
+		if !shared.VerifyPassword(team.AdminPassword, body.CurrentPassword) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "current password is incorrect"})
+			return
+		}
+		// Hash and save new password
+		hash, err := shared.HashPassword(body.NewPassword)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to hash password"})
+			return
+		}
+		if err := store.UpdateAdminPassword(team.ID, hash); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update password"})
+			return
+		}
+		_ = store.RecordAudit(team.ID, "admin", "password_changed", nil, nil)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	}
 }
 

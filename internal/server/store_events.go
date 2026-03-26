@@ -287,6 +287,78 @@ func (s *Store) GetPrompts(
 	return prompts, total, rows.Err()
 }
 
+// GetAllPrompts returns a paginated, optionally filtered list of prompts across
+// all users in a team, ordered by timestamp DESC. Also returns the total count.
+func (s *Store) GetAllPrompts(
+	teamID string,
+	limit, offset int,
+	search, model, project, userID *string,
+	wasBlocked *bool,
+) ([]shared.Prompt, int, error) {
+	where := "WHERE u.team_id = ?"
+	args := []any{teamID}
+
+	if userID != nil && *userID != "" {
+		where += " AND p.user_id = ?"
+		args = append(args, *userID)
+	}
+	if search != nil && *search != "" {
+		where += " AND p.prompt_text LIKE ?"
+		args = append(args, "%"+*search+"%")
+	}
+	if model != nil && *model != "" {
+		where += " AND p.model LIKE ?"
+		args = append(args, "%"+*model+"%")
+	}
+	if project != nil && *project != "" {
+		where += " AND p.project_dir = ?"
+		args = append(args, *project)
+	}
+	if wasBlocked != nil {
+		where += " AND p.was_blocked = ?"
+		args = append(args, *wasBlocked)
+	}
+
+	var total int
+	countArgs := make([]any, len(args))
+	copy(countArgs, args)
+	if err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM prompt p JOIN user u ON p.user_id = u.id "+where,
+		countArgs...,
+	).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	pageArgs := make([]any, len(args), len(args)+2)
+	copy(pageArgs, args)
+	pageArgs = append(pageArgs, limit, offset)
+
+	query := fmt.Sprintf(
+		`SELECT p.id, p.user_id, p.session_id, p.model, p.prompt_text, p.prompt_length,
+		p.response_text, p.response_length, p.project_dir, p.cwd, p.tool_calls, p.tools_used,
+		p.had_error, p.was_blocked, p.block_reason, p.turn_duration_ms, p.credit_cost,
+		p.prompt_truncated, p.timestamp
+		FROM prompt p JOIN user u ON p.user_id = u.id %s ORDER BY p.timestamp DESC LIMIT ? OFFSET ?`,
+		where,
+	)
+
+	rows, err := s.db.Query(query, pageArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var prompts []shared.Prompt
+	for rows.Next() {
+		p, err := scanPrompt(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		prompts = append(prompts, *p)
+	}
+	return prompts, total, rows.Err()
+}
+
 // GetPromptsForSummary returns prompts for a user within a time range, used
 // for AI summary generation.
 func (s *Store) GetPromptsForSummary(userID string, since, until time.Time) ([]shared.Prompt, error) {
