@@ -1,0 +1,12 @@
+[     105ms] TypeError: Cannot read properties of undefined (reading 'length')
+    at EK (http://localhost:3001/assets/index-BXigElTn.js:46:202941)
+    at _o (http://localhost:3001/assets/index-BXigElTn.js:8:47536)
+    at uc (http://localhost:3001/assets/index-BXigElTn.js:8:70070)
+    at Dc (http://localhost:3001/assets/index-BXigElTn.js:8:80345)
+    at ju (http://localhost:3001/assets/index-BXigElTn.js:8:115896)
+    at Ou (http://localhost:3001/assets/index-BXigElTn.js:8:114944)
+    at Du (http://localhost:3001/assets/index-BXigElTn.js:8:114778)
+    at hu (http://localhost:3001/assets/index-BXigElTn.js:8:111613)
+    at cd (http://localhost:3001/assets/index-BXigElTn.js:8:123251)
+    at MessagePort.D (http://localhost:3001/assets/index-BXigElTn.js:1:10352)
+[     110ms] [WARNING] WebSocket connection to 'ws://localhost:3001/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzQ2NzkzMzAsImlhdCI6MTc3NDU5MjkzMCwidGVhbV9pZCI6ImRlZmF1bHQifQ.TTQngOc8jQOmGNGdG1gJMFsDS9sMEO9AbkMPGM-K_ew' failed: WebSocket is closed before the connection is established. @ http://localhost:3001/assets/index-BXigElTn.js:10

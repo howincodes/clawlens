@@ -1,0 +1,127 @@
+- generic [ref=e21]:
+  - complementary [ref=e22]:
+    - generic [ref=e23]:
+      - img [ref=e24]
+      - generic [ref=e26]: ClawLens
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - paragraph [ref=e29]: Dashboard
+        - navigation [ref=e30]:
+          - link "Overview" [ref=e31] [cursor=pointer]:
+            - /url: /
+            - img [ref=e32]
+            - text: Overview
+          - link "Users" [active] [ref=e37] [cursor=pointer]:
+            - /url: /users
+            - img [ref=e38]
+            - text: Users
+          - link "Subscriptions" [ref=e43] [cursor=pointer]:
+            - /url: /subscriptions
+            - img [ref=e44]
+            - text: Subscriptions
+          - link "Analytics" [ref=e46] [cursor=pointer]:
+            - /url: /analytics
+            - img [ref=e47]
+            - text: Analytics
+          - link "AI Summaries" [ref=e49] [cursor=pointer]:
+            - /url: /summaries
+            - img [ref=e50]
+            - text: AI Summaries
+          - link "Prompts Browser" [ref=e53] [cursor=pointer]:
+            - /url: /prompts
+            - img [ref=e54]
+            - text: Prompts Browser
+      - generic [ref=e57]:
+        - paragraph [ref=e58]: System
+        - navigation [ref=e59]:
+          - link "Settings" [ref=e60] [cursor=pointer]:
+            - /url: /settings
+            - img [ref=e61]
+            - text: Settings
+          - link "Audit Log" [ref=e64] [cursor=pointer]:
+            - /url: /audit-log
+            - img [ref=e65]
+            - text: Audit Log
+    - generic [ref=e72]: connected
+  - generic [ref=e73]:
+    - banner [ref=e74]:
+      - heading "Default Team" [level=2] [ref=e76]
+      - generic [ref=e77]:
+        - button [ref=e78]:
+          - img [ref=e79]
+        - button "Log out" [ref=e84]:
+          - img [ref=e85]
+          - text: Log out
+    - main [ref=e88]:
+      - generic [ref=e237]:
+        - generic [ref=e238]:
+          - heading "Users" [level=1] [ref=e239]
+          - paragraph [ref=e240]: Manage all developer profiles and access controls.
+        - generic [ref=e241]:
+          - generic [ref=e242]:
+            - img [ref=e243]
+            - textbox "Search by name..." [ref=e246]
+          - button "Add User" [ref=e247]:
+            - img [ref=e248]
+            - text: Add User
+        - generic [ref=e249]:
+          - heading "2 Users" [level=3] [ref=e251]
+          - table [ref=e255]:
+            - rowgroup [ref=e256]:
+              - row "Name Slug Status Prompts Credits Sessions Top Model Created Actions" [ref=e257]:
+                - columnheader "Name" [ref=e258]
+                - columnheader "Slug" [ref=e259]
+                - columnheader "Status" [ref=e260]
+                - columnheader "Prompts" [ref=e261]
+                - columnheader "Credits" [ref=e262]
+                - columnheader "Sessions" [ref=e263]
+                - columnheader "Top Model" [ref=e264]
+                - columnheader "Created" [ref=e265]
+                - columnheader "Actions" [ref=e266]
+            - rowgroup [ref=e267]:
+              - row "BashDock bashdock active 2 13 1 Sonnet Mar 27, 2026" [ref=e268]:
+                - cell "BashDock" [ref=e269]:
+                  - link "BashDock" [ref=e270] [cursor=pointer]:
+                    - /url: /users/fae2c89a-488d-464c-9906-58f3d3f4d8a7
+                - cell "bashdock" [ref=e271]
+                - cell "active" [ref=e272]:
+                  - generic [ref=e273]: active
+                - cell "2" [ref=e274]
+                - cell "13" [ref=e275]
+                - cell "1" [ref=e276]
+                - cell "Sonnet" [ref=e277]:
+                  - generic [ref=e278]: Sonnet
+                - cell "Mar 27, 2026" [ref=e279]
+                - cell [ref=e280]:
+                  - generic [ref=e281]:
+                    - button "Resume" [ref=e282]:
+                      - img [ref=e283]
+                    - button "Pause" [ref=e285]:
+                      - img [ref=e286]
+                    - button "Kill" [ref=e289]:
+                      - img [ref=e290]
+                    - button "Delete" [ref=e295]:
+                      - img [ref=e296]
+              - row "TestDev testdev active 5 50 1 Opus Mar 27, 2026" [ref=e299]:
+                - cell "TestDev" [ref=e300]:
+                  - link "TestDev" [ref=e301] [cursor=pointer]:
+                    - /url: /users/6ec78923-ac58-4815-9429-1be9a8a3e00c
+                - cell "testdev" [ref=e302]
+                - cell "active" [ref=e303]:
+                  - generic [ref=e304]: active
+                - cell "5" [ref=e305]
+                - cell "50" [ref=e306]
+                - cell "1" [ref=e307]
+                - cell "Opus" [ref=e308]:
+                  - generic [ref=e309]: Opus
+                - cell "Mar 27, 2026" [ref=e310]
+                - cell [ref=e311]:
+                  - generic [ref=e312]:
+                    - button "Resume" [ref=e313]:
+                      - img [ref=e314]
+                    - button "Pause" [ref=e316]:
+                      - img [ref=e317]
+                    - button "Kill" [ref=e320]:
+                      - img [ref=e321]
+                    - button "Delete" [ref=e326]:
+                      - img [ref=e327]

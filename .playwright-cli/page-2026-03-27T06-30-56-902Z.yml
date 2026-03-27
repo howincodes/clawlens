@@ -1,0 +1,200 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - img [ref=e6]
+      - generic [ref=e8]: ClawLens
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - paragraph [ref=e11]: Dashboard
+        - navigation [ref=e12]:
+          - link "Overview" [ref=e13] [cursor=pointer]:
+            - /url: /
+            - img [ref=e14]
+            - text: Overview
+          - link "Users" [ref=e19] [cursor=pointer]:
+            - /url: /users
+            - img [ref=e20]
+            - text: Users
+          - link "Subscriptions" [ref=e25] [cursor=pointer]:
+            - /url: /subscriptions
+            - img [ref=e26]
+            - text: Subscriptions
+          - link "Analytics" [ref=e28] [cursor=pointer]:
+            - /url: /analytics
+            - img [ref=e29]
+            - text: Analytics
+          - link "AI Summaries" [ref=e31] [cursor=pointer]:
+            - /url: /summaries
+            - img [ref=e32]
+            - text: AI Summaries
+          - link "Prompts Browser" [ref=e35] [cursor=pointer]:
+            - /url: /prompts
+            - img [ref=e36]
+            - text: Prompts Browser
+      - generic [ref=e39]:
+        - paragraph [ref=e40]: System
+        - navigation [ref=e41]:
+          - link "Settings" [ref=e42] [cursor=pointer]:
+            - /url: /settings
+            - img [ref=e43]
+            - text: Settings
+          - link "Audit Log" [ref=e46] [cursor=pointer]:
+            - /url: /audit-log
+            - img [ref=e47]
+            - text: Audit Log
+    - generic [ref=e54]: connected
+  - generic [ref=e55]:
+    - banner [ref=e56]:
+      - heading "Default Team" [level=2] [ref=e58]
+      - generic [ref=e59]:
+        - button [ref=e60]:
+          - img [ref=e61]
+        - button "Log out" [ref=e66]:
+          - img [ref=e67]
+          - text: Log out
+    - main [ref=e70]:
+      - generic [ref=e71]:
+        - generic [ref=e72]:
+          - heading "Settings" [level=1] [ref=e73]
+          - paragraph [ref=e74]: Configure data collection, limits, and integrations.
+        - generic [ref=e75]:
+          - generic [ref=e76]:
+            - generic [ref=e77]:
+              - heading "Team Profile" [level=3] [ref=e78]
+              - paragraph [ref=e79]: Basic information about your deployment.
+            - generic [ref=e80]:
+              - generic [ref=e81]:
+                - text: Team Name
+                - textbox "Engineering Team" [ref=e82]: Default Team
+              - generic [ref=e83]:
+                - text: Target Version (Auto Update)
+                - textbox "e.g. 1.2.0 (Leave blank for latest)" [ref=e84]
+          - generic [ref=e85]:
+            - generic [ref=e86]:
+              - heading "Data Collection & Privacy" [level=3] [ref=e87]
+              - paragraph [ref=e88]: Determine what hooks pull from user machines.
+            - generic [ref=e89]:
+              - generic [ref=e90]:
+                - generic [ref=e91]:
+                  - text: Collection Level
+                  - combobox [ref=e92]:
+                    - option "Off (No prompt text)"
+                    - option "Summaries Only"
+                    - option "Full Text" [selected]
+                - generic [ref=e93]:
+                  - text: Secret Scrubbing
+                  - combobox [ref=e94]:
+                    - option "Off"
+                    - option "Alert Only"
+                    - option "Redact" [selected]
+              - generic [ref=e95]:
+                - generic [ref=e96]:
+                  - text: Collect Responses
+                  - paragraph [ref=e97]: Store the full Claude response text
+                - button "Enabled" [ref=e98]
+              - generic [ref=e99]:
+                - text: Prompt Retention (Days)
+                - spinbutton [ref=e100]: "90"
+          - generic [ref=e101]:
+            - generic [ref=e102]:
+              - heading "AI Summary Settings" [level=3] [ref=e103]
+              - paragraph [ref=e104]: Configure how and when intelligence briefs are generated.
+            - generic [ref=e105]:
+              - generic [ref=e106]:
+                - generic [ref=e107]:
+                  - text: Summary Interval (Hours)
+                  - spinbutton [ref=e108]: "0"
+                  - paragraph [ref=e109]: 0 to disable auto-generation
+                - generic [ref=e110]:
+                  - text: Provider
+                  - combobox [ref=e111]:
+                    - option "Claude Code Built-in" [selected]
+                    - option "Anthropic API"
+                    - option "OpenAI"
+                    - option "Custom Endpoint"
+              - generic [ref=e112]:
+                - text: API Key
+                - textbox "Enter API key..." [ref=e113]
+          - generic [ref=e114]:
+            - generic [ref=e115]:
+              - heading "Alerts & Webhooks" [level=3] [ref=e116]
+              - paragraph [ref=e117]: Get notified of team events directly where you work.
+            - generic [ref=e118]:
+              - generic [ref=e119]:
+                - text: Slack Webhook URL
+                - textbox "https://hooks.slack.com/services/..." [ref=e120]
+              - generic [ref=e121]:
+                - text: Discord Webhook URL
+                - textbox "https://discord.com/api/webhooks/..." [ref=e122]
+              - generic [ref=e123]:
+                - generic [ref=e124] [cursor=pointer]:
+                  - checkbox "Alert on Rate Limits" [checked] [ref=e125]
+                  - generic [ref=e126]: Alert on Rate Limits
+                - generic [ref=e127] [cursor=pointer]:
+                  - checkbox "Alert on Dev Stuck" [checked] [ref=e128]
+                  - generic [ref=e129]: Alert on Dev Stuck
+                - generic [ref=e130] [cursor=pointer]:
+                  - checkbox "Alert on Secret Exposure" [checked] [ref=e131]
+                  - generic [ref=e132]: Alert on Secret Exposure
+                - generic [ref=e133] [cursor=pointer]:
+                  - checkbox "Alert on User Kill/Pause" [checked] [ref=e134]
+                  - generic [ref=e135]: Alert on User Kill/Pause
+                - generic [ref=e136] [cursor=pointer]:
+                  - checkbox "Send Daily Digest" [checked] [ref=e137]
+                  - generic [ref=e138]: Send Daily Digest
+                - generic [ref=e139] [cursor=pointer]:
+                  - checkbox "Send Weekly Digest" [checked] [ref=e140]
+                  - generic [ref=e141]: Send Weekly Digest
+          - generic [ref=e142]:
+            - generic [ref=e143]:
+              - heading "Rate Limiting Weights" [level=3] [ref=e144]
+              - paragraph [ref=e145]: Adjust internal cost multipliers for credit tracking.
+            - generic [ref=e147]:
+              - generic [ref=e148]:
+                - text: Opus Weight
+                - spinbutton [ref=e149]: "15"
+              - generic [ref=e150]:
+                - text: Sonnet Weight
+                - spinbutton [ref=e151]: "3"
+              - generic [ref=e152]:
+                - text: Haiku Weight
+                - spinbutton [ref=e153]: "0.25"
+          - button "Save Configuration" [ref=e155]:
+            - img [ref=e156]
+            - text: Save Configuration
+        - generic [ref=e160]:
+          - generic [ref=e162]:
+            - heading "Change Password" [level=3] [ref=e164]:
+              - img [ref=e165]
+              - text: Change Password
+            - generic [ref=e167]:
+              - generic [ref=e168]:
+                - text: Current Password
+                - textbox [ref=e169]
+              - generic [ref=e170]:
+                - text: New Password
+                - textbox [ref=e171]
+              - generic [ref=e172]:
+                - text: Confirm New Password
+                - textbox [ref=e173]
+              - button "Update Password" [ref=e174]
+          - generic [ref=e175]:
+            - generic [ref=e176]:
+              - heading "Data Export" [level=3] [ref=e177]:
+                - img [ref=e178]
+                - text: Data Export
+              - paragraph [ref=e182]: Export team data for archival or analysis.
+            - generic [ref=e183]:
+              - generic [ref=e184]:
+                - text: Export Range (Days)
+                - spinbutton [ref=e185]: "30"
+              - generic [ref=e186]:
+                - button "Export Prompt History (30d) CSV" [ref=e187]:
+                  - generic [ref=e188]: Export Prompt History (30d)
+                  - generic [ref=e189]: CSV
+                - button "Export Usage Metrics (30d) CSV" [ref=e190]:
+                  - generic [ref=e191]: Export Usage Metrics (30d)
+                  - generic [ref=e192]: CSV
+                - button "Export Full Telemetry Dump (30d) JSON" [ref=e193]:
+                  - generic [ref=e194]: Export Full Telemetry Dump (30d)
+                  - generic [ref=e195]: JSON

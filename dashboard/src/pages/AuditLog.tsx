@@ -33,7 +33,7 @@ const ACTION_COLORS: Record<string, string> = {
 const LIMIT = 50
 
 export function AuditLog() {
-  const [data, setData] = useState<{ entries: Record<string, unknown>[]; total: number }>({ entries: [], total: 0 })
+  const [data, setData] = useState<{ entries: any[]; total: number }>({ entries: [], total: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
@@ -50,7 +50,7 @@ export function AuditLog() {
       }
       if (action) params.action = action
       const res = await getAuditLog(params)
-      setData(res || { entries: [], total: 0 })
+      setData({ entries: res?.data || res?.entries || [], total: res?.total || 0 })
     } catch (_err) {
       setError('Failed to load audit log.')
       setData({ entries: [], total: 0 })

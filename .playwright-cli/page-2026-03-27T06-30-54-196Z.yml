@@ -1,0 +1,214 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - img [ref=e6]
+      - generic [ref=e8]: ClawLens
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - paragraph [ref=e11]: Dashboard
+        - navigation [ref=e12]:
+          - link "Overview" [ref=e13] [cursor=pointer]:
+            - /url: /
+            - img [ref=e14]
+            - text: Overview
+          - link "Users" [ref=e19] [cursor=pointer]:
+            - /url: /users
+            - img [ref=e20]
+            - text: Users
+          - link "Subscriptions" [ref=e25] [cursor=pointer]:
+            - /url: /subscriptions
+            - img [ref=e26]
+            - text: Subscriptions
+          - link "Analytics" [ref=e28] [cursor=pointer]:
+            - /url: /analytics
+            - img [ref=e29]
+            - text: Analytics
+          - link "AI Summaries" [ref=e31] [cursor=pointer]:
+            - /url: /summaries
+            - img [ref=e32]
+            - text: AI Summaries
+          - link "Prompts Browser" [ref=e35] [cursor=pointer]:
+            - /url: /prompts
+            - img [ref=e36]
+            - text: Prompts Browser
+      - generic [ref=e39]:
+        - paragraph [ref=e40]: System
+        - navigation [ref=e41]:
+          - link "Settings" [ref=e42] [cursor=pointer]:
+            - /url: /settings
+            - img [ref=e43]
+            - text: Settings
+          - link "Audit Log" [ref=e46] [cursor=pointer]:
+            - /url: /audit-log
+            - img [ref=e47]
+            - text: Audit Log
+    - generic [ref=e54]: connected
+  - generic [ref=e55]:
+    - banner [ref=e56]:
+      - heading "Default Team" [level=2] [ref=e58]
+      - generic [ref=e59]:
+        - button [ref=e60]:
+          - img [ref=e61]
+        - button "Log out" [ref=e66]:
+          - img [ref=e67]
+          - text: Log out
+    - main [ref=e70]:
+      - generic [ref=e71]:
+        - generic [ref=e72]:
+          - generic [ref=e73]:
+            - heading "AI Summaries" [level=1] [ref=e74]
+            - paragraph [ref=e75]: Automated intelligence briefs on engineering activity.
+          - button "Generate Now" [ref=e76]:
+            - img [ref=e77]
+            - text: Generate Now
+        - generic [ref=e80]:
+          - combobox [ref=e81]:
+            - 'option "User: All" [selected]'
+            - option "BashDock"
+            - option "TestDev"
+          - combobox [ref=e82]:
+            - option "Last 7 Days"
+            - option "Last 30 Days" [selected]
+            - option "Last 90 Days"
+            - option "All Time"
+        - generic [ref=e83]:
+          - generic [ref=e84]:
+            - generic [ref=e85]:
+              - generic [ref=e86]:
+                - generic [ref=e87]:
+                  - img [ref=e88]
+                  - generic [ref=e91]: user
+                - generic [ref=e92]:
+                  - img [ref=e93]
+                  - text: 26/03/2026 - 27/03/2026
+              - heading "BashDock" [level=3] [ref=e96]
+            - generic [ref=e97]: Two brief greeting/social prompts with no technical content. No debugging, feature development, or meaningful coding work performed.
+            - generic [ref=e99]:
+              - generic [ref=e100]: greeting
+              - generic [ref=e101]: social
+            - generic [ref=e103]:
+              - generic [ref=e104]:
+                - generic [ref=e105]: Prod
+                - generic [ref=e108]: 1/100
+              - generic [ref=e109]:
+                - generic [ref=e110]: Quality
+                - generic [ref=e113]: 1/100
+              - generic [ref=e114]:
+                - generic [ref=e115]: Effic
+                - generic [ref=e118]: 2/100
+          - generic [ref=e119]:
+            - generic [ref=e120]:
+              - generic [ref=e121]:
+                - generic [ref=e122]:
+                  - img [ref=e123]
+                  - generic [ref=e126]: user
+                - generic [ref=e127]:
+                  - img [ref=e128]
+                  - text: 26/03/2026 - 27/03/2026
+              - heading "TestDev" [level=3] [ref=e131]
+            - generic [ref=e132]: Backend-focused session covering auth fixes, Kafka debugging, DB refactoring, test writing, and Redis learning. Heavy on infrastructure and middleware concerns with no new feature development.
+            - generic [ref=e133]:
+              - generic [ref=e134]:
+                - generic [ref=e135]: debugging (2)
+                - generic [ref=e136]: learning (1)
+                - generic [ref=e137]: refactoring (1)
+                - generic [ref=e138]: testing (1)
+              - generic [ref=e139]:
+                - generic [ref=e140]: JWT authentication
+                - generic [ref=e141]: Kafka consumer groups
+                - generic [ref=e142]: database connection pooling
+                - generic [ref=e143]: payment service testing
+                - generic [ref=e144]: Redis pub/sub
+            - generic [ref=e146]:
+              - generic [ref=e147]:
+                - generic [ref=e148]: Prod
+                - generic [ref=e151]: 72/100
+              - generic [ref=e152]:
+                - generic [ref=e153]: Quality
+                - generic [ref=e156]: 55/100
+              - generic [ref=e157]:
+                - generic [ref=e158]: Effic
+                - generic [ref=e161]: 60/100
+          - generic [ref=e162]:
+            - generic [ref=e163]:
+              - generic [ref=e164]:
+                - generic [ref=e165]:
+                  - img [ref=e166]
+                  - generic [ref=e169]: user
+                - generic [ref=e170]:
+                  - img [ref=e171]
+                  - text: 26/03/2026 - 27/03/2026
+              - heading "BashDock" [level=3] [ref=e174]
+            - generic [ref=e175]: Two casual greeting prompts with no technical or productive intent. Both are social/conversational messages with no code, debugging, or feature development activity.
+            - generic [ref=e176]:
+              - generic [ref=e178]: conversation (2)
+              - generic [ref=e180]: casual_greeting
+            - generic [ref=e182]:
+              - generic [ref=e183]:
+                - generic [ref=e184]: Prod
+                - generic [ref=e187]: 1/100
+              - generic [ref=e188]:
+                - generic [ref=e189]: Quality
+                - generic [ref=e192]: 1/100
+              - generic [ref=e193]:
+                - generic [ref=e194]: Effic
+                - generic [ref=e197]: 2/100
+          - generic [ref=e198]:
+            - generic [ref=e199]:
+              - generic [ref=e200]:
+                - generic [ref=e201]:
+                  - img [ref=e202]
+                  - generic [ref=e205]: user
+                - generic [ref=e206]:
+                  - img [ref=e207]
+                  - text: 26/03/2026 - 27/03/2026
+              - heading "TestDev" [level=3] [ref=e210]
+            - generic [ref=e211]: Backend-focused session covering auth debugging, Kafka troubleshooting, DB refactoring, payment testing, and Redis learning. All prompts use Opus despite varying complexity levels.
+            - generic [ref=e212]:
+              - generic [ref=e213]:
+                - generic [ref=e214]: debugging (2)
+                - generic [ref=e215]: learning (1)
+                - generic [ref=e216]: refactoring (1)
+                - generic [ref=e217]: testing (1)
+              - generic [ref=e218]:
+                - generic [ref=e219]: JWT authentication
+                - generic [ref=e220]: Kafka consumer rebalancing
+                - generic [ref=e221]: database connection pooling
+                - generic [ref=e222]: payment service testing
+                - generic [ref=e223]: Redis pub/sub
+            - generic [ref=e225]:
+              - generic [ref=e226]:
+                - generic [ref=e227]: Prod
+                - generic [ref=e230]: 70/100
+              - generic [ref=e231]:
+                - generic [ref=e232]: Quality
+                - generic [ref=e235]: 55/100
+              - generic [ref=e236]:
+                - generic [ref=e237]: Effic
+                - generic [ref=e240]: 38/100
+          - generic [ref=e241]:
+            - generic [ref=e242]:
+              - generic [ref=e243]:
+                - generic [ref=e244]:
+                  - img [ref=e245]
+                  - generic [ref=e248]: user
+                - generic [ref=e249]:
+                  - img [ref=e250]
+                  - text: 26/03/2026 - 27/03/2026
+              - heading "BashDock" [level=3] [ref=e253]
+            - generic [ref=e254]: Two casual greeting prompts with no development or technical content. No meaningful work performed.
+            - generic [ref=e255]:
+              - generic [ref=e257]: conversation (2)
+              - generic [ref=e258]:
+                - generic [ref=e259]: greeting
+                - generic [ref=e260]: casual_chat
+            - generic [ref=e262]:
+              - generic [ref=e263]:
+                - generic [ref=e264]: Prod
+                - generic [ref=e267]: 1/100
+              - generic [ref=e268]:
+                - generic [ref=e269]: Quality
+                - generic [ref=e272]: 1/100
+              - generic [ref=e273]:
+                - generic [ref=e274]: Effic
+                - generic [ref=e277]: 2/100

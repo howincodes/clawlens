@@ -1,0 +1,178 @@
+- generic [ref=e21]:
+  - complementary [ref=e22]:
+    - generic [ref=e23]:
+      - img [ref=e24]
+      - generic [ref=e26]: ClawLens
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - paragraph [ref=e29]: Dashboard
+        - navigation [ref=e30]:
+          - link "Overview" [ref=e31] [cursor=pointer]:
+            - /url: /
+            - img [ref=e32]
+            - text: Overview
+          - link "Users" [ref=e37] [cursor=pointer]:
+            - /url: /users
+            - img [ref=e38]
+            - text: Users
+          - link "Subscriptions" [ref=e43] [cursor=pointer]:
+            - /url: /subscriptions
+            - img [ref=e44]
+            - text: Subscriptions
+          - link "Analytics" [ref=e46] [cursor=pointer]:
+            - /url: /analytics
+            - img [ref=e47]
+            - text: Analytics
+          - link "AI Summaries" [ref=e49] [cursor=pointer]:
+            - /url: /summaries
+            - img [ref=e50]
+            - text: AI Summaries
+          - link "Prompts Browser" [ref=e53] [cursor=pointer]:
+            - /url: /prompts
+            - img [ref=e54]
+            - text: Prompts Browser
+      - generic [ref=e57]:
+        - paragraph [ref=e58]: System
+        - navigation [ref=e59]:
+          - link "Settings" [ref=e60] [cursor=pointer]:
+            - /url: /settings
+            - img [ref=e61]
+            - text: Settings
+          - link "Audit Log" [ref=e64] [cursor=pointer]:
+            - /url: /audit-log
+            - img [ref=e65]
+            - text: Audit Log
+    - generic [ref=e72]: connected
+  - generic [ref=e73]:
+    - banner [ref=e74]:
+      - heading "Default Team" [level=2] [ref=e76]
+      - generic [ref=e77]:
+        - button [ref=e78]:
+          - img [ref=e79]
+        - button "Log out" [ref=e84]:
+          - img [ref=e85]
+          - text: Log out
+    - main [ref=e88]:
+      - generic [ref=e89]:
+        - generic [ref=e90]:
+          - heading "Overview" [level=1] [ref=e91]
+          - paragraph [ref=e92]: Monitor your team's Claude usage in real-time.
+        - generic [ref=e93]:
+          - generic [ref=e94]:
+            - generic [ref=e95]:
+              - heading "Total Users" [level=3] [ref=e96]
+              - img [ref=e97]
+            - generic [ref=e103]: "2"
+          - generic [ref=e104]:
+            - generic [ref=e105]:
+              - heading "Active Now" [level=3] [ref=e106]
+              - img [ref=e107]
+            - generic [ref=e109]:
+              - generic [ref=e110]: "0"
+              - paragraph [ref=e111]: Users with recent sessions
+          - generic [ref=e112]:
+            - generic [ref=e113]:
+              - heading "Prompts Today" [level=3] [ref=e114]
+              - img [ref=e115]
+            - generic [ref=e118]: "7"
+          - generic [ref=e119]:
+            - generic [ref=e120]:
+              - heading "Credits Today" [level=3] [ref=e121]
+              - img [ref=e122]
+            - generic [ref=e128]: 63 credits
+        - generic [ref=e129]:
+          - generic [ref=e130]:
+            - generic [ref=e131]:
+              - heading "Subscriptions" [level=2] [ref=e132]
+              - generic [ref=e134] [cursor=pointer]:
+                - generic [ref=e135]:
+                  - generic [ref=e136]:
+                    - heading "eatiko.hc@gmail.com" [level=3] [ref=e137]
+                    - generic [ref=e138]: max
+                  - paragraph [ref=e139]: 1 users • 13 credits
+                - generic [ref=e140]: Click to expand users...
+            - generic [ref=e141]:
+              - heading "Active Users" [level=2] [ref=e142]
+              - button "Add User" [ref=e143]:
+                - img [ref=e144]
+                - text: Add User
+            - generic [ref=e145]:
+              - generic [ref=e146]:
+                - generic [ref=e147]:
+                  - generic [ref=e148]:
+                    - generic [ref=e149]:
+                      - generic [ref=e150]: Ba
+                      - link "BashDock" [ref=e151] [cursor=pointer]:
+                        - /url: /users/fae2c89a-488d-464c-9906-58f3d3f4d8a7
+                    - generic [ref=e152]: active
+                  - paragraph [ref=e153]: eatiko.hc@gmail.com
+                - link "2 Prompts 13 credits Credits 1 Sessions Sonnet Top Model" [ref=e154] [cursor=pointer]:
+                  - /url: /users/fae2c89a-488d-464c-9906-58f3d3f4d8a7
+                  - generic [ref=e156]:
+                    - generic [ref=e157]:
+                      - generic [ref=e158]: "2"
+                      - generic [ref=e159]: Prompts
+                    - generic [ref=e160]:
+                      - generic [ref=e161]: 13 credits
+                      - generic [ref=e162]: Credits
+                    - generic [ref=e163]:
+                      - generic [ref=e164]: "1"
+                      - generic [ref=e165]: Sessions
+                    - generic [ref=e166]:
+                      - generic [ref=e167]: Sonnet
+                      - generic [ref=e168]: Top Model
+                - generic [ref=e169]:
+                  - generic [ref=e170]:
+                    - generic [ref=e171]: "Model: Unknown"
+                    - generic [ref=e172]:
+                      - text: "Credits:"
+                      - generic [ref=e173]: 13 credits
+                  - generic [ref=e174]:
+                    - button "Resume" [ref=e175]:
+                      - img [ref=e176]
+                    - button "Pause" [ref=e178]:
+                      - img [ref=e179]
+                    - button "Kill" [ref=e182]:
+                      - img [ref=e183]
+              - generic [ref=e186]:
+                - generic [ref=e187]:
+                  - generic [ref=e188]:
+                    - generic [ref=e189]:
+                      - generic [ref=e190]: Te
+                      - link "TestDev" [ref=e191] [cursor=pointer]:
+                        - /url: /users/6ec78923-ac58-4815-9429-1be9a8a3e00c
+                    - generic [ref=e192]: active
+                  - paragraph [ref=e193]: No subscription linked
+                - link "5 Prompts 50 credits Credits 1 Sessions Opus Top Model" [ref=e194] [cursor=pointer]:
+                  - /url: /users/6ec78923-ac58-4815-9429-1be9a8a3e00c
+                  - generic [ref=e196]:
+                    - generic [ref=e197]:
+                      - generic [ref=e198]: "5"
+                      - generic [ref=e199]: Prompts
+                    - generic [ref=e200]:
+                      - generic [ref=e201]: 50 credits
+                      - generic [ref=e202]: Credits
+                    - generic [ref=e203]:
+                      - generic [ref=e204]: "1"
+                      - generic [ref=e205]: Sessions
+                    - generic [ref=e206]:
+                      - generic [ref=e207]: Opus
+                      - generic [ref=e208]: Top Model
+                - generic [ref=e209]:
+                  - generic [ref=e210]:
+                    - generic [ref=e211]: "Model: Unknown"
+                    - generic [ref=e212]:
+                      - text: "Credits:"
+                      - generic [ref=e213]: 50 credits
+                  - generic [ref=e214]:
+                    - button "Resume" [ref=e215]:
+                      - img [ref=e216]
+                    - button "Pause" [ref=e218]:
+                      - img [ref=e219]
+                    - button "Kill" [ref=e222]:
+                      - img [ref=e223]
+          - generic [ref=e227]:
+            - heading "Live Feed connected" [level=3] [ref=e229]:
+              - text: Live Feed
+              - generic [ref=e231]: connected
+            - generic [ref=e236]: No recent events. Activity will appear here in real-time.
