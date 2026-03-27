@@ -151,7 +151,7 @@ export function Analytics() {
                   <div className="p-2 rounded-lg bg-green-500/10"><Coins className="w-5 h-5 text-green-500" /></div>
                   <div>
                     <p className="text-sm text-muted-foreground">Total Credits</p>
-                    <p className="text-2xl font-bold">{fmtCredits(Number(overview?.total_cost || 0))}</p>
+                    <p className="text-2xl font-bold">{fmtCredits(Number(overview?.total_credits || 0))}</p>
                   </div>
                 </div>
               </CardContent>
@@ -205,10 +205,10 @@ export function Analytics() {
                       {leaderboard.map((user, idx) => (
                         <TableRow key={String(user.id || idx)} className={idx % 2 === 0 ? 'bg-muted/30' : ''}>
                           <TableCell className="font-bold text-muted-foreground">#{idx + 1}</TableCell>
-                          <TableCell className="font-medium">{String(user.name || '')}</TableCell>
+                          <TableCell className="font-medium">{String(user.user_name || user.name || '')}</TableCell>
                           <TableCell className="text-right">{Number(user.prompts || 0).toLocaleString()}</TableCell>
                           <TableCell className="text-right">{Number(user.sessions || 0).toLocaleString()}</TableCell>
-                          <TableCell className="text-right">{fmtCredits(Number(user.cost || 0))}</TableCell>
+                          <TableCell className="text-right">{fmtCredits(Number(user.cost_usd || user.cost || 0))}</TableCell>
                           <TableCell className="text-right">{Number(user.avg_turns || 0).toFixed(1)}</TableCell>
                           <TableCell className="text-right">
                             <Badge variant="outline" className="capitalize">{String(user.top_model || user.model_preference || 'N/A')}</Badge>
@@ -448,11 +448,11 @@ export function Analytics() {
                     </TableHeader>
                     <TableBody>
                       {projects.map((p, idx) => (
-                        <TableRow key={String(p.name || idx)} className={idx % 2 === 0 ? 'bg-muted/30' : ''}>
-                          <TableCell className="font-medium">{String(p.name || 'Unknown')}</TableCell>
+                        <TableRow key={String(p.project || p.name || idx)} className={idx % 2 === 0 ? 'bg-muted/30' : ''}>
+                          <TableCell className="font-medium">{String(p.project || p.name || 'Unknown')}</TableCell>
                           <TableCell className="text-right">{Number(p.prompts || 0).toLocaleString()}</TableCell>
                           <TableCell className="text-right">{Number(p.users || 0)}</TableCell>
-                          <TableCell className="text-right">{fmtCredits(Number(p.cost || 0))}</TableCell>
+                          <TableCell className="text-right">{fmtCredits(Number(p.cost_usd || p.cost || 0))}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
