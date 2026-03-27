@@ -56,7 +56,7 @@ The install script downloads the binary, registers with the server, and configur
 **macOS / Linux:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.sh)
 ```
 
 **Windows (PowerShell):**
@@ -71,7 +71,7 @@ After installation, close all terminals and restart Claude Code. Every prompt wi
 
 ```bash
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/update-client.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/update-client.sh)
 
 # Windows (PowerShell)
 irm https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/update-client.ps1 | iex

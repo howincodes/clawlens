@@ -137,12 +137,12 @@ export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSu
                     <Apple className="w-3.5 h-3.5 text-gray-500" />
                     <span className="text-xs font-medium text-gray-600">macOS / Linux</span>
                     <CopyButton
-                      text={`curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.sh | bash`}
+                      text={`bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.sh)`}
                       label="mac"
                     />
                   </div>
                   <pre className="p-3 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed">
-{`curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.sh | bash`}
+{`bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.sh)`}
                   </pre>
                 </div>
 

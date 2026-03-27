@@ -2,14 +2,7 @@
 set -e
 
 # ClawLens Client Installer for macOS/Linux
-# Usage: curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.sh | bash
-
-# If piped through curl, re-download and exec properly so interactive prompts work
-if [ ! -t 0 ]; then
-  SCRIPT=$(mktemp)
-  cat > "$SCRIPT"
-  exec bash "$SCRIPT"
-fi
+# Usage: bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.sh)
 
 VERSION="${CLAWLENS_VERSION:-0.1.0}"
 REPO="howincodes/clawlens"
