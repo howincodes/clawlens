@@ -63,14 +63,9 @@ func QueueDBPath() string {
 	return filepath.Join(ConfigDir(), "queue.db")
 }
 
-// ManagedSettingsPath returns the path to managed-settings.json.
-// Claude Code reads this from ~/.claude/managed-settings.json on all platforms.
+// ManagedSettingsPath returns the system-level path to managed-settings.json.
+// Claude Code reads this from the system path (requires root/admin to write).
 func ManagedSettingsPath() string {
-	home, _ := os.UserHomeDir()
-	if home != "" {
-		return filepath.Join(home, ".claude", "managed-settings.json")
-	}
-	// Fallback per platform
 	switch runtime.GOOS {
 	case "darwin":
 		return "/Library/Application Support/ClaudeCode/managed-settings.json"

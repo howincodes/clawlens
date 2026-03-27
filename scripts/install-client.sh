@@ -19,7 +19,12 @@ INSTALL_DIR="$HOME/.clawlens"
 BINARY="$INSTALL_DIR/clawlens"
 CONFIG_FILE="$INSTALL_DIR/config.json"
 CLAUDE_DIR="$HOME/.claude"
-MANAGED_SETTINGS="$CLAUDE_DIR/managed-settings.json"
+# managed-settings.json goes to system path (requires sudo)
+if [ "$(uname -s)" = "Darwin" ]; then
+  MANAGED_SETTINGS="/Library/Application Support/ClaudeCode/managed-settings.json"
+else
+  MANAGED_SETTINGS="/etc/claude-code/managed-settings.json"
+fi
 
 echo ""
 echo "  ClawLens Client Installer"
@@ -49,7 +54,8 @@ if [ -f "$CONFIG_FILE" ] || [ -f "$MANAGED_SETTINGS" ] || [ -f "$BINARY" ]; then
   echo ""
   echo "  Cleaning up..."
   rm -rf "$INSTALL_DIR" 2>/dev/null
-  rm -f "$MANAGED_SETTINGS" 2>/dev/null
+  sudo rm -f "$MANAGED_SETTINGS" 2>/dev/null || rm -f "$MANAGED_SETTINGS" 2>/dev/null
+  rm -f "$HOME/.claude/managed-settings.json" 2>/dev/null
   sudo rm -f /usr/local/bin/clawlens 2>/dev/null || true
   sudo rm -rf "/Library/Application Support/ClaudeCode/clawlens" 2>/dev/null || true
   sudo rm -rf "/etc/claude-code/clawlens" 2>/dev/null || true
@@ -174,8 +180,9 @@ cat > "$CONFIG_FILE" << EOF
 EOF
 echo "  -> Config written"
 
-mkdir -p "$CLAUDE_DIR"
-cat > "$MANAGED_SETTINGS" << EOF
+# Write managed-settings.json to system path (requires sudo)
+MANAGED_DIR=$(dirname "$MANAGED_SETTINGS")
+HOOK_JSON=$(cat << HOOKEOF
 {
   "hooks": {
     "SessionStart": [{"matcher":"","hooks":[{"type":"command","command":"$BINARY hook session-start","timeout":10}]}],
@@ -186,8 +193,19 @@ cat > "$MANAGED_SETTINGS" << EOF
     "SessionEnd": [{"matcher":"","hooks":[{"type":"command","command":"$BINARY hook session-end","timeout":3}]}]
   }
 }
-EOF
-echo "  -> Hooks installed"
+HOOKEOF
+)
+
+if [ -w "$MANAGED_DIR" ] 2>/dev/null || [ -w "$MANAGED_SETTINGS" ] 2>/dev/null; then
+  mkdir -p "$MANAGED_DIR"
+  echo "$HOOK_JSON" > "$MANAGED_SETTINGS"
+else
+  echo "  Need sudo to write hooks to $MANAGED_SETTINGS"
+  sudo mkdir -p "$MANAGED_DIR"
+  echo "$HOOK_JSON" | sudo tee "$MANAGED_SETTINGS" > /dev/null
+  sudo chmod 644 "$MANAGED_SETTINGS"
+fi
+echo "  -> Hooks installed at $MANAGED_SETTINGS"
 
 # --- Step 4: Verify ---
 echo "[4/4] Verifying..."
