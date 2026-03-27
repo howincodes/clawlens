@@ -143,14 +143,13 @@ describe('hookAuth', () => {
     expect((res._json as { error: string }).error).toMatch(/Invalid/);
   });
 
-  it('should return 403 when user status is killed', () => {
+  it('should pass through killed users (status checked in route handlers)', () => {
     const killedToken = 'tok-killed';
     const user = createUser({
       team_id: teamId,
       name: 'Killed User',
       auth_token: killedToken,
     });
-    // Manually update status to killed via the already-imported getDb
     const database = getDb();
     database.prepare(`UPDATE users SET status = 'killed' WHERE id = ?`).run(user.id);
 
@@ -162,9 +161,9 @@ describe('hookAuth', () => {
 
     hookAuth(req, res, next);
 
-    expect(next.called).toBe(false);
-    expect(res._status).toBe(403);
-    expect((res._json as { error: string }).error).toMatch(/killed/);
+    expect(next.called).toBe(true);
+    expect(req.user).toBeDefined();
+    expect(req.user!.status).toBe('killed');
   });
 });
 

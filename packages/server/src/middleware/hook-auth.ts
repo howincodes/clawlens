@@ -44,10 +44,10 @@ export function hookAuth(req: Request, res: Response, next: NextFunction): void 
     return;
   }
 
-  if (user.status === 'killed') {
-    res.status(403).json({ error: 'User account has been killed' });
-    return;
-  }
+  // NOTE: We do NOT block killed users here. The hook endpoints need to
+  // authenticate killed users so they can return {"continue": false} or
+  // {"decision": "block"} — which is how the kill switch works.
+  // Status checking happens inside each route handler.
 
   const team = getTeamById(user.team_id);
 

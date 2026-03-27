@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import path from 'node:path';
 import { initDb } from './services/db.js';
+import { hookAuth } from './middleware/hook-auth.js';
+import { hookRouter } from './routes/hook-api.js';
 
 // ---------------------------------------------------------------------------
 // Express app setup
@@ -27,10 +29,14 @@ app.use(
 
 // ---------------------------------------------------------------------------
 // Initialize database
+// In test mode, tests call initDb(':memory:') themselves before importing app.
 // ---------------------------------------------------------------------------
 
 const dbPath = process.env.DB_PATH ?? path.join(process.cwd(), 'data', 'clawlens.db');
-initDb(dbPath);
+
+if (process.env.NODE_ENV !== 'test') {
+  initDb(dbPath);
+}
 
 // ---------------------------------------------------------------------------
 // Health check
@@ -39,6 +45,12 @@ initDb(dbPath);
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// ---------------------------------------------------------------------------
+// Hook API routes (Claude Code hook endpoints)
+// ---------------------------------------------------------------------------
+
+app.use('/api/v1/hook', hookAuth, hookRouter);
 
 // ---------------------------------------------------------------------------
 // Error handling
