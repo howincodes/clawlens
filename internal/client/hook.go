@@ -136,6 +136,9 @@ func HandleSessionStart(cfg *Config, queue *Queue) error {
 	hostname, _ := os.Hostname()
 	model := DetectModel(sd.Model, cfg)
 
+	// Cache the model so subsequent hooks (which don't get model in stdin) can use it
+	CacheSessionModel(model)
+
 	req := shared.SessionStartRequest{
 		SessionID:     sd.SessionID,
 		Model:         model,
