@@ -1,8 +1,0 @@
-FROM node:22-alpine
-RUN apk add --no-cache bash git curl jq
-RUN npm install -g @anthropic-ai/claude-code
-COPY bin/clawlens-linux /usr/local/bin/clawlens
-RUN chmod +x /usr/local/bin/clawlens
-RUN mkdir -p /root/project && cd /root/project && git init && git config user.email "test@test.com" && git config user.name "Test"
-WORKDIR /root/project
-CMD ["bash"]

@@ -1,19 +1,21 @@
 {
   "name": "clawlens",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
-  },
+  "private": true,
+  "version": "0.2.0",
+  "description": "AI usage analytics and team management for Claude Code teams",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "pnpm --filter server dev",
+    "build": "pnpm --filter server build && pnpm --filter dashboard build",
+    "test": "pnpm --filter server test",
+    "lint": "pnpm -r lint"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "devDependencies": {
-    "@playwright/test": "^1.58.2"
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
   }
 }
