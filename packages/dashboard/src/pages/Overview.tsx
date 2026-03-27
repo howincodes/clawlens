@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { getUsers, getSubscriptions, getAnalytics, getLeaderboard, updateUser } from '@/lib/api'
+import { getUsers, getSubscriptions, getAnalytics, getLeaderboard, updateUser, getTamperAlerts, resolveTamperAlert } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -17,6 +17,8 @@ import {
   Plus,
   RefreshCw,
   AlertCircle,
+  ShieldAlert,
+  CheckCircle2,
 } from 'lucide-react'
 import { AddUserModal } from '@/components/AddUserModal'
 import { ConfirmActionModal } from '@/components/ConfirmActionModal'
@@ -143,21 +145,25 @@ export function Overview() {
     action: 'killed' | 'paused' | 'active'
   } | null>(null)
   const [expandedSub, setExpandedSub] = useState<string | null>(null)
+  const [tamperAlerts, setTamperAlerts] = useState<any[]>([])
+  const [resolvingAlert, setResolvingAlert] = useState<number | null>(null)
   const events = useWSStore((s) => s.events)
   const wsStatus = useWSStore((s) => s.status)
 
   const loadData = useCallback(async () => {
     try {
       setError(null)
-      const [usersRes, subsRes, analyticsRes, leaderRes] = await Promise.all([
+      const [usersRes, subsRes, analyticsRes, leaderRes, tamperRes] = await Promise.all([
         getUsers(),
         getSubscriptions(),
         getAnalytics(1),
         getLeaderboard(30).catch(() => ({ leaderboard: [] })),
+        getTamperAlerts().catch(() => ({ alerts: [] })),
       ])
       setUsers(usersRes.users || [])
       setSubscriptions(subsRes.subscriptions || [])
       setAnalytics(analyticsRes.overview || {})
+      setTamperAlerts(tamperRes?.alerts || [])
       const lMap = new Map()
       for (const entry of leaderRes?.leaderboard || []) {
         lMap.set(String(entry.user_id || entry.id), entry)
@@ -199,6 +205,21 @@ export function Overview() {
         loadData()
       } catch (_err) {
         // ConfirmActionModal handles its own errors
+      }
+    },
+    [loadData]
+  )
+
+  const handleResolveAlert = useCallback(
+    async (alertId: number) => {
+      setResolvingAlert(alertId)
+      try {
+        await resolveTamperAlert(alertId)
+        loadData()
+      } catch (_err) {
+        console.error('Failed to resolve alert')
+      } finally {
+        setResolvingAlert(null)
       }
     },
     [loadData]
@@ -395,17 +416,24 @@ export function Overview() {
                             {user.name}
                           </Link>
                         </div>
-                        <Badge
-                          variant={
-                            user.status === 'active'
-                              ? 'success'
-                              : user.status === 'paused'
-                                ? 'warning'
-                                : 'destructive'
-                          }
-                        >
-                          {user.status}
-                        </Badge>
+                        <div className="flex items-center gap-1.5">
+                          {(user.tamper_status === 'hooks_modified' || user.tamper_status === 'config_changed') && (
+                            <span title={`Tamper: ${user.tamper_status.replace(/_/g, ' ')}`} className="text-yellow-500">
+                              <ShieldAlert className="h-4 w-4" />
+                            </span>
+                          )}
+                          <Badge
+                            variant={
+                              user.status === 'active'
+                                ? 'success'
+                                : user.status === 'paused'
+                                  ? 'warning'
+                                  : 'destructive'
+                            }
+                          >
+                            {user.status}
+                          </Badge>
+                        </div>
                       </div>
                       <CardDescription className="text-xs">
                         {user.subscription_email || 'No subscription linked'}
@@ -499,6 +527,63 @@ export function Overview() {
 
         {/* Sidebar Feed */}
         <div className="space-y-6 h-full flex flex-col">
+          {/* Tamper Alerts */}
+          {tamperAlerts.length > 0 && (
+            <Card className="border-yellow-500/30">
+              <CardHeader className="p-4 pb-2 border-b">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <ShieldAlert className="h-5 w-5 text-yellow-500" />
+                  Tamper Alerts
+                  <Badge variant="warning" className="ml-auto">
+                    {tamperAlerts.filter((a: any) => !a.resolved_at).length} unresolved
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 max-h-60 overflow-y-auto">
+                <div className="divide-y">
+                  {tamperAlerts
+                    .filter((a: any) => !a.resolved_at)
+                    .slice(0, 10)
+                    .map((alert: any) => (
+                      <div
+                        key={alert.id}
+                        className="p-3 text-sm hover:bg-muted/50 transition-colors border-l-2 border-l-yellow-500"
+                      >
+                        <div className="flex justify-between items-start mb-1">
+                          <span className="font-semibold text-xs">
+                            {alert.user_name || alert.user_slug || 'Unknown'}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground whitespace-nowrap ml-2">
+                            {alert.detected_at
+                              ? formatDistanceToNow(new Date(alert.detected_at), { addSuffix: true })
+                              : ''}
+                          </span>
+                        </div>
+                        <div className="text-xs text-yellow-600 mb-1">
+                          {(alert.alert_type || alert.type || '').replace(/_/g, ' ')}
+                        </div>
+                        {alert.details && (
+                          <div className="text-[10px] text-muted-foreground mb-1 truncate">
+                            {typeof alert.details === 'string' ? alert.details : JSON.stringify(alert.details)}
+                          </div>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-xs text-green-600 hover:text-green-700 p-0"
+                          onClick={() => handleResolveAlert(alert.id)}
+                          disabled={resolvingAlert === alert.id}
+                        >
+                          <CheckCircle2 className="w-3 h-3 mr-1" />
+                          {resolvingAlert === alert.id ? 'Resolving...' : 'Resolve'}
+                        </Button>
+                      </div>
+                    ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card className="flex-1 flex flex-col max-h-[800px]">
             <CardHeader className="p-4 pb-2 border-b">
               <CardTitle className="text-lg flex items-center justify-between">

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Copy, Check, Terminal, Monitor, Apple } from "lucide-react"
+import { Copy, Check, Terminal } from "lucide-react"
 import { fetchClient } from "@/lib/api"
 
 export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSuccess: () => void }) {
@@ -94,60 +94,69 @@ export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSu
               <CardDescription className="text-center">Send these instructions to {name}.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Install Code */}
+              {/* Auth Token */}
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase tracking-wider">Install Code</Label>
+                <Label className="text-xs text-muted-foreground uppercase tracking-wider">Auth Token</Label>
                 <div className="flex items-center gap-2 p-3 bg-muted border rounded-md">
-                  <code className="text-sm font-bold flex-1">{installCode}</code>
-                  <CopyButton text={installCode} label="code" />
+                  <code className="text-sm font-bold flex-1 break-all">{installCode}</code>
+                  <CopyButton text={installCode} label="token" />
                 </div>
+                <p className="text-xs text-muted-foreground">Save this token — it will not be shown again.</p>
               </div>
 
-              {/* Server URL */}
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase tracking-wider">Server URL</Label>
-                <div className="flex items-center gap-2 p-3 bg-muted border rounded-md">
-                  <code className="text-sm flex-1">{serverUrl}</code>
-                  <CopyButton text={serverUrl} label="server" />
-                </div>
-              </div>
-
-              {/* Install Commands */}
+              {/* Plugin Install Steps */}
               <div className="space-y-3 pt-2">
-                <Label className="text-xs text-muted-foreground uppercase tracking-wider">Install Commands</Label>
+                <Label className="text-xs text-muted-foreground uppercase tracking-wider">Plugin Install Steps</Label>
 
-                {/* Windows */}
+                {/* Step 1 */}
                 <div className="border rounded-md overflow-hidden">
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b">
-                    <Monitor className="w-3.5 h-3.5 text-blue-500" />
-                    <span className="text-xs font-medium text-blue-600">Windows (PowerShell)</span>
+                  <div className="flex items-center justify-between px-3 py-1.5 bg-blue-500/10 border-b">
+                    <span className="text-xs font-medium text-blue-600">Step 1: Add marketplace (one-time per machine)</span>
                     <CopyButton
-                      text={`irm https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.ps1 | iex`}
-                      label="windows"
+                      text="claude /plugin marketplace add --source github --repo howincodes/claude-plugins"
+                      label="step1"
                     />
                   </div>
                   <pre className="p-3 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed">
-{`irm https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.ps1 | iex`}
+{`claude /plugin marketplace add --source github --repo howincodes/claude-plugins`}
                   </pre>
                 </div>
 
-                {/* macOS / Linux */}
+                {/* Step 2 */}
                 <div className="border rounded-md overflow-hidden">
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-500/10 border-b">
-                    <Apple className="w-3.5 h-3.5 text-gray-500" />
-                    <span className="text-xs font-medium text-gray-600">macOS / Linux</span>
+                  <div className="flex items-center justify-between px-3 py-1.5 bg-purple-500/10 border-b">
+                    <span className="text-xs font-medium text-purple-600">Step 2: Install plugin</span>
                     <CopyButton
-                      text={`bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.sh)`}
-                      label="mac"
+                      text="claude plugin install clawlens"
+                      label="step2"
                     />
                   </div>
                   <pre className="p-3 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed">
-{`bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.sh)`}
+{`claude plugin install clawlens`}
                   </pre>
+                </div>
+
+                {/* Step 3 */}
+                <div className="border rounded-md overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-1.5 bg-green-500/10 border-b">
+                    <span className="text-xs font-medium text-green-600">Step 3: When prompted, enter</span>
+                  </div>
+                  <div className="p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-mono text-muted-foreground w-20 shrink-0">Server URL:</span>
+                      <code className="text-[11px] font-mono flex-1">{serverUrl}</code>
+                      <CopyButton text={serverUrl} label="server" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-mono text-muted-foreground w-20 shrink-0">Auth Token:</span>
+                      <code className="text-[11px] font-mono flex-1 break-all">{installCode}</code>
+                      <CopyButton text={installCode} label="token2" />
+                    </div>
+                  </div>
                 </div>
 
                 <p className="text-xs text-muted-foreground">
-                  The script will ask for the install code and server URL shown above.
+                  Send these instructions to <strong>{name}</strong>. The plugin auto-configures all hooks.
                 </p>
               </div>
             </CardContent>

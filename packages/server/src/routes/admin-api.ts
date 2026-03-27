@@ -18,9 +18,11 @@ import {
   createSummary,
   type TeamRow,
   type UserRow,
+  getUnresolvedTamperAlerts,
+  resolveTamperAlert,
 } from '../services/db.js';
 import { adminAuth, generateToken } from '../middleware/admin-auth.js';
-import { getUserTamperStatus } from '../services/tamper.js';
+import { getUserTamperStatus, autoResolveInactiveAlerts } from '../services/tamper.js';
 import { generateSummary, isClaudeAvailable } from '../services/claude-ai.js';
 
 // ---------------------------------------------------------------------------
@@ -810,6 +812,54 @@ adminRouter.get('/audit-log', (req: Request, res: Response) => {
     res.json({ data });
   } catch (err) {
     console.error('[admin-api] audit log error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /tamper-alerts
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/tamper-alerts', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const users = getUsersByTeam(team.id);
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    const alerts = getUnresolvedTamperAlerts();
+    const enriched = alerts
+      .filter((a) => userMap.has(a.user_id))
+      .map((a) => ({
+        ...a,
+        user_name: userMap.get(a.user_id)?.name || 'Unknown',
+      }));
+
+    res.json({ data: enriched });
+  } catch (err) {
+    console.error('[admin-api] tamper alerts error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /tamper-alerts/:id/resolve
+// ---------------------------------------------------------------------------
+
+adminRouter.post('/tamper-alerts/:id/resolve', (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      res.status(400).json({ error: 'Invalid alert ID' });
+      return;
+    }
+    const resolved = resolveTamperAlert(id);
+    if (!resolved) {
+      res.status(404).json({ error: 'Alert not found' });
+      return;
+    }
+    res.json({ status: 'resolved' });
+  } catch (err) {
+    console.error('[admin-api] resolve tamper alert error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

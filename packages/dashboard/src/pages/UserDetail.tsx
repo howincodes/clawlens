@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions } from '@/lib/api'
+import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions, getTamperAlerts, resolveTamperAlert } from '@/lib/api'
 import {
   Card,
   CardContent,
@@ -29,6 +29,8 @@ import {
   RefreshCw,
   Monitor,
   Zap,
+  ShieldAlert,
+  CheckCircle2,
 } from 'lucide-react'
 import {
   Table,
@@ -109,6 +111,10 @@ export function UserDetail() {
   const [sessions, setSessions] = useState<any[]>([])
   const [sessionsLoading, setSessionsLoading] = useState(true)
 
+  // Tamper alerts state
+  const [tamperAlerts, setTamperAlerts] = useState<any[]>([])
+  const [resolvingAlert, setResolvingAlert] = useState<number | null>(null)
+
   // Modal states
   const [showLimits, setShowLimits] = useState(false)
   const [confirmAction, setConfirmAction] = useState<'killed' | 'paused' | 'active' | null>(null)
@@ -187,6 +193,33 @@ export function UserDetail() {
     }
   }, [id])
 
+  const loadTamperAlerts = useCallback(async () => {
+    if (!id) return
+    try {
+      const res = await getTamperAlerts()
+      const allAlerts = res?.alerts || []
+      // Filter to this user's alerts
+      setTamperAlerts(allAlerts.filter((a: any) => String(a.user_id) === String(id)))
+    } catch (_err) {
+      // tamper alerts are best-effort
+    }
+  }, [id])
+
+  const handleResolveAlert = useCallback(
+    async (alertId: number) => {
+      setResolvingAlert(alertId)
+      try {
+        await resolveTamperAlert(alertId)
+        loadTamperAlerts()
+      } catch (_err) {
+        console.error('Failed to resolve alert')
+      } finally {
+        setResolvingAlert(null)
+      }
+    },
+    [loadTamperAlerts]
+  )
+
   useEffect(() => {
     loadUser()
   }, [loadUser])
@@ -198,7 +231,8 @@ export function UserDetail() {
   useEffect(() => {
     loadSessions()
     loadAllPromptsForCharts()
-  }, [loadSessions, loadAllPromptsForCharts])
+    loadTamperAlerts()
+  }, [loadSessions, loadAllPromptsForCharts, loadTamperAlerts])
 
   // ── Chart data derived from prompts ───────────────────
   const dailyUsageData = useMemo(() => {
@@ -354,6 +388,12 @@ export function UserDetail() {
             >
               {user.status}
             </Badge>
+            {user.tamper_status && user.tamper_status !== 'ok' && (
+              <Badge variant="warning" className="ml-1 gap-1">
+                <ShieldAlert className="w-3 h-3" />
+                {user.tamper_status.replace(/_/g, ' ')}
+              </Badge>
+            )}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -626,6 +666,69 @@ export function UserDetail() {
           </Card>
         </div>
       </div>
+
+      {/* Tamper Alert History */}
+      {tamperAlerts.length > 0 && (
+        <Card className="border-yellow-500/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-yellow-500" />
+              Tamper Alerts
+              <Badge variant="warning" className="ml-auto">
+                {tamperAlerts.filter((a: any) => !a.resolved_at).length} unresolved
+              </Badge>
+            </CardTitle>
+            <CardDescription>
+              History of tamper detection alerts for this user
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {tamperAlerts.map((alert: any) => (
+                <div
+                  key={alert.id}
+                  className={`flex items-center justify-between p-3 border rounded-md text-sm ${
+                    alert.resolved_at ? 'bg-muted/30 opacity-60' : 'bg-yellow-500/5 border-yellow-500/20'
+                  }`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-xs capitalize">
+                      {(alert.alert_type || alert.type || '').replace(/_/g, ' ')}
+                    </div>
+                    {alert.details && (
+                      <div className="text-[10px] text-muted-foreground truncate">
+                        {typeof alert.details === 'string' ? alert.details : JSON.stringify(alert.details)}
+                      </div>
+                    )}
+                    <div className="text-[10px] text-muted-foreground mt-0.5">
+                      {alert.detected_at
+                        ? formatDistanceToNow(new Date(alert.detected_at), { addSuffix: true })
+                        : ''}
+                      {alert.resolved_at && (
+                        <span className="ml-2 text-green-600">
+                          Resolved {formatDistanceToNow(new Date(alert.resolved_at), { addSuffix: true })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {!alert.resolved_at && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-green-600 hover:text-green-700 ml-2 shrink-0"
+                      onClick={() => handleResolveAlert(alert.id)}
+                      disabled={resolvingAlert === alert.id}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                      {resolvingAlert === alert.id ? '...' : 'Resolve'}
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 4 Charts */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">

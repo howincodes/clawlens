@@ -105,6 +105,11 @@ export const generateSummary = () => fetchClient('/summaries/generate', { method
 export const getAuditLog = (params?: Record<string, string>) =>
   fetchClient(`/audit-log${params ? '?' + new URLSearchParams(params).toString() : ''}`)
 
+// ── Tamper Alerts ────────────────────────────────────────────
+export const getTamperAlerts = () => fetchClient('/tamper-alerts')
+export const resolveTamperAlert = (id: number) =>
+  fetchClient(`/tamper-alerts/${id}/resolve`, { method: 'POST' })
+
 // ── Export ─────────────────────────────────────────────────
 export const exportData = (type: string, days: number, format: string) => {
   window.open(`/api/admin/export/${type}?days=${days}&format=${format}`)
