@@ -13,7 +13,8 @@ ClawLens v0.2 eliminates the client binary for hook handling. Claude Code's nati
 - Database: SQLite via modernc.org/sqlite (existing)
 - Dashboard: React (existing, modified)
 - Client: Claude Code plugin (new) + enforcement scripts (new)
-- Hooks: HTTP type (`type: "http"`) — no local binary needed
+- Hooks: HTTP type (`type: "http"`) for most events + command type for SessionStart, CwdChanged, FileChanged (Claude Code limitation)
+- Plugin scripts: Small shell script bundled with plugin for command-only hooks
 
 ---
 
@@ -27,7 +28,7 @@ ClawLens v0.2 eliminates the client binary for hook handling. Claude Code's nati
 **Kill switch:** Block prompts via HTTP hook response
 **Best for:** Startups, trust-based teams
 
-Plugin registers 11 HTTP hooks. All events POST directly to the ClawLens server. User enters server URL and auth token during plugin enable. Token stored in system keychain.
+Plugin registers 11 hooks (8 HTTP + 3 command). Most events POST directly to the ClawLens server via HTTP hooks. Three events (SessionStart, FileChanged, CwdChanged) use command hooks with a bundled shell script because Claude Code only supports `type: "command"` for these events. User enters server URL and auth token during plugin enable. Token stored in system keychain.
 
 Users CAN disable by uninstalling the plugin or setting `disableAllHooks: true`. Dead man's switch detects this.
 
@@ -75,6 +76,8 @@ howincodes/claude-plugins/          ← GitHub marketplace repo
     │   └── plugin.json
     ├── hooks/
     │   └── hooks.json
+    ├── scripts/
+    │   └── clawlens-hook.sh        ← command hook handler (SessionStart, FileChanged)
     └── skills/
         └── clawlens-status/
             └── SKILL.md
@@ -113,9 +116,8 @@ howincodes/claude-plugins/          ← GitHub marketplace repo
   "hooks": {
     "SessionStart": [{
       "hooks": [{
-        "type": "http",
-        "url": "${user_config.server_url}/api/v1/hook/session-start",
-        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
+        "type": "command",
+        "command": "${CLAUDE_PLUGIN_ROOT}/scripts/clawlens-hook.sh",
         "timeout": 5
       }]
     }],
@@ -199,9 +201,8 @@ howincodes/claude-plugins/          ← GitHub marketplace repo
     "FileChanged": [{
       "matcher": "settings.json",
       "hooks": [{
-        "type": "http",
-        "url": "${user_config.server_url}/api/v1/hook/file-changed",
-        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
+        "type": "command",
+        "command": "${CLAUDE_PLUGIN_ROOT}/scripts/clawlens-hook.sh",
         "timeout": 3
       }]
     }]
@@ -209,8 +210,11 @@ howincodes/claude-plugins/          ← GitHub marketplace repo
 }
 ```
 
-Sync hooks (can block): SessionStart, UserPromptSubmit, PreToolUse, Stop, ConfigChange, FileChanged
-Async hooks (fire-and-forget): StopFailure, SessionEnd, PostToolUse, SubagentStart, PostToolUseFailure
+Command hooks (command-only events): SessionStart, FileChanged — use bundled `clawlens-hook.sh` script
+HTTP sync hooks (can block): UserPromptSubmit, PreToolUse, Stop, ConfigChange
+HTTP async hooks (fire-and-forget): StopFailure, SessionEnd, PostToolUse, SubagentStart, PostToolUseFailure
+
+**Verified 2026-03-28:** HTTP hooks confirmed working for UserPromptSubmit and Stop. SessionStart confirmed command-only (debug log: "HTTP hooks are not supported for SessionStart"). `${user_config.*}` substitution in HTTP hook URLs/headers needs verification via marketplace install (--plugin-dir skips userConfig prompt). Fallback: env vars `$CLAUDE_PLUGIN_OPTION_SERVER_URL` and `$CLAUDE_PLUGIN_OPTION_AUTH_TOKEN`.
 
 ### /clawlens-status Skill
 
@@ -732,12 +736,18 @@ v0.1 used install codes exchanged for tokens via `/api/v1/register`. v0.2 genera
 
 ### Risk: `${user_config.server_url}` substitution may not work in HTTP hook URLs
 
-Plugin variable substitution is documented for "hook commands" and "MCP/LSP configs" but not explicitly for HTTP hook URL fields.
+Plugin variable substitution is documented for "hook commands" and "MCP/LSP configs" but not explicitly for HTTP hook URL fields. `--plugin-dir` skips userConfig prompts so this couldn't be tested locally.
 
-**Mitigation:** Test early. If it doesn't work, fall back to:
-- Option A: Environment variable `$CLAUDE_PLUGIN_OPTION_SERVER_URL` in URL field
-- Option B: Command hooks with curl instead of HTTP hooks
+**Mitigation:** Test via marketplace install early in implementation. Fallbacks:
+- Option A: Environment variable `$CLAUDE_PLUGIN_OPTION_SERVER_URL` in URL field (these are auto-exported by Claude Code from userConfig)
+- Option B: Use command hooks with curl for all events (works but loses native HTTP hook error handling)
 - Option C: Hardcode server URL in plugin (one plugin build per deployment)
+
+### Risk: SessionStart, CwdChanged, FileChanged only support command hooks
+
+**Confirmed 2026-03-28.** Debug log showed: "HTTP hooks are not supported for SessionStart". These events require `type: "command"`.
+
+**Mitigation:** Plugin bundles `scripts/clawlens-hook.sh` that reads stdin JSON, calls server via curl, and outputs the response. Environment variables from userConfig (`CLAUDE_PLUGIN_OPTION_*`) are available in command hook subprocesses.
 
 ### Risk: HTTP hooks fail-open when server is unreachable
 
