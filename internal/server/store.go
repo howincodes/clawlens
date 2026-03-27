@@ -293,7 +293,7 @@ func defaultTeamSettings() string {
 		CollectResponses:     true,
 		SecretScrub:          "redact",
 		SummaryIntervalHours: 8,
-		SummaryProvider:      "anthropic-api",
+		SummaryProvider:      "claude-code",
 		CreditWeights: shared.CreditWeights{
 			Opus:   10,
 			Sonnet: 3,

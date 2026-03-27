@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -33,7 +34,8 @@ func RegisterAdminRoutes(mux *http.ServeMux, store *Store, hub *WSHub, jwtMgr *J
 	mux.Handle("GET /api/admin/analytics/projects", adminMW(http.HandlerFunc(handleGetProjectAnalytics(analytics))))
 	mux.Handle("GET /api/admin/analytics/costs", adminMW(http.HandlerFunc(handleGetCosts(analytics))))
 	mux.Handle("GET /api/admin/summaries", adminMW(http.HandlerFunc(handleGetSummaries(store))))
-	mux.Handle("POST /api/admin/summaries/generate", adminMW(http.HandlerFunc(handleGenerateSummary())))
+	summaryEngine := NewSummaryEngine(store)
+	mux.Handle("POST /api/admin/summaries/generate", adminMW(http.HandlerFunc(handleGenerateSummary(store, summaryEngine))))
 	mux.Handle("GET /api/admin/audit-log", adminMW(http.HandlerFunc(handleGetAuditLog(store))))
 	mux.Handle("GET /api/admin/export/{type}", adminMW(http.HandlerFunc(handleExport(store))))
 	mux.Handle("GET /api/admin/prompts", adminMW(http.HandlerFunc(handleGetAllPrompts(store))))
@@ -131,7 +133,42 @@ func handleGetSubscriptions(store *Store) http.HandlerFunc {
 		if subs == nil {
 			subs = []shared.Subscription{}
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"subscriptions": subs})
+
+		// Enrich each subscription with linked users, prompt count, credit total
+		users, _ := store.GetUsers(team.ID)
+
+		type enrichedSub struct {
+			shared.Subscription
+			Users       []map[string]any `json:"users"`
+			UserCount   int              `json:"user_count"`
+			TotalPrompts int             `json:"total_prompts"`
+			TotalCredits int             `json:"total_credits"`
+		}
+
+		result := make([]enrichedSub, len(subs))
+		for i, sub := range subs {
+			es := enrichedSub{Subscription: sub}
+			for _, u := range users {
+				if u.SubscriptionID != nil && *u.SubscriptionID == sub.ID {
+					stats, _ := store.GetUserStats(u.ID)
+					prompts, _ := stats["total_prompts"].(int)
+					credits, _ := stats["total_cost"].(int)
+					es.Users = append(es.Users, map[string]any{
+						"id": u.ID, "name": u.Name, "slug": u.Slug, "status": u.Status,
+						"prompts": prompts, "credits": credits,
+					})
+					es.TotalPrompts += prompts
+					es.TotalCredits += credits
+				}
+			}
+			if es.Users == nil {
+				es.Users = []map[string]any{}
+			}
+			es.UserCount = len(es.Users)
+			result[i] = es
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{"subscriptions": result})
 	}
 }
 
@@ -559,8 +596,17 @@ func handleGetSummaries(store *Store) http.HandlerFunc {
 	}
 }
 
-func handleGenerateSummary() http.HandlerFunc {
+func handleGenerateSummary(store *Store, engine *SummaryEngine) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		team := TeamFromContext(r.Context())
+		// Run summary generation asynchronously
+		go func() {
+			if err := engine.GenerateForAllUsers(team.ID, 24); err != nil {
+				log.Printf("[summary] generation error: %v", err)
+			} else {
+				log.Printf("[summary] generation complete for team %s", team.ID)
+			}
+		}()
 		writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
 	}
 }
