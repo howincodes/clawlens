@@ -70,37 +70,66 @@ $env:Path = "$env:Path;$InstallDir"
 Write-Host "[3/4] Setting up..."
 Write-Host ""
 
-$Code = ""
-while ([string]::IsNullOrWhiteSpace($Code)) {
-    $Code = Read-Host "  Install code (from dashboard, e.g. CLM-alice-abc123)"
-    if ([string]::IsNullOrWhiteSpace($Code)) { Write-Host "  Code cannot be empty!" -ForegroundColor Red }
+$AuthToken = $null
+$Server = $null
+$UserId = $null
+
+# Check for existing valid config
+if (Test-Path $ConfigFile) {
+    try {
+        $existing = Get-Content $ConfigFile -Raw | ConvertFrom-Json
+        if ($existing.auth_token -and $existing.server_url) {
+            $testHealth = Invoke-RestMethod -Uri "$($existing.server_url)/api/v1/health" -TimeoutSec 5 -ErrorAction SilentlyContinue
+            if ($testHealth) {
+                Write-Host "  Found existing valid config." -ForegroundColor Green
+                Write-Host "  Server: $($existing.server_url)"
+                Write-Host "  User:   $($existing.user_id)"
+                $reuse = Read-Host "  Reuse existing config? (y/n)"
+                if ($reuse -eq "y" -or $reuse -eq "Y") {
+                    $AuthToken = $existing.auth_token
+                    $Server = $existing.server_url
+                    $UserId = $existing.user_id
+                    Write-Host "  -> Reusing existing config" -ForegroundColor Green
+                }
+            }
+        }
+    } catch {}
 }
 
-$Server = ""
-while ([string]::IsNullOrWhiteSpace($Server)) {
-    $Server = Read-Host "  Server URL (e.g. https://clawlens.howincloud.com)"
-    if ([string]::IsNullOrWhiteSpace($Server)) { Write-Host "  Server URL cannot be empty!" -ForegroundColor Red }
-}
-$Server = $Server.TrimEnd("/")
+if (-not $AuthToken) {
+    $Code = ""
+    while ([string]::IsNullOrWhiteSpace($Code)) {
+        $Code = Read-Host "  Install code (from dashboard, e.g. CLM-alice-abc123)"
+        if ([string]::IsNullOrWhiteSpace($Code)) { Write-Host "  Code cannot be empty!" -ForegroundColor Red }
+    }
 
-# Register with server
-Write-Host ""
-Write-Host "  Registering with server..."
-try {
-    $regBody = @{ code = $Code } | ConvertTo-Json
-    $reg = Invoke-RestMethod -Uri "$Server/api/v1/register" -Method Post -Body $regBody -ContentType "application/json"
-    Write-Host "  -> Registered! User: $($reg.user_id)" -ForegroundColor Green
-} catch {
-    Write-Host "  -> Registration failed: $_" -ForegroundColor Red
-    Write-Host "  Check: is the install code correct? Is the server running?" -ForegroundColor Red
-    return
+    $Server = ""
+    while ([string]::IsNullOrWhiteSpace($Server)) {
+        $Server = Read-Host "  Server URL (e.g. https://clawlens.howincloud.com)"
+        if ([string]::IsNullOrWhiteSpace($Server)) { Write-Host "  Server URL cannot be empty!" -ForegroundColor Red }
+    }
+    $Server = $Server.TrimEnd("/")
+
+    Write-Host ""
+    Write-Host "  Registering with server..."
+    try {
+        $regBody = @{ code = $Code } | ConvertTo-Json
+        $reg = Invoke-RestMethod -Uri "$Server/api/v1/register" -Method Post -Body $regBody -ContentType "application/json"
+        $AuthToken = $reg.auth_token
+        $UserId = $reg.user_id
+        Write-Host "  -> Registered! User: $UserId" -ForegroundColor Green
+    } catch {
+        Write-Host "  -> Registration failed: $_" -ForegroundColor Red
+        Write-Host "  Check: is the install code correct? Is the server running?" -ForegroundColor Red
+        return
+    }
 }
 
 # Write config
 $config = @{
     server_url = $Server
-    auth_token = $reg.auth_token
-    user_id = $reg.user_id
+    auth_token = $AuthToken
+    user_id = $UserId
     status = "active"
     default_model = "sonnet"
     sync_interval = 5

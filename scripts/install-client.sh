@@ -92,40 +92,69 @@ echo "  -> PATH configured"
 echo "[3/4] Setting up..."
 echo ""
 
-CODE=""
-while [ -z "$CODE" ]; do
-  read -p "  Install code (from dashboard, e.g. CLM-alice-abc123): " CODE
-  if [ -z "$CODE" ]; then
-    echo "  Code cannot be empty!"
-  fi
-done
-
-SERVER=""
-while [ -z "$SERVER" ]; do
-  read -p "  Server URL (e.g. https://clawlens.howincloud.com): " SERVER
-  if [ -z "$SERVER" ]; then
-    echo "  Server URL cannot be empty!"
-  fi
-done
-SERVER="${SERVER%/}"
-
-echo ""
-echo "  Registering with server..."
-REG=$(curl -sf -X POST "$SERVER/api/v1/register" \
-  -H 'Content-Type: application/json' \
-  -d "{\"code\":\"$CODE\"}" 2>&1) || {
-  echo "  Registration failed! Check install code and server URL."
-  exit 1
-}
-
-AUTH_TOKEN=$(echo "$REG" | python3 -c "import sys,json; print(json.load(sys.stdin)['auth_token'])" 2>/dev/null)
-USER_ID=$(echo "$REG" | python3 -c "import sys,json; print(json.load(sys.stdin)['user_id'])" 2>/dev/null)
-
-if [ -z "$AUTH_TOKEN" ]; then
-  echo "  Registration failed: $REG"
-  exit 1
+# Check if we have a valid existing config we can reuse
+EXISTING_TOKEN=""
+EXISTING_SERVER=""
+EXISTING_USERID=""
+if [ -f "$CONFIG_FILE" ]; then
+  EXISTING_TOKEN=$(python3 -c "import json; d=json.load(open('$CONFIG_FILE')); print(d.get('auth_token',''))" 2>/dev/null)
+  EXISTING_SERVER=$(python3 -c "import json; d=json.load(open('$CONFIG_FILE')); print(d.get('server_url',''))" 2>/dev/null)
+  EXISTING_USERID=$(python3 -c "import json; d=json.load(open('$CONFIG_FILE')); print(d.get('user_id',''))" 2>/dev/null)
 fi
-echo "  -> Registered! User: $USER_ID"
+
+if [ -n "$EXISTING_TOKEN" ] && [ -n "$EXISTING_SERVER" ]; then
+  # Verify the existing token still works
+  if curl -sf "$EXISTING_SERVER/api/v1/health" -H "Authorization: Bearer $EXISTING_TOKEN" > /dev/null 2>&1; then
+    echo "  Found existing valid config."
+    echo "  Server: $EXISTING_SERVER"
+    echo "  User:   $EXISTING_USERID"
+    read -p "  Reuse existing config? (y/n) " reuse
+    if [ "$reuse" = "y" ] || [ "$reuse" = "Y" ]; then
+      AUTH_TOKEN="$EXISTING_TOKEN"
+      SERVER="$EXISTING_SERVER"
+      USER_ID="$EXISTING_USERID"
+      echo "  -> Reusing existing config"
+    fi
+  fi
+fi
+
+# If no existing config reused, ask for new code
+if [ -z "$AUTH_TOKEN" ]; then
+  CODE=""
+  while [ -z "$CODE" ]; do
+    read -p "  Install code (from dashboard, e.g. CLM-alice-abc123): " CODE
+    if [ -z "$CODE" ]; then
+      echo "  Code cannot be empty!"
+    fi
+  done
+
+  SERVER=""
+  while [ -z "$SERVER" ]; do
+    read -p "  Server URL (e.g. https://clawlens.howincloud.com): " SERVER
+    if [ -z "$SERVER" ]; then
+      echo "  Server URL cannot be empty!"
+    fi
+  done
+  SERVER="${SERVER%/}"
+
+  echo ""
+  echo "  Registering with server..."
+  REG=$(curl -sf -X POST "$SERVER/api/v1/register" \
+    -H 'Content-Type: application/json' \
+    -d "{\"code\":\"$CODE\"}" 2>&1) || {
+    echo "  Registration failed! Check install code and server URL."
+    exit 1
+  }
+
+  AUTH_TOKEN=$(echo "$REG" | python3 -c "import sys,json; print(json.load(sys.stdin)['auth_token'])" 2>/dev/null)
+  USER_ID=$(echo "$REG" | python3 -c "import sys,json; print(json.load(sys.stdin)['user_id'])" 2>/dev/null)
+
+  if [ -z "$AUTH_TOKEN" ]; then
+    echo "  Registration failed: $REG"
+    exit 1
+  fi
+  echo "  -> Registered! User: $USER_ID"
+fi
 
 cat > "$CONFIG_FILE" << EOF
 {
