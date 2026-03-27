@@ -18,6 +18,7 @@ import {
   type LimitRow,
 } from '../services/db.js';
 import { autoResolveInactiveAlerts } from '../services/tamper.js';
+import { broadcast } from '../services/websocket.js';
 import {
   SessionStartEvent,
   UserPromptSubmitEvent,
@@ -127,6 +128,8 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
       payload: JSON.stringify(body),
     });
 
+    broadcast({ type: 'session_start', user_id: user.id, user_name: user.name, model: data.model });
+
     res.json({});
   } catch (err) {
     console.error('[hook-api] session-start error:', err);
@@ -228,6 +231,7 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
       });
       touchUserLastEvent(user.id);
     autoResolveInactiveAlerts(user.id);
+      broadcast({ type: 'prompt', user_id: user.id, user_name: user.name, prompt: data.prompt?.slice(0, 100), blocked: true });
       res.json({ decision: 'block', reason: blockReason });
       return;
     }
@@ -252,6 +256,8 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
       event_type: 'UserPromptSubmit',
       payload: JSON.stringify(body),
     });
+
+    broadcast({ type: 'prompt', user_id: user.id, user_name: user.name, prompt: data.prompt?.slice(0, 100), blocked: false });
 
     res.json({});
   } catch (err) {
@@ -310,6 +316,8 @@ hookRouter.post('/pre-tool', (req: Request, res: Response) => {
       event_type: 'PreToolUse',
       payload: JSON.stringify(body),
     });
+
+    broadcast({ type: 'tool_use', user_id: user.id, user_name: user.name, tool_name: data.tool_name });
 
     res.json({});
   } catch (err) {
@@ -376,6 +384,8 @@ hookRouter.post('/stop', (req: Request, res: Response) => {
       event_type: 'Stop',
       payload: JSON.stringify(body),
     });
+
+    broadcast({ type: 'stop', user_id: user.id, user_name: user.name, model });
 
     res.json({});
   } catch (err) {

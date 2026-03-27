@@ -600,11 +600,16 @@ describe('GET /api/admin/summaries', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /api/admin/summaries/generate', () => {
-  it('should return queued status', async () => {
+  it('should return no_data when there are no recent prompts', async () => {
+    // Clear all prompts so the endpoint hits the no_data path
+    const db = getDb();
+    db.prepare('DELETE FROM prompts').run();
+
     const res = await authPost('/api/admin/summaries/generate');
 
     expect(res.status).toBe(200);
-    expect(res.body.status).toBe('queued');
+    expect(res.body.status).toBe('no_data');
+    expect(res.body.message).toContain('No prompts');
   });
 });
 

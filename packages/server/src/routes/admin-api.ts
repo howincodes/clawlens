@@ -15,11 +15,13 @@ import {
   getLimitsByUser,
   createLimit,
   deleteLimitsByUser,
+  createSummary,
   type TeamRow,
   type UserRow,
 } from '../services/db.js';
 import { adminAuth, generateToken } from '../middleware/admin-auth.js';
 import { getUserTamperStatus } from '../services/tamper.js';
+import { generateSummary, isClaudeAvailable } from '../services/claude-ai.js';
 
 // ---------------------------------------------------------------------------
 // Router
@@ -734,9 +736,56 @@ adminRouter.get('/summaries', (_req: Request, res: Response) => {
 // POST /summaries/generate
 // ---------------------------------------------------------------------------
 
-adminRouter.post('/summaries/generate', (_req: Request, res: Response) => {
-  // Placeholder — AI service built in Phase 6
-  res.json({ status: 'queued' });
+adminRouter.post('/summaries/generate', async (_req: Request, res: Response) => {
+  try {
+    // Check if claude CLI is available
+    const available = await isClaudeAvailable();
+    if (!available) {
+      res.status(503).json({ error: 'Claude CLI is not available on this server' });
+      return;
+    }
+
+    const team = getOrCreateTeam();
+    const users = getUsersByTeam(team.id);
+
+    // Get recent prompts (last 24h) for all users in the team
+    const db = getDb();
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const recentPrompts = db
+      .prepare(
+        `SELECT p.prompt, p.model, p.created_at
+         FROM prompts p
+         WHERE p.user_id IN (SELECT id FROM users WHERE team_id = ?)
+         AND p.created_at >= ?
+         AND p.blocked = 0
+         AND p.prompt IS NOT NULL
+         ORDER BY p.created_at DESC
+         LIMIT 200`,
+      )
+      .all(team.id, since) as Array<{ prompt: string; model: string; created_at: string }>;
+
+    if (recentPrompts.length === 0) {
+      res.json({ status: 'no_data', message: 'No prompts in the last 24 hours to summarize' });
+      return;
+    }
+
+    // Call AI to generate summary
+    const result = await generateSummary(recentPrompts);
+
+    // Save result to DB
+    const summary = createSummary({
+      period: 'daily',
+      summary: result.summary,
+      categories: JSON.stringify(result.categories),
+      topics: JSON.stringify(result.topics),
+      risk_level: result.risk_level,
+    });
+
+    res.json({ status: 'complete', summary });
+  } catch (err) {
+    console.error('[admin-api] generate summary error:', err);
+    res.status(500).json({ error: 'Failed to generate summary' });
+  }
 });
 
 // ---------------------------------------------------------------------------

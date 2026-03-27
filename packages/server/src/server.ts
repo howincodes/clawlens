@@ -1,16 +1,24 @@
 import express from 'express';
 import cors from 'cors';
+import { createServer } from 'node:http';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
+
 import { initDb } from './services/db.js';
+import { initWebSocket } from './services/websocket.js';
+import { startDeadmanSwitch } from './services/deadman.js';
 import { hookAuth } from './middleware/hook-auth.js';
-import { hookRouter } from './routes/hook-api.js';
 import { adminRouter } from './routes/admin-api.js';
+import { hookRouter } from './routes/hook-api.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ---------------------------------------------------------------------------
 // Express app setup
 // ---------------------------------------------------------------------------
 
-const app = express();
+export const app = express();
 
 // Body parsing
 app.use(express.json({ limit: '1mb' }));
@@ -29,21 +37,14 @@ app.use(
 );
 
 // ---------------------------------------------------------------------------
-// Initialize database
-// In test mode, tests call initDb(':memory:') themselves before importing app.
-// ---------------------------------------------------------------------------
-
-const dbPath = process.env.DB_PATH ?? path.join(process.cwd(), 'data', 'clawlens.db');
-
-if (process.env.NODE_ENV !== 'test') {
-  initDb(dbPath);
-}
-
-// ---------------------------------------------------------------------------
 // Health check
 // ---------------------------------------------------------------------------
 
 app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/api/v1/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
@@ -58,6 +59,24 @@ app.use('/api/v1/hook', hookAuth, hookRouter);
 // ---------------------------------------------------------------------------
 
 app.use('/api/admin', adminRouter);
+
+// ---------------------------------------------------------------------------
+// Serve dashboard static files
+// ---------------------------------------------------------------------------
+
+const dashboardDir = process.env.DASHBOARD_DIR || path.join(__dirname, '../../dashboard/dist');
+
+if (existsSync(dashboardDir)) {
+  app.use(express.static(dashboardDir));
+
+  // SPA fallback — serve index.html for non-API routes
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/ws')) {
+      return next();
+    }
+    res.sendFile(path.join(dashboardDir, 'index.html'));
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Error handling
@@ -85,17 +104,33 @@ app.use(
 );
 
 // ---------------------------------------------------------------------------
-// Start
+// Start server (skip in test environment)
 // ---------------------------------------------------------------------------
 
-const PORT = parseInt(process.env.PORT ?? '3000', 10);
-
-// Only listen when run directly (not when imported for tests)
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
-    console.log(`[clawlens] Server listening on port ${PORT}`);
-    console.log(`[clawlens] Database: ${dbPath}`);
+  const port = parseInt(process.env.PORT ?? '3000', 10);
+  const dbPath = process.env.DB_PATH ?? path.join(process.cwd(), 'data', 'clawlens.db');
+
+  initDb(dbPath);
+
+  const server = createServer(app);
+  initWebSocket(server);
+
+  // Start dead man's switch
+  const stopDeadman = startDeadmanSwitch();
+
+  server.listen(port, () => {
+    console.log(`[clawlens] Server running on port ${port}`);
+    console.log(`[clawlens] Dashboard: http://localhost:${port}`);
+    console.log(`[clawlens] Hook API:  http://localhost:${port}/api/v1/hook/`);
+    console.log(`[clawlens] Admin API: http://localhost:${port}/api/admin/`);
+    console.log(`[clawlens] Database:  ${dbPath}`);
+  });
+
+  // Graceful shutdown
+  process.on('SIGTERM', () => {
+    console.log('[clawlens] Shutting down...');
+    stopDeadman();
+    server.close();
   });
 }
-
-export { app };
