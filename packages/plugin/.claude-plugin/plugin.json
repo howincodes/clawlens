@@ -1,0 +1,21 @@
+{
+  "name": "clawlens",
+  "version": "0.2.0",
+  "description": "AI usage analytics and team management for Claude Code teams",
+  "author": {
+    "name": "Howin Codes",
+    "url": "https://github.com/howincodes"
+  },
+  "repository": "https://github.com/howincodes/clawlens",
+  "keywords": ["analytics", "monitoring", "team-management", "usage-tracking"],
+  "userConfig": {
+    "server_url": {
+      "description": "ClawLens server URL (e.g. https://clawlens.howincloud.com)",
+      "sensitive": false
+    },
+    "auth_token": {
+      "description": "Your auth token (from admin dashboard)",
+      "sensitive": true
+    }
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "hooks": {
+    "SessionStart": [{
+      "hooks": [{
+        "type": "command",
+        "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/clawlens-hook.sh\"",
+        "timeout": 5
+      }]
+    }],
+    "UserPromptSubmit": [{
+      "hooks": [{
+        "type": "http",
+        "url": "${user_config.server_url}/api/v1/hook/prompt",
+        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
+        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
+        "timeout": 5
+      }]
+    }],
+    "PreToolUse": [{
+      "hooks": [{
+        "type": "http",
+        "url": "${user_config.server_url}/api/v1/hook/pre-tool",
+        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
+        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
+        "timeout": 2
+      }]
+    }],
+    "Stop": [{
+      "hooks": [{
+        "type": "http",
+        "url": "${user_config.server_url}/api/v1/hook/stop",
+        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
+        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
+        "timeout": 5
+      }]
+    }],
+    "StopFailure": [{
+      "hooks": [{
+        "type": "http",
+        "url": "${user_config.server_url}/api/v1/hook/stop-error",
+        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
+        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
+        "timeout": 2,
+        "async": true
+      }]
+    }],
+    "SessionEnd": [{
+      "hooks": [{
+        "type": "http",
+        "url": "${user_config.server_url}/api/v1/hook/session-end",
+        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
+        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
+        "timeout": 3,
+        "async": true
+      }]
+    }],
+    "PostToolUse": [{
+      "hooks": [{
+        "type": "http",
+        "url": "${user_config.server_url}/api/v1/hook/post-tool",
+        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
+        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
+        "timeout": 3,
+        "async": true
+      }]
+    }],
+    "SubagentStart": [{
+      "hooks": [{
+        "type": "http",
+        "url": "${user_config.server_url}/api/v1/hook/subagent-start",
+        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
+        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
+        "timeout": 2,
+        "async": true
+      }]
+    }],
+    "PostToolUseFailure": [{
+      "hooks": [{
+        "type": "http",
+        "url": "${user_config.server_url}/api/v1/hook/post-tool-failure",
+        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
+        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
+        "timeout": 2,
+        "async": true
+      }]
+    }],
+    "ConfigChange": [{
+      "hooks": [{
+        "type": "http",
+        "url": "${user_config.server_url}/api/v1/hook/config-change",
+        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
+        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
+        "timeout": 3
+      }]
+    }],
+    "FileChanged": [{
+      "matcher": "settings.json",
+      "hooks": [{
+        "type": "command",
+        "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/clawlens-hook.sh\"",
+        "timeout": 3
+      }]
+    }]
+  }
+}
