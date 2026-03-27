@@ -148,7 +148,6 @@ echo "  -> Config written"
 mkdir -p "$CLAUDE_DIR"
 cat > "$MANAGED_SETTINGS" << EOF
 {
-  "allowManagedHooksOnly": true,
   "hooks": {
     "SessionStart": [{"matcher":"","hooks":[{"type":"command","command":"$BINARY hook session-start","timeout":10}]}],
     "UserPromptSubmit": [{"hooks":[{"type":"command","command":"$BINARY hook prompt","timeout":5}]}],

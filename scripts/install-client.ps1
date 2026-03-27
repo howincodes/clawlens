@@ -118,7 +118,6 @@ Write-Host "  -> Config written" -ForegroundColor Green
 if (!(Test-Path $ClaudeDir)) { New-Item -ItemType Directory -Path $ClaudeDir -Force | Out-Null }
 $binaryForward = $Binary.Replace("\", "/")
 $hooks = @{
-    allowManagedHooksOnly = $true
     hooks = @{
         SessionStart = @(@{ matcher = ""; hooks = @(@{ type = "command"; command = "$binaryForward hook session-start"; timeout = 10 }) })
         UserPromptSubmit = @(@{ hooks = @(@{ type = "command"; command = "$binaryForward hook prompt"; timeout = 5 }) })

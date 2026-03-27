@@ -143,7 +143,7 @@ func Setup(code, serverURL string) error {
 	}
 
 	ms := managedSettings{
-		AllowManagedHooksOnly: true,
+		AllowManagedHooksOnly: false,
 		Hooks: map[string][]managedHookEntry{
 			"SessionStart":    {hookWithMatcher("session-start", 10)},
 			"UserPromptSubmit": {hook("prompt", 5)},
