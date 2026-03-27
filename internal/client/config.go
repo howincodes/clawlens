@@ -30,13 +30,25 @@ type Config struct {
 
 // ConfigDir returns the platform-specific directory where ClawLens stores its
 // configuration and queue database.
+// Uses user-writable paths that don't require admin/root.
 func ConfigDir() string {
 	switch runtime.GOOS {
 	case "darwin":
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			return filepath.Join(home, ".clawlens")
+		}
 		return "/Library/Application Support/ClaudeCode/clawlens/"
 	case "windows":
+		if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+			return filepath.Join(localAppData, "ClawLens")
+		}
 		return `C:\Program Files\ClaudeCode\clawlens\`
-	default: // linux and others
+	default: // linux
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			return filepath.Join(home, ".clawlens")
+		}
 		return "/etc/claude-code/clawlens/"
 	}
 }
