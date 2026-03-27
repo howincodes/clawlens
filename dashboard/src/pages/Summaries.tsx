@@ -156,11 +156,30 @@ export function Summaries() {
       ) : (
         <div className="space-y-4">
           {data.summaries.map((summary, idx) => {
-            const categories = summary.categories as Record<string, number> | undefined
+            // Parse categories — API returns JSON string, not object
+            let categories: Record<string, number> = {}
+            try {
+              const raw = summary.categories
+              if (typeof raw === 'string') categories = JSON.parse(raw)
+              else if (raw && typeof raw === 'object') categories = raw as Record<string, number>
+            } catch { /* ignore parse errors */ }
+
+            // Parse topics
+            let topics: string[] = []
+            try {
+              const raw = summary.topics
+              if (typeof raw === 'string') topics = JSON.parse(raw)
+              else if (Array.isArray(raw)) topics = raw as string[]
+            } catch { /* ignore */ }
+
             const periodStart = summary.period_start ? new Date(String(summary.period_start)).toLocaleDateString() : ''
             const periodEnd = summary.period_end ? new Date(String(summary.period_end)).toLocaleDateString() : ''
-            const userObj = summary.user as Record<string, unknown> | undefined
-            const userName = String(userObj?.name || (summary.type === 'weekly_team' ? 'Team Report' : `User ${summary.user_id || 'Unknown'}`))
+
+            // Look up user name from users list
+            const userMap = new Map(users.map(u => [String(u.id), String(u.name)]))
+            const userName = summary.type === 'weekly_team'
+              ? 'Team Report'
+              : (userMap.get(String(summary.user_id)) || 'Unknown User')
 
             return (
               <Card key={String(summary.id || idx)} className="overflow-hidden hover:shadow-md transition-shadow">
@@ -189,14 +208,28 @@ export function Summaries() {
                   {String(summary.summary_text || '')}
                 </CardContent>
 
-                {/* Categories */}
-                {categories && Object.keys(categories).length > 0 && (
-                  <div className="px-6 pb-3 flex flex-wrap gap-2">
-                    {Object.entries(categories).map(([cat, pct]) => (
-                      <Badge key={cat} variant="outline" className={`text-xs capitalize ${CATEGORY_COLORS[cat] || ''}`}>
-                        {cat} {Number(pct)}%
-                      </Badge>
-                    ))}
+                {/* Categories + Topics */}
+                {(Object.keys(categories).length > 0 || topics.length > 0) && (
+                  <div className="px-6 pb-3 space-y-2">
+                    {Object.keys(categories).length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {Object.entries(categories)
+                          .filter(([, v]) => v > 0)
+                          .sort(([,a], [,b]) => b - a)
+                          .map(([cat, count]) => (
+                          <Badge key={cat} variant="outline" className={`text-xs capitalize ${CATEGORY_COLORS[cat] || 'bg-gray-500/10 text-gray-600'}`}>
+                            {cat.replace(/_/g, ' ')} ({count})
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    {topics.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {topics.map((t, i) => (
+                          <Badge key={i} variant="secondary" className="text-[10px]">{t}</Badge>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
