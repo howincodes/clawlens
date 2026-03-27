@@ -4,6 +4,7 @@ import path from 'node:path';
 import { initDb } from './services/db.js';
 import { hookAuth } from './middleware/hook-auth.js';
 import { hookRouter } from './routes/hook-api.js';
+import { adminRouter } from './routes/admin-api.js';
 
 // ---------------------------------------------------------------------------
 // Express app setup
@@ -51,6 +52,12 @@ app.get('/health', (_req, res) => {
 // ---------------------------------------------------------------------------
 
 app.use('/api/v1/hook', hookAuth, hookRouter);
+
+// ---------------------------------------------------------------------------
+// Admin API routes (React dashboard endpoints)
+// ---------------------------------------------------------------------------
+
+app.use('/api/admin', adminRouter);
 
 // ---------------------------------------------------------------------------
 // Error handling

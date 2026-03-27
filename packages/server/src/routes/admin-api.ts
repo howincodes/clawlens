@@ -1,0 +1,766 @@
+import { Router } from 'express';
+import type { Request, Response } from 'express';
+import { randomBytes } from 'node:crypto';
+import {
+  getDb,
+  createTeam,
+  listTeams,
+  createUser,
+  getUserById,
+  getUsersByTeam,
+  updateUser,
+  deleteUser,
+  getPromptsByUser,
+  getSessionsByUser,
+  getLimitsByUser,
+  createLimit,
+  deleteLimitsByUser,
+  type TeamRow,
+  type UserRow,
+} from '../services/db.js';
+import { adminAuth, generateToken } from '../middleware/admin-auth.js';
+import { getUserTamperStatus } from '../services/tamper.js';
+
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
+
+export const adminRouter = Router();
+
+// ---------------------------------------------------------------------------
+// POST /login  — public (no auth)
+// ---------------------------------------------------------------------------
+
+adminRouter.post('/login', (req: Request, res: Response) => {
+  try {
+    const { password } = req.body;
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin';
+
+    if (password !== adminPassword) {
+      res.status(401).json({ error: 'Invalid password' });
+      return;
+    }
+
+    const token = generateToken({ sub: 'admin', email: 'admin@clawlens.dev', role: 'admin' });
+    res.json({ token });
+  } catch (err) {
+    console.error('[admin-api] login error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// All routes below require admin auth
+// ---------------------------------------------------------------------------
+
+adminRouter.use(adminAuth);
+
+// ---------------------------------------------------------------------------
+// Helper: get or create the default team
+// ---------------------------------------------------------------------------
+
+function getOrCreateTeam(): TeamRow {
+  const teams = listTeams();
+  if (teams.length > 0) return teams[0];
+  return createTeam({ name: 'Default Team', slug: 'default' });
+}
+
+// ---------------------------------------------------------------------------
+// GET /team
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/team', (_req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    res.json(team);
+  } catch (err) {
+    console.error('[admin-api] get team error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PUT /team
+// ---------------------------------------------------------------------------
+
+adminRouter.put('/team', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const db = getDb();
+    const { name, slug } = req.body;
+
+    const setClauses: string[] = [];
+    const values: unknown[] = [];
+
+    if (name !== undefined) {
+      setClauses.push('name = ?');
+      values.push(name);
+    }
+    if (slug !== undefined) {
+      setClauses.push('slug = ?');
+      values.push(slug);
+    }
+
+    if (setClauses.length === 0) {
+      res.json(team);
+      return;
+    }
+
+    values.push(team.id);
+    const updated = db
+      .prepare(`UPDATE teams SET ${setClauses.join(', ')} WHERE id = ? RETURNING *`)
+      .get(...values) as TeamRow;
+
+    res.json(updated);
+  } catch (err) {
+    console.error('[admin-api] update team error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PUT /team/password
+// ---------------------------------------------------------------------------
+
+adminRouter.put('/team/password', (req: Request, res: Response) => {
+  try {
+    const { current_password, new_password } = req.body;
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin';
+
+    if (current_password !== adminPassword) {
+      res.status(401).json({ error: 'Current password is incorrect' });
+      return;
+    }
+
+    // In a real implementation, we'd persist this. For now, just validate.
+    // The password is managed via env var ADMIN_PASSWORD.
+    res.json({ message: 'Password updated. Set ADMIN_PASSWORD env var to persist.' });
+  } catch (err) {
+    console.error('[admin-api] update password error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /users
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/users', (_req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const users = getUsersByTeam(team.id);
+    const db = getDb();
+
+    const enriched = users.map((user) => {
+      const stats = db
+        .prepare(
+          `SELECT COUNT(*) as prompt_count,
+                  COALESCE(SUM(credit_cost), 0) as total_credits
+           FROM prompts
+           WHERE user_id = ? AND blocked = 0`,
+        )
+        .get(user.id) as { prompt_count: number; total_credits: number };
+
+      const sessionStats = db
+        .prepare(`SELECT COUNT(*) as session_count FROM sessions WHERE user_id = ?`)
+        .get(user.id) as { session_count: number };
+
+      const tamperStatus = getUserTamperStatus(user.id);
+
+      return {
+        ...user,
+        prompt_count: stats.prompt_count,
+        total_credits: stats.total_credits,
+        session_count: sessionStats.session_count,
+        last_active: user.last_event_at,
+        tamper_status: tamperStatus,
+      };
+    });
+
+    res.json({ data: enriched });
+  } catch (err) {
+    console.error('[admin-api] list users error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /users
+// ---------------------------------------------------------------------------
+
+adminRouter.post('/users', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const { name, slug, limits } = req.body;
+
+    const userSlug = slug || name.toLowerCase().replace(/\s+/g, '_');
+    const authToken = `clwt_${userSlug}_${randomBytes(8).toString('hex')}`;
+
+    const user = createUser({
+      team_id: team.id,
+      name,
+      auth_token: authToken,
+      email: '',
+    });
+
+    // Create limits if provided
+    if (limits && Array.isArray(limits)) {
+      for (const limit of limits) {
+        createLimit({
+          user_id: user.id,
+          type: limit.type,
+          value: limit.value,
+          model: limit.model,
+          window: limit.window,
+          start_hour: limit.start_hour,
+          end_hour: limit.end_hour,
+          timezone: limit.timezone,
+        });
+      }
+    }
+
+    const serverUrl = process.env.SERVER_URL || 'http://localhost:3000';
+
+    res.status(201).json({
+      user,
+      auth_token: authToken,
+      install_instructions: {
+        marketplace: 'howincodes/claude-plugins',
+        server_url: serverUrl,
+        token: authToken,
+      },
+    });
+  } catch (err) {
+    console.error('[admin-api] create user error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /users/:id
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/users/:id', (req: Request, res: Response) => {
+  try {
+    const user = getUserById(req.params.id);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const limits = getLimitsByUser(user.id);
+    const prompts = getPromptsByUser(user.id, 20);
+    const sessions = getSessionsByUser(user.id);
+    const tamperStatus = getUserTamperStatus(user.id);
+
+    const db = getDb();
+    const stats = db
+      .prepare(
+        `SELECT COUNT(*) as prompt_count,
+                COALESCE(SUM(credit_cost), 0) as total_credits
+         FROM prompts
+         WHERE user_id = ? AND blocked = 0`,
+      )
+      .get(user.id) as { prompt_count: number; total_credits: number };
+
+    res.json({
+      ...user,
+      limits,
+      recent_prompts: prompts,
+      sessions,
+      tamper_status: tamperStatus,
+      prompt_count: stats.prompt_count,
+      total_credits: stats.total_credits,
+      session_count: sessions.length,
+    });
+  } catch (err) {
+    console.error('[admin-api] get user error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PUT /users/:id
+// ---------------------------------------------------------------------------
+
+adminRouter.put('/users/:id', (req: Request, res: Response) => {
+  try {
+    const user = getUserById(req.params.id);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const { name, status, email, default_model, limits } = req.body;
+
+    const updates: Record<string, unknown> = {};
+    if (name !== undefined) updates.name = name;
+    if (status !== undefined) updates.status = status;
+    if (email !== undefined) updates.email = email;
+    if (default_model !== undefined) updates.default_model = default_model;
+
+    // If status changed to 'killed', set killed_at
+    if (status === 'killed' && user.status !== 'killed') {
+      updates.killed_at = new Date().toISOString();
+    }
+    // If status changed from 'killed' to something else, clear killed_at
+    if (status !== undefined && status !== 'killed' && user.killed_at) {
+      updates.killed_at = null;
+    }
+
+    const updated = updateUser(req.params.id, updates as Parameters<typeof updateUser>[1]);
+
+    // If limits provided, replace them
+    if (limits && Array.isArray(limits)) {
+      deleteLimitsByUser(req.params.id);
+      for (const limit of limits) {
+        createLimit({
+          user_id: req.params.id,
+          type: limit.type,
+          value: limit.value,
+          model: limit.model,
+          window: limit.window,
+          start_hour: limit.start_hour,
+          end_hour: limit.end_hour,
+          timezone: limit.timezone,
+        });
+      }
+    }
+
+    res.json(updated);
+  } catch (err) {
+    console.error('[admin-api] update user error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /users/:id
+// ---------------------------------------------------------------------------
+
+adminRouter.delete('/users/:id', (req: Request, res: Response) => {
+  try {
+    const userId = req.params.id;
+    const user = getUserById(userId);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const db = getDb();
+
+    // Delete related data
+    db.prepare('DELETE FROM limits WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM prompts WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM hook_events WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM tool_events WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM subagent_events WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM tamper_alerts WHERE user_id = ?').run(userId);
+
+    // Delete user
+    deleteUser(userId);
+
+    res.status(204).send();
+  } catch (err) {
+    console.error('[admin-api] delete user error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /users/:id/prompts
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/users/:id/prompts', (req: Request, res: Response) => {
+  try {
+    const user = getUserById(req.params.id);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const offset = (page - 1) * limit;
+
+    const db = getDb();
+
+    const total = (
+      db.prepare('SELECT COUNT(*) as count FROM prompts WHERE user_id = ?').get(user.id) as {
+        count: number;
+      }
+    ).count;
+
+    const data = db
+      .prepare(
+        'SELECT * FROM prompts WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+      )
+      .all(user.id, limit, offset);
+
+    res.json({ data, total, page, limit });
+  } catch (err) {
+    console.error('[admin-api] get user prompts error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /users/:id/sessions
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/users/:id/sessions', (req: Request, res: Response) => {
+  try {
+    const user = getUserById(req.params.id);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const sessions = getSessionsByUser(user.id);
+    res.json({ data: sessions });
+  } catch (err) {
+    console.error('[admin-api] get user sessions error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /users/:id/rotate-token
+// ---------------------------------------------------------------------------
+
+adminRouter.post('/users/:id/rotate-token', (req: Request, res: Response) => {
+  try {
+    const user = getUserById(req.params.id);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const slug = user.name.toLowerCase().replace(/\s+/g, '_');
+    const newToken = `clwt_${slug}_${randomBytes(8).toString('hex')}`;
+
+    const db = getDb();
+    db.prepare('UPDATE users SET auth_token = ? WHERE id = ?').run(newToken, user.id);
+
+    res.json({ auth_token: newToken });
+  } catch (err) {
+    console.error('[admin-api] rotate token error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /subscriptions
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/subscriptions', (_req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    const subscriptions = db
+      .prepare('SELECT * FROM subscriptions ORDER BY created_at DESC')
+      .all();
+
+    res.json({ data: subscriptions });
+  } catch (err) {
+    console.error('[admin-api] list subscriptions error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /analytics?days=N
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/analytics', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const days = parseInt(req.query.days as string) || 30;
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString();
+
+    const db = getDb();
+
+    // Overview
+    const overview = db
+      .prepare(
+        `SELECT COUNT(*) as total_prompts,
+                COALESCE(SUM(credit_cost), 0) as total_credits
+         FROM prompts
+         WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
+         AND created_at >= ?
+         AND blocked = 0`,
+      )
+      .get(team.id, startDateStr) as { total_prompts: number; total_credits: number };
+
+    const sessionCount = db
+      .prepare(
+        `SELECT COUNT(*) as total_sessions
+         FROM sessions
+         WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
+         AND started_at >= ?`,
+      )
+      .get(team.id, startDateStr) as { total_sessions: number };
+
+    const activeUsersResult = db
+      .prepare(
+        `SELECT COUNT(DISTINCT user_id) as active_users
+         FROM prompts
+         WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
+         AND created_at >= ?
+         AND blocked = 0`,
+      )
+      .get(team.id, startDateStr) as { active_users: number };
+
+    // Daily trends
+    const daily = db
+      .prepare(
+        `SELECT date(created_at) as date,
+                COUNT(*) as prompts,
+                COALESCE(SUM(credit_cost), 0) as credits
+         FROM prompts
+         WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
+         AND created_at >= ?
+         AND blocked = 0
+         GROUP BY date(created_at)
+         ORDER BY date`,
+      )
+      .all(team.id, startDateStr);
+
+    // Model distribution
+    const models = db
+      .prepare(
+        `SELECT model,
+                COUNT(*) as count,
+                COALESCE(SUM(credit_cost), 0) as credits
+         FROM prompts
+         WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
+         AND created_at >= ?
+         AND blocked = 0
+         GROUP BY model`,
+      )
+      .all(team.id, startDateStr);
+
+    res.json({
+      overview: {
+        total_prompts: overview.total_prompts,
+        total_sessions: sessionCount.total_sessions,
+        total_credits: overview.total_credits,
+        active_users: activeUsersResult.active_users,
+      },
+      daily,
+      models,
+    });
+  } catch (err) {
+    console.error('[admin-api] analytics error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /analytics/users?days=N&sortBy=prompts
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/analytics/users', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const days = parseInt(req.query.days as string) || 30;
+    const sortBy = (req.query.sortBy as string) || 'prompts';
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString();
+
+    const db = getDb();
+
+    const data = db
+      .prepare(
+        `SELECT u.id, u.name, u.email, u.status,
+                COUNT(p.id) as prompts,
+                COALESCE(SUM(p.credit_cost), 0) as credits,
+                (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.started_at >= ?) as sessions,
+                COALESCE(SUM(p.credit_cost), 0) as cost_usd
+         FROM users u
+         LEFT JOIN prompts p ON p.user_id = u.id AND p.created_at >= ? AND p.blocked = 0
+         WHERE u.team_id = ?
+         GROUP BY u.id
+         ORDER BY ${sortBy === 'credits' ? 'credits' : sortBy === 'sessions' ? 'sessions' : sortBy === 'cost_usd' ? 'cost_usd' : 'prompts'} DESC`,
+      )
+      .all(startDateStr, startDateStr, team.id);
+
+    res.json({ data });
+  } catch (err) {
+    console.error('[admin-api] analytics users error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /analytics/projects?days=N
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/analytics/projects', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const days = parseInt(req.query.days as string) || 30;
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString();
+
+    const db = getDb();
+
+    const data = db
+      .prepare(
+        `SELECT s.cwd as project,
+                COUNT(p.id) as prompts,
+                COALESCE(SUM(p.credit_cost), 0) as credits
+         FROM prompts p
+         JOIN sessions s ON s.id = p.session_id
+         WHERE p.user_id IN (SELECT id FROM users WHERE team_id = ?)
+         AND p.created_at >= ?
+         AND p.blocked = 0
+         GROUP BY s.cwd
+         ORDER BY prompts DESC`,
+      )
+      .all(team.id, startDateStr);
+
+    res.json({ data });
+  } catch (err) {
+    console.error('[admin-api] analytics projects error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /analytics/costs?days=N
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/analytics/costs', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const days = parseInt(req.query.days as string) || 30;
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString();
+
+    const db = getDb();
+
+    const data = db
+      .prepare(
+        `SELECT model,
+                COALESCE(SUM(credit_cost), 0) as credits,
+                COUNT(*) as prompts,
+                COALESCE(SUM(credit_cost), 0) as cost_usd
+         FROM prompts
+         WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
+         AND created_at >= ?
+         AND blocked = 0
+         GROUP BY model
+         ORDER BY credits DESC`,
+      )
+      .all(team.id, startDateStr);
+
+    res.json({ data });
+  } catch (err) {
+    console.error('[admin-api] analytics costs error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /prompts
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/prompts', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const offset = (page - 1) * limit;
+    const userId = req.query.user_id as string | undefined;
+    const search = req.query.search as string | undefined;
+
+    const db = getDb();
+
+    let whereClause = 'WHERE p.user_id IN (SELECT id FROM users WHERE team_id = ?)';
+    const params: unknown[] = [team.id];
+
+    if (userId) {
+      whereClause += ' AND p.user_id = ?';
+      params.push(userId);
+    }
+
+    if (search) {
+      whereClause += ' AND p.prompt LIKE ?';
+      params.push(`%${search}%`);
+    }
+
+    const totalResult = db
+      .prepare(`SELECT COUNT(*) as count FROM prompts p ${whereClause}`)
+      .get(...params) as { count: number };
+
+    const data = db
+      .prepare(
+        `SELECT p.* FROM prompts p ${whereClause} ORDER BY p.created_at DESC LIMIT ? OFFSET ?`,
+      )
+      .all(...params, limit, offset);
+
+    res.json({ data, total: totalResult.count, page, limit });
+  } catch (err) {
+    console.error('[admin-api] list prompts error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /summaries
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/summaries', (_req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    const data = db
+      .prepare('SELECT * FROM summaries ORDER BY created_at DESC')
+      .all();
+
+    res.json({ data });
+  } catch (err) {
+    console.error('[admin-api] list summaries error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /summaries/generate
+// ---------------------------------------------------------------------------
+
+adminRouter.post('/summaries/generate', (_req: Request, res: Response) => {
+  // Placeholder — AI service built in Phase 6
+  res.json({ status: 'queued' });
+});
+
+// ---------------------------------------------------------------------------
+// GET /audit-log
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/audit-log', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const limit = parseInt(req.query.limit as string) || 100;
+
+    const db = getDb();
+    const data = db
+      .prepare(
+        `SELECT he.* FROM hook_events he
+         WHERE he.user_id IN (SELECT id FROM users WHERE team_id = ?)
+         ORDER BY he.created_at DESC
+         LIMIT ?`,
+      )
+      .all(team.id, limit);
+
+    res.json({ data });
+  } catch (err) {
+    console.error('[admin-api] audit log error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
