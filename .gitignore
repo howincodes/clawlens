@@ -5,3 +5,8 @@ bin/
 .env
 vendor/
 dashboard/dist/
+.playwright-cli/
+*.yml
+node_modules/
+package.json
+package-lock.json
