@@ -558,6 +558,11 @@ func (s *Store) UpdateUser(id string, name, subscriptionID, defaultModel *string
 
 // DeleteUser removes a user from the database.
 func (s *Store) DeleteUser(id string) error {
+	// Delete related records that don't have ON DELETE CASCADE
+	s.db.Exec(`DELETE FROM install_code WHERE user_id = ?`, id)
+	s.db.Exec(`DELETE FROM alert WHERE user_id = ?`, id)
+	s.db.Exec(`DELETE FROM ai_summary WHERE user_id = ?`, id)
+	// Now delete user — CASCADE handles prompt, session, tool_event, device, limit_rule
 	_, err := s.db.Exec(`DELETE FROM user WHERE id = ?`, id)
 	return err
 }
