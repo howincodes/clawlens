@@ -141,8 +141,8 @@ export function UserDetail() {
       }
       if (promptSearch) params.search = promptSearch
       const res = await getUserPrompts(id, params)
-      setPrompts(res.prompts || [])
-      setPromptsTotal(res.total || 0)
+      setPrompts(res?.data || res?.prompts || [])
+      setPromptsTotal(res?.total || 0)
     } catch (err) {
       console.error('Failed to load prompts', err)
     } finally {
@@ -167,7 +167,7 @@ export function UserDetail() {
     if (!id) return
     try {
       const res = await getUserPrompts(id, { limit: '500' })
-      setAllPrompts(res.prompts || [])
+      setAllPrompts(res?.data || res?.prompts || [])
     } catch (_err) {
       // Chart data is nice-to-have, don't block on it
     }
@@ -242,7 +242,7 @@ export function UserDetail() {
       const dir = p.project_dir || 'unknown'
       const cur = map.get(dir) || { count: 0, cost: 0 }
       cur.count++
-      cur.cost += Number(p.cost_usd || p.cost || 0)
+      cur.cost += Number(p.credit_cost || p.cost_usd || p.cost || 0)
       map.set(dir, cur)
     }
     return Array.from(map.entries())
@@ -388,10 +388,10 @@ export function UserDetail() {
         </Card>
         <Card>
           <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Cost</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Credits</CardTitle>
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold">${Number(totalCost).toFixed(2)}</div>
+            <div className="text-2xl font-bold">{Number(totalCost)} credits</div>
           </CardContent>
         </Card>
         <Card>
@@ -744,7 +744,7 @@ export function UserDetail() {
                   <TableRow>
                     <TableHead>Project</TableHead>
                     <TableHead className="text-right">Prompts</TableHead>
-                    <TableHead className="text-right">Cost</TableHead>
+                    <TableHead className="text-right">Credits</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -756,7 +756,7 @@ export function UserDetail() {
                       </TableCell>
                       <TableCell className="text-right">{proj.prompt_count}</TableCell>
                       <TableCell className="text-right">
-                        ${Number(proj.cost).toFixed(2)}
+                        {Number(proj.cost)} credits
                       </TableCell>
                     </TableRow>
                   ))}
@@ -812,7 +812,7 @@ export function UserDetail() {
                     <div className="text-right text-sm ml-4">
                       <div>{session.prompt_count || 0} prompts</div>
                       <div className="text-xs text-muted-foreground">
-                        ${Number(session.total_cost_usd || session.cost || 0).toFixed(2)}
+                        {Number(session.total_cost_usd || session.cost || 0)} credits
                       </div>
                     </div>
                   </div>

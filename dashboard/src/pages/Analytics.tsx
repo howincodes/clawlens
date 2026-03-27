@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Loader2, TrendingUp, BarChart3, PieChart as PieChartIcon, Clock, FolderOpen, Wrench, DollarSign, Users, MessageSquare, ArrowUpDown } from 'lucide-react'
+import { Loader2, TrendingUp, BarChart3, PieChart as PieChartIcon, Clock, FolderOpen, Wrench, Coins, Users, MessageSquare, ArrowUpDown } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, ResponsiveContainer,
   PieChart, Pie, LineChart, Line,
@@ -31,8 +31,8 @@ const PIE_COLORS = ['#3b82f6', '#8b5cf6', '#f59e0b', '#22c55e', '#ec4899', '#f97
 
 type SortField = 'prompts' | 'cost' | 'sessions'
 
-function fmt$(v: number): string {
-  return `$${Number(v || 0).toFixed(2)}`
+function fmtCredits(v: number): string {
+  return `${Number(v || 0)} credits`
 }
 
 export function Analytics() {
@@ -148,10 +148,10 @@ export function Analytics() {
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-green-500/10"><DollarSign className="w-5 h-5 text-green-500" /></div>
+                  <div className="p-2 rounded-lg bg-green-500/10"><Coins className="w-5 h-5 text-green-500" /></div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Total Cost</p>
-                    <p className="text-2xl font-bold">{fmt$(Number(overview?.total_cost || 0))}</p>
+                    <p className="text-sm text-muted-foreground">Total Credits</p>
+                    <p className="text-2xl font-bold">{fmtCredits(Number(overview?.total_cost || 0))}</p>
                   </div>
                 </div>
               </CardContent>
@@ -195,7 +195,7 @@ export function Analytics() {
                           <span className="inline-flex items-center gap-1">Sessions{sortArrow('sessions')} <ArrowUpDown className="w-3 h-3" /></span>
                         </TableHead>
                         <TableHead className="text-right cursor-pointer hover:text-primary" onClick={() => handleSort('cost')}>
-                          <span className="inline-flex items-center gap-1">Cost{sortArrow('cost')} <ArrowUpDown className="w-3 h-3" /></span>
+                          <span className="inline-flex items-center gap-1">Credits{sortArrow('cost')} <ArrowUpDown className="w-3 h-3" /></span>
                         </TableHead>
                         <TableHead className="text-right">Avg Turns</TableHead>
                         <TableHead className="text-right">Top Model</TableHead>
@@ -208,7 +208,7 @@ export function Analytics() {
                           <TableCell className="font-medium">{String(user.name || '')}</TableCell>
                           <TableCell className="text-right">{Number(user.prompts || 0).toLocaleString()}</TableCell>
                           <TableCell className="text-right">{Number(user.sessions || 0).toLocaleString()}</TableCell>
-                          <TableCell className="text-right">{fmt$(Number(user.cost || 0))}</TableCell>
+                          <TableCell className="text-right">{fmtCredits(Number(user.cost || 0))}</TableCell>
                           <TableCell className="text-right">{Number(user.avg_turns || 0).toFixed(1)}</TableCell>
                           <TableCell className="text-right">
                             <Badge variant="outline" className="capitalize">{String(user.top_model || user.model_preference || 'N/A')}</Badge>
@@ -229,7 +229,7 @@ export function Analytics() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <BarChart3 className="w-5 h-5 text-primary" />
-                  Cost by User
+                  Credits by User
                 </CardTitle>
               </CardHeader>
               <CardContent className="h-64">
@@ -237,9 +237,9 @@ export function Analytics() {
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart layout="vertical" data={costByUser}>
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#88888833" />
-                      <XAxis type="number" tickFormatter={(v) => `$${v}`} axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                      <XAxis type="number" tickFormatter={(v) => `${v}`} axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
                       <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-                      <Tooltip formatter={(v) => fmt$(Number(v ?? 0))} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                      <Tooltip formatter={(v) => fmtCredits(Number(v ?? 0))} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
                       <Bar dataKey="cost" fill="#3b82f6" radius={[0, 4, 4, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -254,7 +254,7 @@ export function Analytics() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <PieChartIcon className="w-5 h-5 text-primary" />
-                  Cost by Model
+                  Credits by Model
                 </CardTitle>
               </CardHeader>
               <CardContent className="h-64">
@@ -276,7 +276,7 @@ export function Analytics() {
                           <Cell key={`model-cost-${index}`} fill={MODEL_COLORS[String(entry.name).toLowerCase()] || PIE_COLORS[index % PIE_COLORS.length]} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(v) => fmt$(Number(v ?? 0))} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                      <Tooltip formatter={(v) => fmtCredits(Number(v ?? 0))} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (
@@ -290,7 +290,7 @@ export function Analytics() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <FolderOpen className="w-5 h-5 text-primary" />
-                  Cost by Project
+                  Credits by Project
                 </CardTitle>
               </CardHeader>
               <CardContent className="h-64">
@@ -298,9 +298,9 @@ export function Analytics() {
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart layout="vertical" data={costByProject}>
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#88888833" />
-                      <XAxis type="number" tickFormatter={(v) => `$${v}`} axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                      <XAxis type="number" tickFormatter={(v) => `${v}`} axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
                       <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <Tooltip formatter={(v) => fmt$(Number(v ?? 0))} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                      <Tooltip formatter={(v) => fmtCredits(Number(v ?? 0))} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
                       <Bar dataKey="cost" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -314,8 +314,8 @@ export function Analytics() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <DollarSign className="w-5 h-5 text-primary" />
-                  Daily Cost Trend
+                  <Coins className="w-5 h-5 text-primary" />
+                  Daily Credit Trend
                 </CardTitle>
               </CardHeader>
               <CardContent className="h-64">
@@ -324,8 +324,8 @@ export function Analytics() {
                     <LineChart data={trends}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#88888833" />
                       <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
-                      <YAxis tickFormatter={(v) => `$${v}`} axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                      <Tooltip formatter={(v) => fmt$(Number(v ?? 0))} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
+                      <YAxis tickFormatter={(v) => `${v}`} axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                      <Tooltip formatter={(v) => fmtCredits(Number(v ?? 0))} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }} />
                       <Line type="monotone" dataKey="cost" stroke="#3b82f6" strokeWidth={2} dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
@@ -443,7 +443,7 @@ export function Analytics() {
                         <TableHead>Project</TableHead>
                         <TableHead className="text-right">Prompts</TableHead>
                         <TableHead className="text-right">Users</TableHead>
-                        <TableHead className="text-right">Cost</TableHead>
+                        <TableHead className="text-right">Credits</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -452,7 +452,7 @@ export function Analytics() {
                           <TableCell className="font-medium">{String(p.name || 'Unknown')}</TableCell>
                           <TableCell className="text-right">{Number(p.prompts || 0).toLocaleString()}</TableCell>
                           <TableCell className="text-right">{Number(p.users || 0)}</TableCell>
-                          <TableCell className="text-right">{fmt$(Number(p.cost || 0))}</TableCell>
+                          <TableCell className="text-right">{fmtCredits(Number(p.cost || 0))}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

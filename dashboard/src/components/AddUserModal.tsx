@@ -26,11 +26,10 @@ export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSu
         method: 'POST',
         body: JSON.stringify({ name, slug })
       })
-      if (res && res.install_code) {
-        setInstallCode(res.install_code)
+      if (res && (res.install_code || res.token)) {
+        setInstallCode(res.install_code || res.token)
       } else {
-        // Mock default flow if exact endpoint format isn't mapped
-        setInstallCode(`CLM-${slug}-${Math.random().toString(36).substring(2, 8)}`)
+        setInstallCode(`(check server response)`)
       }
       onSuccess()
     } catch (err) {

@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Search, Loader2, ChevronLeft, ChevronRight, Clock, DollarSign, Shield } from 'lucide-react'
+import { Search, Loader2, ChevronLeft, ChevronRight, Clock, Coins, Shield } from 'lucide-react'
 import { formatDistanceToNow, format } from 'date-fns'
 
 const MODEL_BADGE_COLORS: Record<string, string> = {
@@ -35,7 +35,7 @@ function getModelShortName(model: string): string {
 }
 
 export function PromptsBrowser() {
-  const [data, setData] = useState<{ prompts: Record<string, unknown>[]; total: number }>({ prompts: [], total: 0 })
+  const [data, setData] = useState<{ items: Record<string, unknown>[]; total: number }>({ items: [], total: 0 })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [users, setUsers] = useState<Record<string, unknown>[]>([])
@@ -92,10 +92,10 @@ export function PromptsBrowser() {
       if (blocked) params.blocked = blocked
 
       const res = await getAllPrompts(params)
-      setData(res || { prompts: [], total: 0 })
+      setData({ items: res?.data || [], total: res?.total || 0 })
     } catch (err) {
       setError(String(err))
-      setData({ prompts: [], total: 0 })
+      setData({ items: [], total: 0 })
     } finally {
       setLoading(false)
     }
@@ -202,14 +202,14 @@ export function PromptsBrowser() {
             <div className="flex justify-center p-8">
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
-          ) : data.prompts.length === 0 ? (
+          ) : data.items.length === 0 ? (
             <div className="text-center p-12 border rounded-lg bg-muted/10 border-dashed">
               <Search className="mx-auto h-8 w-8 text-muted-foreground mb-3" />
               <p className="text-muted-foreground font-medium">No prompts found matching your filters</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {data.prompts.map((p) => {
+              {data.items.map((p) => {
                 const id = String(p.id || '')
                 const modelShort = getModelShortName(String(p.model || ''))
                 const modelColorClass = MODEL_BADGE_COLORS[modelShort] || 'bg-gray-500/10 text-gray-600'
@@ -308,7 +308,7 @@ export function PromptsBrowser() {
                         )}
                         {Number(p.credit_cost || 0) > 0 && (
                           <span className="flex items-center gap-1">
-                            <DollarSign className="w-3 h-3" /> ${Number(p.credit_cost).toFixed(4)}
+                            <Coins className="w-3 h-3" /> {Number(p.credit_cost)} credits
                           </span>
                         )}
                       </div>

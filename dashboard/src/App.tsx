@@ -11,6 +11,7 @@ import { Summaries } from './pages/Summaries'
 import { PromptsBrowser } from './pages/PromptsBrowser'
 import { Settings } from './pages/Settings'
 import { AuditLog } from './pages/AuditLog'
+import { UsersPage } from './pages/Users'
 
 export default function App() {
   const token = useAuthStore((s) => s.token)
@@ -20,6 +21,7 @@ export default function App() {
       <Route path="/login" element={token ? <Navigate to="/" replace /> : <Login />} />
       <Route element={<AppLayout />}>
         <Route path="/" element={<Overview />} />
+        <Route path="/users" element={<UsersPage />} />
         <Route path="/users/:id" element={<UserDetail />} />
         <Route path="/subscriptions" element={<Subscriptions />} />
         <Route path="/analytics" element={<Analytics />} />

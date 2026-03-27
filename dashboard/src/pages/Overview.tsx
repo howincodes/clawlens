@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { getUsers, getSubscriptions, getAnalytics, updateUser } from '@/lib/api'
+import { getUsers, getSubscriptions, getAnalytics, getLeaderboard, updateUser } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,7 @@ import {
   Users,
   Activity,
   MessageSquare,
-  DollarSign,
+  Coins,
   Play,
   Pause,
   Trash,
@@ -135,6 +135,7 @@ export function Overview() {
   const [users, setUsers] = useState<any[]>([])
   const [subscriptions, setSubscriptions] = useState<any[]>([])
   const [analytics, setAnalytics] = useState<any>(null)
+  const [leaderMap, setLeaderMap] = useState<Map<string, any>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [confirmAction, setConfirmAction] = useState<{
@@ -148,14 +149,20 @@ export function Overview() {
   const loadData = useCallback(async () => {
     try {
       setError(null)
-      const [usersRes, subsRes, analyticsRes] = await Promise.all([
+      const [usersRes, subsRes, analyticsRes, leaderRes] = await Promise.all([
         getUsers(),
         getSubscriptions(),
         getAnalytics(1),
+        getLeaderboard(30).catch(() => ({ leaderboard: [] })),
       ])
       setUsers(usersRes.users || [])
       setSubscriptions(subsRes.subscriptions || [])
       setAnalytics(analyticsRes.overview || {})
+      const lMap = new Map()
+      for (const entry of leaderRes?.leaderboard || []) {
+        lMap.set(String(entry.user_id || entry.id), entry)
+      }
+      setLeaderMap(lMap)
     } catch (err) {
       console.error('Failed to load overview data', err)
       setError('Failed to load dashboard data. Please try again.')
@@ -266,11 +273,11 @@ export function Overview() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Cost Today</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Credits Today</CardTitle>
+            <Coins className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${Number(costToday).toFixed(2)}</div>
+            <div className="text-2xl font-bold">{Number(costToday)} credits</div>
           </CardContent>
         </Card>
       </div>
@@ -306,8 +313,8 @@ export function Overview() {
                         </Badge>
                       </div>
                       <CardDescription className="text-xs">
-                        {sub.users?.length || 0} users &bull; $
-                        {Number(sub.total_cost || sub.cost || 0).toFixed(2)}
+                        {sub.users?.length || 0} users &bull;{' '}
+                        {Number(sub.total_cost || sub.cost || 0)} credits
                       </CardDescription>
                     </CardHeader>
                     {expandedSub === sub.email ? (
@@ -365,21 +372,7 @@ export function Overview() {
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
               {users.map((user: any) => {
-                const modelStats = user.usage?.models || {}
-                const opus = Object.entries(modelStats)
-                  .filter(([k]) => k.toLowerCase().includes('opus'))
-                  .reduce((cur, [, val]) => cur + Number(val), 0)
-                const sonnet = Object.entries(modelStats)
-                  .filter(([k]) => k.toLowerCase().includes('sonnet'))
-                  .reduce((cur, [, val]) => cur + Number(val), 0)
-                const haiku = Object.entries(modelStats)
-                  .filter(([k]) => k.toLowerCase().includes('haiku'))
-                  .reduce((cur, [, val]) => cur + Number(val), 0)
-
-                const tot = opus + sonnet + haiku || 1
-                const pOpus = (opus / tot) * 100
-                const pSonnet = (sonnet / tot) * 100
-                const pHaiku = (haiku / tot) * 100
+                const stats = leaderMap.get(String(user.id)) || {}
 
                 return (
                   <Card
@@ -419,51 +412,22 @@ export function Overview() {
                     </CardHeader>
                     <Link to={`/users/${user.id}`} className="flex-1">
                       <CardContent className="p-4 pt-2">
-                        <div className="space-y-4">
-                          <div>
-                            <div className="flex justify-between text-xs mb-1">
-                              <span className="text-muted-foreground">Model usage</span>
-                              <span className="font-medium">
-                                {user.usage?.total_prompts || 0} prompts
-                              </span>
-                            </div>
-                            <div className="h-2 w-full bg-secondary rounded-full overflow-hidden flex">
-                              {pOpus > 0 && (
-                                <div
-                                  className="h-full bg-blue-500"
-                                  style={{ width: `${pOpus}%` }}
-                                ></div>
-                              )}
-                              {pSonnet > 0 && (
-                                <div
-                                  className="h-full bg-purple-500"
-                                  style={{ width: `${pSonnet}%` }}
-                                ></div>
-                              )}
-                              {pHaiku > 0 && (
-                                <div
-                                  className="h-full bg-orange-500"
-                                  style={{ width: `${pHaiku}%` }}
-                                ></div>
-                              )}
-                              {pOpus === 0 && pSonnet === 0 && pHaiku === 0 && (
-                                <div className="h-full bg-muted-foreground/30 w-full"></div>
-                              )}
-                            </div>
-                            <div className="flex gap-2 text-[10px] text-muted-foreground mt-1">
-                              <span className="flex items-center">
-                                <span className="w-2 h-2 rounded-full bg-blue-500 mr-1 inline-block"></span>
-                                Opus ({Math.round(pOpus)}%)
-                              </span>
-                              <span className="flex items-center">
-                                <span className="w-2 h-2 rounded-full bg-purple-500 mr-1 inline-block"></span>
-                                Sonnet ({Math.round(pSonnet)}%)
-                              </span>
-                              <span className="flex items-center">
-                                <span className="w-2 h-2 rounded-full bg-orange-500 mr-1 inline-block"></span>
-                                Haiku ({Math.round(pHaiku)}%)
-                              </span>
-                            </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="text-center p-2 bg-muted/30 rounded">
+                            <div className="text-lg font-bold">{Number(stats.prompts || 0)}</div>
+                            <div className="text-[10px] text-muted-foreground">Prompts</div>
+                          </div>
+                          <div className="text-center p-2 bg-muted/30 rounded">
+                            <div className="text-lg font-bold">{Number(stats.cost_usd || stats.cost || 0)} credits</div>
+                            <div className="text-[10px] text-muted-foreground">Credits</div>
+                          </div>
+                          <div className="text-center p-2 bg-muted/30 rounded">
+                            <div className="text-lg font-bold">{Number(stats.sessions || 0)}</div>
+                            <div className="text-[10px] text-muted-foreground">Sessions</div>
+                          </div>
+                          <div className="text-center p-2 bg-muted/30 rounded">
+                            <div className="text-lg font-bold capitalize">{normalizeModel(String(stats.top_model || user.current_model || ''))}</div>
+                            <div className="text-[10px] text-muted-foreground">Top Model</div>
                           </div>
                         </div>
                       </CardContent>
@@ -477,9 +441,9 @@ export function Overview() {
                           </span>
                         </span>
                         <span className="text-muted-foreground">
-                          Cost:{' '}
+                          Credits:{' '}
                           <span className="font-medium text-foreground">
-                            ${Number(user.usage?.cost || 0).toFixed(2)}
+                            {Number(stats.cost_usd || stats.cost || 0)} credits
                           </span>
                         </span>
                       </div>

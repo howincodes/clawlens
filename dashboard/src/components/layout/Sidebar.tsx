@@ -1,11 +1,12 @@
 import { NavLink } from 'react-router-dom'
-import { 
-  LayoutDashboard, 
-  CreditCard,  
-  BarChart3, 
-  Sparkles, 
-  Search, 
-  Settings, 
+import {
+  LayoutDashboard,
+  CreditCard,
+  Users,
+  BarChart3,
+  Sparkles,
+  Search,
+  Settings,
   ShieldAlert,
   Terminal
 } from 'lucide-react'
@@ -14,6 +15,7 @@ import { useWSStore } from '@/hooks/useWebSockets'
 
 const navItems = [
   { path: '/', label: 'Overview', icon: LayoutDashboard },
+  { path: '/users', label: 'Users', icon: Users },
   { path: '/subscriptions', label: 'Subscriptions', icon: CreditCard },
   { path: '/analytics', label: 'Analytics', icon: BarChart3 },
   { path: '/summaries', label: 'AI Summaries', icon: Sparkles },

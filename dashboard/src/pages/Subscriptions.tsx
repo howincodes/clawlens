@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { fetchClient } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, Users, DollarSign, MessageSquare } from 'lucide-react'
+import { Loader2, Users, Coins, MessageSquare } from 'lucide-react'
 
 export function Subscriptions() {
   const [data, setData] = useState<any>({ subscriptions: [] })
@@ -72,9 +72,9 @@ export function Subscriptions() {
                     <div className="text-xs text-muted-foreground">Prompts</div>
                   </div>
                   <div className="p-4 flex flex-col items-center justify-center">
-                    <DollarSign className="w-4 h-4 text-muted-foreground mb-2" />
-                    <div className="text-xl font-bold">${Number(sub.total_cost || 0).toFixed(2)}</div>
-                    <div className="text-xs text-muted-foreground">Cost</div>
+                    <Coins className="w-4 h-4 text-muted-foreground mb-2" />
+                    <div className="text-xl font-bold">{Number(sub.total_cost || 0)} credits</div>
+                    <div className="text-xs text-muted-foreground">Credits</div>
                   </div>
                 </div>
                 
@@ -86,7 +86,7 @@ export function Subscriptions() {
                          <div key={u.id} className="flex items-center justify-between text-sm p-2 rounded-md hover:bg-muted/50 transition-colors">
                            <span className="font-medium">{u.name}</span>
                            <div className="text-muted-foreground text-xs">
-                              {u.usage?.prompts || 0} prompts
+                              {u.usage?.prompts || u.prompt_count || 0} prompts
                            </div>
                          </div>
                       ))
