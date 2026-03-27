@@ -6,8 +6,16 @@
 
 INPUT=$(cat)
 
-# Extract event name to determine API path
-EVENT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('hook_event_name',''))" 2>/dev/null)
+# Extract event name using whatever JSON parser is available
+if command -v jq >/dev/null 2>&1; then
+  EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // ""')
+elif command -v node >/dev/null 2>&1; then
+  EVENT=$(echo "$INPUT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).hook_event_name||'')}catch{console.log('')}})")
+elif command -v python3 >/dev/null 2>&1; then
+  EVENT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('hook_event_name',''))" 2>/dev/null)
+else
+  EVENT=""
+fi
 
 # Map event names to API path suffixes
 case "$EVENT" in
