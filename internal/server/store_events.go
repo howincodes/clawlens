@@ -220,14 +220,16 @@ func (s *Store) UpdatePromptWithResponse(
 	turnDurationMS *int,
 	creditCost int,
 ) error {
+	// Note: credit_cost is NOT updated here — it was already set correctly
+	// by the prompt handler during the synchronous /api/v1/prompt call.
+	// The stop event's creditCost comes from the client which may be 0.
 	_, err := s.db.Exec(
 		`UPDATE prompt
 		 SET response_text    = ?,
 		     response_length  = ?,
 		     tool_calls       = ?,
 		     tools_used       = ?,
-		     turn_duration_ms = ?,
-		     credit_cost      = ?
+		     turn_duration_ms = ?
 		 WHERE id = (
 		     SELECT id FROM prompt
 		     WHERE session_id = ?
@@ -235,7 +237,7 @@ func (s *Store) UpdatePromptWithResponse(
 		     LIMIT 1
 		 )`,
 		responseText, responseLength, toolCalls,
-		toolsUsed, turnDurationMS, creditCost,
+		toolsUsed, turnDurationMS,
 		sessionID,
 	)
 	return err

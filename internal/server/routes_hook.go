@@ -101,6 +101,7 @@ func handleSessionStart(store *Store, hub *WSHub) http.HandlerFunc {
 		_ = store.UpsertDevice(device)
 
 		// If subscription email provided, upsert subscription and link to user.
+		log.Printf("[session-start] user=%s subEmail=%v subType=%v", user.Name, req.SubscriptionEmail, req.SubscriptionType)
 		if req.SubscriptionEmail != nil && *req.SubscriptionEmail != "" {
 			team := TeamFromContext(r.Context())
 			sub := &shared.Subscription{
