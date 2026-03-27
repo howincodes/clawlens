@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -139,16 +140,57 @@ func HandleSessionStart(cfg *Config, queue *Queue) error {
 	// Cache the model so subsequent hooks (which don't get model in stdin) can use it
 	CacheSessionModel(model)
 
+	// Read subscription info from `claude auth status` (most reliable)
+	var subEmail, subType *string
+	if out, err := exec.Command("claude", "auth", "status").Output(); err == nil {
+		var authInfo struct {
+			Email            string `json:"email"`
+			SubscriptionType string `json:"subscriptionType"`
+			OrgName          string `json:"orgName"`
+		}
+		if json.Unmarshal(out, &authInfo) == nil {
+			if authInfo.Email != "" {
+				subEmail = &authInfo.Email
+			}
+			if authInfo.SubscriptionType != "" {
+				subType = &authInfo.SubscriptionType
+			}
+		}
+	} else {
+		// Fallback: read from ~/.claude.json
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			if data, err := os.ReadFile(filepath.Join(home, ".claude.json")); err == nil {
+				var cj struct {
+					OauthAccount struct {
+						EmailAddress string `json:"emailAddress"`
+						PlanType     string `json:"planType"`
+					} `json:"oauthAccount"`
+				}
+				if json.Unmarshal(data, &cj) == nil {
+					if cj.OauthAccount.EmailAddress != "" {
+						subEmail = &cj.OauthAccount.EmailAddress
+					}
+					if cj.OauthAccount.PlanType != "" {
+						subType = &cj.OauthAccount.PlanType
+					}
+				}
+			}
+		}
+	}
+
 	req := shared.SessionStartRequest{
-		SessionID:     sd.SessionID,
-		Model:         model,
-		CWD:           sd.CWD,
-		Hostname:      hostname,
-		Platform:      runtime.GOOS,
-		Arch:          runtime.GOARCH,
-		OSVersion:     runtime.GOOS, // best effort; full version requires syscall
-		GoVersion:     runtime.Version(),
-		ClientVersion: cfg.ClientVersion,
+		SessionID:         sd.SessionID,
+		Model:             model,
+		CWD:               sd.CWD,
+		Hostname:          hostname,
+		Platform:          runtime.GOOS,
+		Arch:              runtime.GOARCH,
+		OSVersion:         runtime.GOOS,
+		GoVersion:         runtime.Version(),
+		ClientVersion:     cfg.ClientVersion,
+		SubscriptionEmail: subEmail,
+		SubscriptionType:  subType,
 	}
 
 	debugLog("session_start: session=%s model=%s", req.SessionID, req.Model)
