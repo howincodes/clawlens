@@ -191,11 +191,12 @@ func handlePrompt(store *Store, hub *WSHub) http.HandlerFunc {
 			PromptTruncated: truncated,
 			Timestamp:       time.Now().UTC(),
 		}
+		log.Printf("[prompt] about to record: prompt.CreditCost=%d cost=%d model=%q", prompt.CreditCost, cost, req.Model)
 		promptID, err := store.RecordPrompt(prompt)
 		if err != nil {
 			log.Printf("[prompt] RecordPrompt error: %v", err)
 		} else {
-			log.Printf("[prompt] recorded id=%d credit_cost=%d", promptID, cost)
+			log.Printf("[prompt] recorded id=%d credit_cost=%d", promptID, prompt.CreditCost)
 		}
 		_ = store.UpdateSessionCounters(req.SessionID, 1, 0)
 
