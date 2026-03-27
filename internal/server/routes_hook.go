@@ -178,6 +178,10 @@ func handlePrompt(store *Store, hub *WSHub) http.HandlerFunc {
 		}
 
 		wasBlocked := !result.Allowed
+		// Blocked prompts don't consume credits
+		if wasBlocked {
+			cost = 0
+		}
 		prompt := &shared.Prompt{
 			UserID:          user.ID,
 			SessionID:       strPtr(req.SessionID),

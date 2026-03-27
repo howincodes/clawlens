@@ -580,7 +580,7 @@ func (s *Store) GetUserStats(userID string) (map[string]any, error) {
 	s.db.QueryRow(`SELECT COUNT(*) FROM prompt WHERE user_id = ? AND date(timestamp) = date('now')`, userID).Scan(&promptsToday)            //nolint:errcheck
 	s.db.QueryRow(`SELECT COUNT(*) FROM session WHERE user_id = ?`, userID).Scan(&totalSessions)                                            //nolint:errcheck
 	s.db.QueryRow(`SELECT COUNT(*) FROM session WHERE user_id = ? AND date(started_at) = date('now')`, userID).Scan(&sessionsToday)         //nolint:errcheck
-	s.db.QueryRow(`SELECT COALESCE(SUM(credit_cost), 0) FROM prompt WHERE user_id = ?`, userID).Scan(&totalCost)                            //nolint:errcheck
+	s.db.QueryRow(`SELECT COALESCE(SUM(credit_cost), 0) FROM prompt WHERE user_id = ? AND was_blocked = FALSE`, userID).Scan(&totalCost) //nolint:errcheck
 
 	return map[string]any{
 		"total_prompts":  totalPrompts,

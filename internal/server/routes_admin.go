@@ -146,7 +146,27 @@ func handleGetUsers(store *Store) http.HandlerFunc {
 		if users == nil {
 			users = []shared.User{}
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"users": users})
+
+		// Build subscription lookup
+		subs, _ := store.GetSubscriptions(team.ID)
+		subMap := make(map[string]string)
+		for _, s := range subs {
+			subMap[s.ID] = s.Email
+		}
+
+		// Enrich with subscription email
+		type userWithEmail struct {
+			shared.User
+			SubscriptionEmail string `json:"subscription_email,omitempty"`
+		}
+		result := make([]userWithEmail, len(users))
+		for i, u := range users {
+			result[i] = userWithEmail{User: u}
+			if u.SubscriptionID != nil {
+				result[i].SubscriptionEmail = subMap[*u.SubscriptionID]
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"users": result})
 	}
 }
 
