@@ -3,7 +3,7 @@ import cors from 'cors';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 
 import { initDb } from './services/db.js';
 import { initWebSocket } from './services/websocket.js';
@@ -109,7 +109,10 @@ app.use(
 
 if (process.env.NODE_ENV !== 'test') {
   const port = parseInt(process.env.PORT ?? '3000', 10);
-  const dbPath = process.env.DB_PATH ?? path.join(process.cwd(), 'data', 'clawlens.db');
+  const dbPath = process.env.DB_PATH ?? path.join(__dirname, '..', 'clawlens.db');
+
+  // Ensure the directory exists
+  mkdirSync(path.dirname(dbPath), { recursive: true });
 
   initDb(dbPath);
 

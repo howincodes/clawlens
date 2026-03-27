@@ -150,23 +150,28 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
 
     // Check user status
     if (user.status === 'killed' || user.status === 'paused') {
-      recordPrompt({
-        session_id: data.session_id,
-        user_id: user.id,
-        prompt: data.prompt,
-        model: user.default_model ?? undefined,
-        credit_cost: 0,
-        blocked: true,
-        block_reason: 'Account suspended.',
-      });
-      recordHookEvent({
-        user_id: user.id,
-        session_id: data.session_id,
-        event_type: 'UserPromptSubmit',
-        payload: JSON.stringify(body),
-      });
+      // Recording is best-effort — FK may fail if session doesn't exist
+      try {
+        recordPrompt({
+          session_id: data.session_id,
+          user_id: user.id,
+          prompt: data.prompt,
+          model: user.default_model ?? undefined,
+          credit_cost: 0,
+          blocked: true,
+          block_reason: 'Account suspended.',
+        });
+      } catch { /* FK failure is expected for killed users */ }
+      try {
+        recordHookEvent({
+          user_id: user.id,
+          session_id: data.session_id,
+          event_type: 'UserPromptSubmit',
+          payload: JSON.stringify(body),
+        });
+      } catch { /* best-effort */ }
       touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+      autoResolveInactiveAlerts(user.id);
       res.json({ decision: 'block', reason: 'Account suspended.' });
       return;
     }
