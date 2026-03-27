@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getUser, getUserPrompts, getUserSessions, generateSummary } from '@/lib/api'
+import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions } from '@/lib/api'
 import {
   Card,
   CardContent,
@@ -122,7 +122,21 @@ export function UserDetail() {
     try {
       setError(null)
       const res = await getUser(id)
-      setData(res)
+      const userData = res
+      // If the user doesn't already have a subscription_email, look it up from subscriptions
+      if (userData?.user && !userData.user.subscription_email && userData.user.subscription_id) {
+        try {
+          const subsRes = await getSubscriptions()
+          const subs = subsRes?.subscriptions || []
+          const linkedSub = subs.find((s: any) => s.id === userData.user.subscription_id)
+          if (linkedSub) {
+            userData.user.subscription_email = linkedSub.email
+          }
+        } catch (_err) {
+          // subscription lookup is best-effort
+        }
+      }
+      setData(userData)
     } catch (err) {
       console.error('Failed to load user', err)
       setError('Failed to load user data.')
@@ -967,7 +981,7 @@ export function UserDetail() {
       {/* Modals */}
       {showLimits && (
         <EditLimitsModal
-          user={user}
+          user={{ ...user, limits }}
           onClose={() => setShowLimits(false)}
           onSuccess={() => {
             setShowLimits(false)

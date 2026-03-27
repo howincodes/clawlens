@@ -313,8 +313,8 @@ export function Overview() {
                         </Badge>
                       </div>
                       <CardDescription className="text-xs">
-                        {sub.users?.length || 0} users &bull;{' '}
-                        {Number(sub.total_cost || sub.cost || 0)} credits
+                        {sub.user_count ?? sub.users?.length ?? 0} users &bull;{' '}
+                        {sub.total_credits ?? Number(sub.total_cost || sub.cost || 0)} credits
                       </CardDescription>
                     </CardHeader>
                     {expandedSub === sub.email ? (
@@ -325,8 +325,9 @@ export function Overview() {
                             className="flex justify-between py-1 border-b last:border-0 border-muted"
                           >
                             <span>{u.name}</span>
-                            <span className="text-muted-foreground">
-                              {u.usage?.prompts || u.prompt_count || 0} prompts
+                            <span className="text-muted-foreground flex gap-2">
+                              <span>{u.prompts ?? u.usage?.prompts ?? u.prompt_count ?? 0} prompts</span>
+                              <span>{u.credits ?? 0} credits</span>
                             </span>
                           </div>
                         ))}

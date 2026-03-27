@@ -54,8 +54,8 @@ export function Subscriptions() {
                     <CardTitle className="text-lg mb-1">{sub.email}</CardTitle>
                     <CardDescription>{sub.display_name || sub.org_name || 'Individual'}</CardDescription>
                   </div>
-                  <Badge variant={sub.type === 'max' ? 'default' : 'secondary'} className="uppercase">
-                    {sub.type || 'PRO'}
+                  <Badge variant={(sub.subscription_type || sub.type || '').toLowerCase() === 'max' ? 'default' : 'secondary'} className="uppercase">
+                    {(sub.subscription_type || sub.type || 'PRO').toUpperCase()}
                   </Badge>
                 </div>
               </CardHeader>
@@ -63,7 +63,7 @@ export function Subscriptions() {
                 <div className="grid grid-cols-3 border-b text-center divide-x">
                   <div className="p-4 flex flex-col items-center justify-center">
                     <Users className="w-4 h-4 text-muted-foreground mb-2" />
-                    <div className="text-xl font-bold">{sub.users?.length || 0}</div>
+                    <div className="text-xl font-bold">{sub.user_count ?? sub.users?.length ?? 0}</div>
                     <div className="text-xs text-muted-foreground">Users</div>
                   </div>
                   <div className="p-4 flex flex-col items-center justify-center">
@@ -73,7 +73,7 @@ export function Subscriptions() {
                   </div>
                   <div className="p-4 flex flex-col items-center justify-center">
                     <Coins className="w-4 h-4 text-muted-foreground mb-2" />
-                    <div className="text-xl font-bold">{Number(sub.total_cost || 0)} credits</div>
+                    <div className="text-xl font-bold">{sub.total_credits ?? Number(sub.total_cost || 0)}</div>
                     <div className="text-xs text-muted-foreground">Credits</div>
                   </div>
                 </div>
@@ -85,8 +85,9 @@ export function Subscriptions() {
                       sub.users.map((u: any) => (
                          <div key={u.id} className="flex items-center justify-between text-sm p-2 rounded-md hover:bg-muted/50 transition-colors">
                            <span className="font-medium">{u.name}</span>
-                           <div className="text-muted-foreground text-xs">
-                              {u.usage?.prompts || u.prompt_count || 0} prompts
+                           <div className="text-muted-foreground text-xs flex gap-2">
+                              <span>{u.prompts ?? u.usage?.prompts ?? u.prompt_count ?? 0} prompts</span>
+                              <span>{u.credits ?? 0} credits</span>
                            </div>
                          </div>
                       ))
