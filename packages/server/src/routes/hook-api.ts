@@ -17,6 +17,7 @@ import {
   getDb,
   type LimitRow,
 } from '../services/db.js';
+import { autoResolveInactiveAlerts } from '../services/tamper.js';
 import {
   SessionStartEvent,
   UserPromptSubmitEvent,
@@ -82,6 +83,7 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
       res.json({
         continue: false,
         stopReason: 'Account suspended by admin. Contact your team lead.',
@@ -97,6 +99,7 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
       res.json({
         continue: false,
         stopReason: 'Account paused by admin. Contact your team lead.',
@@ -114,6 +117,7 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
 
     // Record hook event
     recordHookEvent({
@@ -159,6 +163,7 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
       res.json({ decision: 'block', reason: 'Account suspended.' });
       return;
     }
@@ -222,6 +227,7 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
       res.json({ decision: 'block', reason: blockReason });
       return;
     }
@@ -237,6 +243,7 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
 
     // Record hook event
     recordHookEvent({
@@ -273,6 +280,7 @@ hookRouter.post('/pre-tool', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
       res.json({
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
@@ -293,6 +301,7 @@ hookRouter.post('/pre-tool', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
 
     // Record hook event
     recordHookEvent({
@@ -358,6 +367,7 @@ hookRouter.post('/stop', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
 
     // Record hook event
     recordHookEvent({
@@ -399,6 +409,7 @@ hookRouter.post('/stop-error', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
 
     res.json({});
   } catch (err) {
@@ -423,6 +434,7 @@ hookRouter.post('/session-end', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
 
     // Record hook event
     recordHookEvent({
@@ -462,6 +474,7 @@ hookRouter.post('/post-tool', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
 
     // Record hook event
     recordHookEvent({
@@ -499,6 +512,7 @@ hookRouter.post('/subagent-start', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
 
     // Record hook event
     recordHookEvent({
@@ -537,6 +551,7 @@ hookRouter.post('/post-tool-failure', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
 
     // Record hook event
     recordHookEvent({
@@ -586,6 +601,7 @@ hookRouter.post('/config-change', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
 
     res.json({});
   } catch (err) {
@@ -625,6 +641,7 @@ hookRouter.post('/file-changed', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
+    autoResolveInactiveAlerts(user.id);
 
     res.json({});
   } catch (err) {
