@@ -111,7 +111,7 @@ $config = @{
     client_version = $Version
     credit_weights = if ($reg.settings.credit_weights) { $reg.settings.credit_weights } else { @{ opus = 10; sonnet = 3; haiku = 1 } }
 } | ConvertTo-Json -Depth 3
-$config | Set-Content $ConfigFile -Encoding UTF8
+[System.IO.File]::WriteAllText($ConfigFile, $config, [System.Text.UTF8Encoding]::new($false))
 Write-Host "  -> Config written" -ForegroundColor Green
 
 # Write managed-settings.json
@@ -128,7 +128,7 @@ $hooks = @{
         SessionEnd = @(@{ matcher = ""; hooks = @(@{ type = "command"; command = "$binaryForward hook session-end"; timeout = 3 }) })
     }
 } | ConvertTo-Json -Depth 5
-$hooks | Set-Content $ManagedSettings -Encoding UTF8
+[System.IO.File]::WriteAllText($ManagedSettings, $hooks, [System.Text.UTF8Encoding]::new($false))
 Write-Host "  -> Hooks installed" -ForegroundColor Green
 
 # --- Step 4: Verify ---
