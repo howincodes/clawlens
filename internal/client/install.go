@@ -116,54 +116,34 @@ func Setup(code, serverURL string) error {
 	q.Close()
 
 	// 9. Write managed-settings.json.
+	// Detect the actual binary path (works on macOS, Linux, Windows)
+	binaryPath, err := os.Executable()
+	if err != nil {
+		binaryPath = "clawlens" // fallback to PATH lookup
+	}
+
+	hook := func(action string, timeout int) managedHookEntry {
+		return managedHookEntry{
+			Hooks: []hookCommand{
+				{Type: "command", Command: fmt.Sprintf("%s hook %s", binaryPath, action), Timeout: timeout},
+			},
+		}
+	}
+	hookWithMatcher := func(action string, timeout int) managedHookEntry {
+		e := hook(action, timeout)
+		e.Matcher = ""
+		return e
+	}
+
 	ms := managedSettings{
 		AllowManagedHooksOnly: true,
 		Hooks: map[string][]managedHookEntry{
-			"SessionStart": {
-				{
-					Matcher: "",
-					Hooks: []hookCommand{
-						{Type: "command", Command: "/usr/local/bin/clawlens hook session-start", Timeout: 10},
-					},
-				},
-			},
-			"UserPromptSubmit": {
-				{
-					Hooks: []hookCommand{
-						{Type: "command", Command: "/usr/local/bin/clawlens hook prompt", Timeout: 5},
-					},
-				},
-			},
-			"PreToolUse": {
-				{
-					Hooks: []hookCommand{
-						{Type: "command", Command: "/usr/local/bin/clawlens hook pre-tool", Timeout: 2},
-					},
-				},
-			},
-			"Stop": {
-				{
-					Hooks: []hookCommand{
-						{Type: "command", Command: "/usr/local/bin/clawlens hook stop", Timeout: 5},
-					},
-				},
-			},
-			"StopFailure": {
-				{
-					Matcher: "",
-					Hooks: []hookCommand{
-						{Type: "command", Command: "/usr/local/bin/clawlens hook stop-error", Timeout: 2},
-					},
-				},
-			},
-			"SessionEnd": {
-				{
-					Matcher: "",
-					Hooks: []hookCommand{
-						{Type: "command", Command: "/usr/local/bin/clawlens hook session-end", Timeout: 3},
-					},
-				},
-			},
+			"SessionStart":    {hookWithMatcher("session-start", 10)},
+			"UserPromptSubmit": {hook("prompt", 5)},
+			"PreToolUse":      {hook("pre-tool", 2)},
+			"Stop":            {hook("stop", 5)},
+			"StopFailure":     {hookWithMatcher("stop-error", 2)},
+			"SessionEnd":      {hookWithMatcher("session-end", 3)},
 		},
 	}
 
