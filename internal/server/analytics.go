@@ -82,49 +82,35 @@ type PeakHour struct {
 func (a *Analytics) GetTeamOverview(teamID string) (*TeamOverview, error) {
 	var ov TeamOverview
 
-	// Total users
-	if err := a.store.db.QueryRow(
-		`SELECT COUNT(*) FROM user WHERE team_id = ?`, teamID,
-	).Scan(&ov.TotalUsers); err != nil {
-		return nil, fmt.Errorf("count users: %w", err)
-	}
+	// Use Go time for today's start to match stored timestamp format
+	now := time.Now().UTC()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	fiveMinAgo := now.Add(-5 * time.Minute)
 
-	// Active sessions right now (ended_at IS NULL, started_at within last 5 min)
-	if err := a.store.db.QueryRow(
+	// Total users
+	a.store.db.QueryRow(`SELECT COUNT(*) FROM user WHERE team_id = ?`, teamID).Scan(&ov.TotalUsers)
+
+	// Active sessions (ended_at IS NULL, started recently)
+	a.store.db.QueryRow(
 		`SELECT COUNT(DISTINCT session.user_id)
-		 FROM session
-		 JOIN user ON session.user_id = user.id
-		 WHERE user.team_id = ?
-		   AND session.ended_at IS NULL
-		   AND session.started_at > datetime('now', '-5 minutes')`,
-		teamID,
-	).Scan(&ov.ActiveNow); err != nil {
-		return nil, fmt.Errorf("count active: %w", err)
-	}
+		 FROM session JOIN user ON session.user_id = user.id
+		 WHERE user.team_id = ? AND session.ended_at IS NULL AND session.started_at > ?`,
+		teamID, fiveMinAgo,
+	).Scan(&ov.ActiveNow)
 
 	// Prompts today
-	if err := a.store.db.QueryRow(
-		`SELECT COUNT(*)
-		 FROM prompt
-		 JOIN user ON prompt.user_id = user.id
-		 WHERE user.team_id = ?
-		   AND prompt.timestamp >= date('now')`,
-		teamID,
-	).Scan(&ov.PromptsToday); err != nil {
-		return nil, fmt.Errorf("count prompts today: %w", err)
-	}
+	a.store.db.QueryRow(
+		`SELECT COUNT(*) FROM prompt JOIN user ON prompt.user_id = user.id
+		 WHERE user.team_id = ? AND prompt.timestamp >= ?`,
+		teamID, todayStart,
+	).Scan(&ov.PromptsToday)
 
-	// Cost today (from prompt.credit_cost, summed as float)
-	if err := a.store.db.QueryRow(
-		`SELECT COALESCE(SUM(prompt.credit_cost), 0)
-		 FROM prompt
-		 JOIN user ON prompt.user_id = user.id
-		 WHERE user.team_id = ?
-		   AND prompt.timestamp >= date('now')`,
-		teamID,
-	).Scan(&ov.CostToday); err != nil {
-		return nil, fmt.Errorf("sum cost today: %w", err)
-	}
+	// Credits today (exclude blocked prompts)
+	a.store.db.QueryRow(
+		`SELECT COALESCE(SUM(CASE WHEN prompt.was_blocked = FALSE THEN prompt.credit_cost ELSE 0 END), 0) FROM prompt JOIN user ON prompt.user_id = user.id
+		 WHERE user.team_id = ? AND prompt.timestamp >= ? AND prompt.was_blocked = FALSE`,
+		teamID, todayStart,
+	).Scan(&ov.CostToday)
 
 	return &ov, nil
 }
@@ -149,7 +135,7 @@ func (a *Analytics) GetUserLeaderboard(teamID string, days int, sortBy string) (
 		   u.name,
 		   COUNT(p.id)                         AS prompts,
 		   COUNT(DISTINCT p.session_id)        AS sessions,
-		   COALESCE(SUM(p.credit_cost), 0)     AS cost_usd,
+		   COALESCE(SUM(CASE WHEN p.was_blocked = FALSE THEN p.credit_cost ELSE 0 END), 0) AS cost_usd,
 		   COALESCE((
 		       SELECT model FROM prompt
 		       WHERE user_id = u.id
@@ -194,7 +180,7 @@ func (a *Analytics) GetCostBreakdown(teamID string, days int) (*CostBreakdown, e
 	// By user
 	{
 		rows, err := a.store.db.Query(
-			`SELECT u.name, COALESCE(SUM(p.credit_cost), 0), COUNT(p.id)
+			`SELECT u.name, COALESCE(SUM(CASE WHEN p.was_blocked = FALSE THEN p.credit_cost ELSE 0 END), 0), COUNT(p.id)
 			 FROM user u
 			 LEFT JOIN prompt p ON p.user_id = u.id AND p.timestamp >= ?
 			 WHERE u.team_id = ?
@@ -221,7 +207,7 @@ func (a *Analytics) GetCostBreakdown(teamID string, days int) (*CostBreakdown, e
 	// By project
 	{
 		rows, err := a.store.db.Query(
-			`SELECT COALESCE(p.project_dir, 'unknown'), COALESCE(SUM(p.credit_cost), 0), COUNT(p.id)
+			`SELECT COALESCE(p.project_dir, 'unknown'), COALESCE(SUM(CASE WHEN p.was_blocked = FALSE THEN p.credit_cost ELSE 0 END), 0), COUNT(p.id)
 			 FROM prompt p
 			 JOIN user u ON p.user_id = u.id
 			 WHERE u.team_id = ? AND p.timestamp >= ?
@@ -248,7 +234,7 @@ func (a *Analytics) GetCostBreakdown(teamID string, days int) (*CostBreakdown, e
 	// By model
 	{
 		rows, err := a.store.db.Query(
-			`SELECT COALESCE(p.model, 'unknown'), COALESCE(SUM(p.credit_cost), 0), COUNT(p.id)
+			`SELECT COALESCE(p.model, 'unknown'), COALESCE(SUM(CASE WHEN p.was_blocked = FALSE THEN p.credit_cost ELSE 0 END), 0), COUNT(p.id)
 			 FROM prompt p
 			 JOIN user u ON p.user_id = u.id
 			 WHERE u.team_id = ? AND p.timestamp >= ?
@@ -343,7 +329,7 @@ func (a *Analytics) GetDailyTrends(teamID string, days int) ([]DailyTrend, error
 		`SELECT substr(p.timestamp, 1, 10)    AS day,
 		        COUNT(*)                      AS prompts,
 		        COUNT(DISTINCT p.session_id)  AS sessions,
-		        COALESCE(SUM(p.credit_cost), 0) AS cost
+		        COALESCE(SUM(CASE WHEN p.was_blocked = FALSE THEN p.credit_cost ELSE 0 END), 0) AS cost
 		 FROM prompt p
 		 JOIN user u ON p.user_id = u.id
 		 WHERE u.team_id = ? AND p.timestamp >= ?
@@ -375,7 +361,7 @@ func (a *Analytics) GetProjectAnalytics(teamID string, days int) ([]ProjectAnaly
 		`SELECT COALESCE(p.project_dir, 'unknown'),
 		        COUNT(*)                        AS prompts,
 		        COUNT(DISTINCT p.user_id)       AS users,
-		        COALESCE(SUM(p.credit_cost), 0) AS cost_usd
+		        COALESCE(SUM(CASE WHEN p.was_blocked = FALSE THEN p.credit_cost ELSE 0 END), 0) AS cost_usd
 		 FROM prompt p
 		 JOIN user u ON p.user_id = u.id
 		 WHERE u.team_id = ? AND p.timestamp >= ?

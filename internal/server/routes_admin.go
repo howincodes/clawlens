@@ -508,8 +508,30 @@ func handleGetAnalytics(store *Store, analytics *Analytics) http.HandlerFunc {
 			peakHours = []PeakHour{}
 		}
 
+		// Compute period totals from trends
+		var totalPrompts, totalSessions int
+		var totalCredits float64
+		for _, t := range trends {
+			totalPrompts += t.Prompts
+			totalSessions += t.Sessions
+			totalCredits += t.Cost
+		}
+		avgTurns := 0.0
+		if totalSessions > 0 {
+			avgTurns = float64(totalPrompts) / float64(totalSessions)
+		}
+
 		writeJSON(w, http.StatusOK, map[string]any{
-			"overview":           overview,
+			"overview": map[string]any{
+				"total_users":    overview.TotalUsers,
+				"active_now":     overview.ActiveNow,
+				"prompts_today":  overview.PromptsToday,
+				"cost_today":     overview.CostToday,
+				"total_prompts":  totalPrompts,
+				"total_sessions": totalSessions,
+				"total_credits":  totalCredits,
+				"avg_turns":      avgTurns,
+			},
 			"trends":             trends,
 			"model_distribution": models,
 			"tool_distribution":  tools,
