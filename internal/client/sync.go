@@ -116,6 +116,12 @@ func (s *Syncer) syncBatch() error {
 	return nil
 }
 
+// SyncOnce performs a single synchronous sync — no goroutines. Used by hook
+// handlers to flush queued events before the process exits.
+func (s *Syncer) SyncOnce() {
+	s.syncBatch()
+}
+
 // extractSessionID attempts to parse a session_id field from a JSON payload.
 // Returns an empty string if the field is absent or the payload is malformed.
 func extractSessionID(payload json.RawMessage) string {

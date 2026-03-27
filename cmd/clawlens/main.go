@@ -56,11 +56,7 @@ func handleHook(action string) {
 	}
 	defer queue.Close()
 
-	// Start background syncer for batch events
-	syncer := client.NewSyncer(queue, cfg)
-	syncer.Start()
-	defer syncer.Stop()
-
+	// Run the hook action
 	switch action {
 	case "session-start":
 		client.HandleSessionStart(cfg, queue)
@@ -76,7 +72,12 @@ func handleHook(action string) {
 		client.HandleSessionEnd(cfg, queue)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown hook action: %s\n", action)
+		return
 	}
+
+	// After each hook, try a quick sync of queued events (best effort, 5s timeout)
+	syncer := client.NewSyncer(queue, cfg)
+	syncer.SyncOnce()
 }
 
 func handleSetup() {
