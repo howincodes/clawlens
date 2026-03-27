@@ -4,8 +4,10 @@ set -e
 # ClawLens Client Installer for macOS/Linux
 # Usage: curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.sh | bash
 
-# Reconnect stdin to terminal so interactive prompts work when piped
-exec
+# Reconnect stdin to terminal so interactive prompts work when piped through curl
+exec 3<&0
+exec < /dev/tty
+
 VERSION="${CLAWLENS_VERSION:-0.1.0}"
 REPO="howincodes/clawlens"
 
@@ -37,13 +39,13 @@ if [ -f "$CONFIG_FILE" ] || [ -f "$MANAGED_SETTINGS" ] || [ -f "$BINARY" ]; then
   [ -f "$CONFIG_FILE" ] && echo "    Config:  $CONFIG_FILE"
   [ -f "$MANAGED_SETTINGS" ] && echo "    Hooks:   $MANAGED_SETTINGS"
 
-  # Check old paths too
   for old in "/usr/local/bin/clawlens" "/Library/Application Support/ClaudeCode/clawlens" "/etc/claude-code/clawlens"; do
     [ -e "$old" ] && echo "    Old:     $old"
   done
 
   echo ""
-  read -p "  Clean all and reinstall from scratch? (y/n) " choice  if [ "$choice" != "y" ] && [ "$choice" != "Y" ]; then
+  read -p "  Clean all and reinstall from scratch? (y/n) " choice
+  if [ "$choice" != "y" ] && [ "$choice" != "Y" ]; then
     echo "  Cancelled."
     exit 0
   fi
@@ -67,7 +69,6 @@ curl -fsSL "$URL" -o "$BINARY"
 chmod +x "$BINARY"
 echo "  -> $BINARY"
 
-# Also symlink to /usr/local/bin if possible
 if [ -w /usr/local/bin ]; then
   ln -sf "$BINARY" /usr/local/bin/clawlens
   echo "  -> Symlinked to /usr/local/bin/clawlens"
@@ -97,16 +98,21 @@ echo ""
 
 CODE=""
 while [ -z "$CODE" ]; do
-  read -p "  Install code (from dashboard, e.g. CLM-alice-abc123): " CODE  [ -z "$CODE" ] && echo "  Code cannot be empty!"
+  read -p "  Install code (from dashboard, e.g. CLM-alice-abc123): " CODE
+  if [ -z "$CODE" ]; then
+    echo "  Code cannot be empty!"
+  fi
 done
 
 SERVER=""
 while [ -z "$SERVER" ]; do
-  read -p "  Server URL (e.g. https://clawlens.howincloud.com): " SERVER  [ -z "$SERVER" ] && echo "  Server URL cannot be empty!"
+  read -p "  Server URL (e.g. https://clawlens.howincloud.com): " SERVER
+  if [ -z "$SERVER" ]; then
+    echo "  Server URL cannot be empty!"
+  fi
 done
 SERVER="${SERVER%/}"
 
-# Register
 echo ""
 echo "  Registering with server..."
 REG=$(curl -sf -X POST "$SERVER/api/v1/register" \
@@ -125,7 +131,6 @@ if [ -z "$AUTH_TOKEN" ]; then
 fi
 echo "  -> Registered! User: $USER_ID"
 
-# Write config
 cat > "$CONFIG_FILE" << EOF
 {
   "server_url": "$SERVER",
@@ -144,7 +149,6 @@ cat > "$CONFIG_FILE" << EOF
 EOF
 echo "  -> Config written"
 
-# Write managed-settings.json
 mkdir -p "$CLAUDE_DIR"
 cat > "$MANAGED_SETTINGS" << EOF
 {
