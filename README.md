@@ -31,30 +31,51 @@ Deploy one server, distribute an install code to each developer, and get a live 
 
 ---
 
-## Quick Start (self-host)
+## Server Installation
+
+One command installs the server binary, dashboard, and systemd service:
 
 ```bash
-docker run -d --name clawlens \
-  -p 3000:3000 \
-  -v clawlens-data:/data \
-  -e ADMIN_PASSWORD=your-secret-password \
-  ghcr.io/howincodes/clawlens:latest
+curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-server.sh | bash -s -- --password YOUR_ADMIN_PASSWORD
 ```
 
-Open [http://localhost:3000](http://localhost:3000), log in with your admin password, create a user, and copy their install code.
+Open your server URL, log in with the admin password, create a user, and share the install code.
+
+**Update server:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/update-server.sh | bash
+```
 
 ---
 
 ## Client Installation
 
-On each developer's machine:
+The install script downloads the binary, registers with the server, and configures Claude Code hooks — all in one step. It will ask for the install code and server URL interactively.
+
+**macOS / Linux:**
 
 ```bash
-curl -fsSL https://your-server/install.sh | sudo bash
-clawlens setup --code CLM-alice-abc123 --server https://your-server
+curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.sh | bash
 ```
 
-The install script detects the OS and architecture, downloads the correct binary, and places it at `/usr/local/bin/clawlens`. The `setup` command registers the machine with the server and installs the Claude Code hooks automatically.
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.ps1 | iex
+```
+
+After installation, close all terminals and restart Claude Code. Every prompt will appear in the dashboard.
+
+**Update client:**
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/update-client.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/update-client.ps1 | iex
+```
 
 ---
 

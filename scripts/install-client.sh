@@ -41,7 +41,7 @@ if [ -f "$CONFIG_FILE" ] || [ -f "$MANAGED_SETTINGS" ] || [ -f "$BINARY" ]; then
   done
 
   echo ""
-  read -p "  Clean all and reinstall from scratch? (y/n) " choice
+  read -p "  Clean all and reinstall from scratch? (y/n) " choice < /dev/tty
   if [ "$choice" != "y" ] && [ "$choice" != "Y" ]; then
     echo "  Cancelled."
     exit 0
@@ -96,13 +96,13 @@ echo ""
 
 CODE=""
 while [ -z "$CODE" ]; do
-  read -p "  Install code (from dashboard, e.g. CLM-alice-abc123): " CODE
+  read -p "  Install code (from dashboard, e.g. CLM-alice-abc123): " CODE < /dev/tty
   [ -z "$CODE" ] && echo "  Code cannot be empty!"
 done
 
 SERVER=""
 while [ -z "$SERVER" ]; do
-  read -p "  Server URL (e.g. https://clawlens.howincloud.com): " SERVER
+  read -p "  Server URL (e.g. https://clawlens.howincloud.com): " SERVER < /dev/tty
   [ -z "$SERVER" ] && echo "  Server URL cannot be empty!"
 done
 SERVER="${SERVER%/}"
