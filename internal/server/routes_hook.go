@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -99,7 +100,7 @@ func handleSessionStart(store *Store, hub *WSHub) http.HandlerFunc {
 		}
 		_ = store.UpsertDevice(device)
 
-		// If subscription email provided, upsert subscription.
+		// If subscription email provided, upsert subscription and link to user.
 		if req.SubscriptionEmail != nil && *req.SubscriptionEmail != "" {
 			team := TeamFromContext(r.Context())
 			sub := &shared.Subscription{
@@ -109,6 +110,10 @@ func handleSessionStart(store *Store, hub *WSHub) http.HandlerFunc {
 				SubscriptionType: req.SubscriptionType,
 			}
 			_ = store.UpsertSubscription(sub)
+			// Link user to subscription
+			if linked, err := store.GetSubscriptionByEmail(team.ID, *req.SubscriptionEmail); err == nil && linked != nil {
+				_ = store.UpdateUser(user.ID, nil, &linked.ID, nil)
+			}
 		}
 
 		// Create session record.
@@ -161,6 +166,7 @@ func handlePrompt(store *Store, hub *WSHub) http.HandlerFunc {
 
 		result := EvaluateLimits(store, user, req.Model, settings.CreditWeights)
 		cost := CreditCost(req.Model, settings.CreditWeights)
+		log.Printf("[prompt] user=%s model=%q weights=%+v cost=%d", user.Name, req.Model, settings.CreditWeights, cost)
 
 		promptText := req.PromptText
 		truncated := false
@@ -185,7 +191,12 @@ func handlePrompt(store *Store, hub *WSHub) http.HandlerFunc {
 			PromptTruncated: truncated,
 			Timestamp:       time.Now().UTC(),
 		}
-		_, _ = store.RecordPrompt(prompt)
+		promptID, err := store.RecordPrompt(prompt)
+		if err != nil {
+			log.Printf("[prompt] RecordPrompt error: %v", err)
+		} else {
+			log.Printf("[prompt] recorded id=%d credit_cost=%d", promptID, cost)
+		}
 		_ = store.UpdateSessionCounters(req.SessionID, 1, 0)
 
 		eventType := "prompt_submitted"

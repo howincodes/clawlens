@@ -181,6 +181,16 @@ func scanPrompt(row interface {
 
 // RecordPrompt inserts a new prompt record and returns its auto-generated ID.
 func (s *Store) RecordPrompt(p *shared.Prompt) (int64, error) {
+	// Auto-create session if it doesn't exist (handles out-of-order or missed session-start)
+	if p.SessionID != nil && *p.SessionID != "" {
+		var exists int
+		s.db.QueryRow(`SELECT 1 FROM session WHERE id = ?`, *p.SessionID).Scan(&exists)
+		if exists == 0 {
+			s.db.Exec(`INSERT OR IGNORE INTO session (id, user_id, model, project_dir, cwd, started_at) VALUES (?, ?, ?, ?, ?, ?)`,
+				*p.SessionID, p.UserID, p.Model, p.ProjectDir, p.CWD, time.Now().UTC())
+		}
+	}
+
 	res, err := s.db.Exec(
 		`INSERT INTO prompt
 		 (user_id, session_id, model, prompt_text, prompt_length,
