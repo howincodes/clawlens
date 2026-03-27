@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"path/filepath"
@@ -35,6 +36,7 @@ func RegisterHookRoutes(mux *http.ServeMux, store *Store, hub *WSHub) {
 	mux.Handle("POST /api/v1/session-start", hookMW(http.HandlerFunc(handleSessionStart(store, hub))))
 	mux.Handle("POST /api/v1/prompt", hookMW(http.HandlerFunc(handlePrompt(store, hub))))
 	mux.Handle("POST /api/v1/sync-batch", hookMW(http.HandlerFunc(handleSyncBatch(store, hub))))
+	mux.HandleFunc("GET /install.sh", handleInstallScript)
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -228,6 +230,45 @@ func handlePrompt(store *Store, hub *WSHub) http.HandlerFunc {
 			Reason:  result.Reason,
 		})
 	}
+}
+
+func handleInstallScript(w http.ResponseWriter, r *http.Request) {
+	scheme := "https"
+	if r.TLS == nil {
+		scheme = "http"
+	}
+	origin := fmt.Sprintf("%s://%s", scheme, r.Host)
+
+	script := fmt.Sprintf(`#!/bin/bash
+set -e
+
+# Detect platform
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64) ARCH="amd64" ;;
+  aarch64|arm64) ARCH="arm64" ;;
+esac
+
+VERSION="${CLAWLENS_VERSION:-latest}"
+BASE_URL="${CLAWLENS_SERVER:-%s}"
+BINARY="clawlens-${OS}-${ARCH}"
+
+echo "Installing ClawLens client (${OS}/${ARCH})..."
+curl -fsSL "${BASE_URL}/${BINARY}" -o /tmp/clawlens
+chmod +x /tmp/clawlens
+mv /tmp/clawlens /usr/local/bin/clawlens
+
+echo ""
+echo "ClawLens installed at /usr/local/bin/clawlens"
+echo ""
+echo "Next: clawlens setup --code <YOUR_CODE> --server <SERVER_URL>"
+`, origin)
+
+	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
+	w.Header().Set("Content-Disposition", "inline; filename=\"install.sh\"")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, script)
 }
 
 func handleSyncBatch(store *Store, hub *WSHub) http.HandlerFunc {
