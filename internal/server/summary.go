@@ -40,15 +40,17 @@ func (se *SummaryEngine) GenerateForAllUsers(teamID string, periodHours int) err
 	now := time.Now().UTC()
 	since := now.Add(-time.Duration(periodHours) * time.Hour)
 
+	log.Printf("[summary] generating for %d users (last %dh)", len(users), periodHours)
 	for _, user := range users {
 		prompts, err := se.store.GetPromptsForSummary(user.ID, since, now)
 		if err != nil {
-			log.Printf("summary: get prompts for %s: %v", user.ID, err)
+			log.Printf("[summary] error fetching prompts for %s: %v", user.Name, err)
 			continue
 		}
 		if len(prompts) == 0 {
 			continue
 		}
+		log.Printf("[summary] generating for %s (%d prompts)", user.Name, len(prompts))
 
 		promptText := buildSummaryPrompt(user.Name, prompts)
 		raw, err := se.callAI(promptText, settings)
