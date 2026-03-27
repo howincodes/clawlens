@@ -452,25 +452,33 @@ export function UserDetail() {
                 <p className="text-sm leading-relaxed">{latestSummary.summary_text}</p>
 
                 {/* Categories as tags */}
-                {latestSummary.categories && latestSummary.categories.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {latestSummary.categories.map(
-                      (cat: { name: string; percentage: number }, idx: number) => (
+                {latestSummary.categories && (() => {
+                  let cats: Record<string, number> = {}
+                  try {
+                    cats = typeof latestSummary.categories === 'string'
+                      ? JSON.parse(latestSummary.categories)
+                      : latestSummary.categories
+                  } catch { /* ignore */ }
+                  const entries = Object.entries(cats).filter(([,v]) => v > 0)
+                  if (entries.length === 0) return null
+                  return (
+                    <div className="flex flex-wrap gap-2">
+                      {entries.map(([cat, count], idx) => (
                         <Badge
-                          key={idx}
+                          key={cat}
                           variant="outline"
-                          className="text-xs"
+                          className="text-xs capitalize"
                           style={{
                             borderColor: COLORS[idx % COLORS.length],
                             color: COLORS[idx % COLORS.length],
                           }}
                         >
-                          {cat.name} ({cat.percentage}%)
+                          {cat.replace(/_/g, ' ')} ({count})
                         </Badge>
-                      )
-                    )}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )
+                })()}
 
                 {/* Scores */}
                 <div className="space-y-3">
