@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/howincodes/clawlens/internal/shared"
@@ -120,6 +121,12 @@ func Setup(code, serverURL string) error {
 	binaryPath, err := os.Executable()
 	if err != nil {
 		binaryPath = "clawlens" // fallback to PATH lookup
+	}
+	// Claude Code runs hooks via bash — backslashes get eaten.
+	// Convert to forward slashes and quote the path for spaces.
+	binaryPath = strings.ReplaceAll(binaryPath, "\\", "/")
+	if strings.Contains(binaryPath, " ") {
+		binaryPath = "\"" + binaryPath + "\""
 	}
 
 	hook := func(action string, timeout int) managedHookEntry {
