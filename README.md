@@ -65,7 +65,6 @@ bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scr
 irm https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-client.ps1 | iex
 ```
 
-After installation, close all terminals and restart Claude Code. Every prompt will appear in the dashboard.
 
 **Update client:**
 

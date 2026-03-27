@@ -153,5 +153,4 @@ Write-Host ""
 Write-Host "  NEXT: Close ALL terminals, then open a fresh one and run:" -ForegroundColor Yellow
 Write-Host "        claude" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "  Every prompt will appear in your dashboard at $Server" -ForegroundColor Cyan
 Write-Host ""
