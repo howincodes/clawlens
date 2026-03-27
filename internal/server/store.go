@@ -774,14 +774,12 @@ func (s *Store) UseInstallCode(code string) (*shared.User, error) {
 	if err != nil {
 		return nil, err
 	}
-	if used {
-		return nil, fmt.Errorf("install code already used")
-	}
-
-	if _, err := tx.Exec(
-		`UPDATE install_code SET used = TRUE WHERE code = ?`, code,
-	); err != nil {
-		return nil, err
+	if !used {
+		if _, err := tx.Exec(
+			`UPDATE install_code SET used = TRUE WHERE code = ?`, code,
+		); err != nil {
+			return nil, err
+		}
 	}
 
 	row := tx.QueryRow(
