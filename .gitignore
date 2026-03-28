@@ -1,10 +1,38 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+
+# Database
 *.db
 *.db-shm
 *.db-wal
+
+# Environment
 .env
 .env.*
 !.env.example
-*.log
+
+# Claude Code local data
+.claude/projects/
+.claude/skills/
+.claude/plugins/
+.playwright-cli/
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Lock files (pnpm only)
+package-lock.json
+yarn.lock

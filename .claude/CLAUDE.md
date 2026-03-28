@@ -1,22 +1,13 @@
 # ClawLens Development Guidelines
 
 ## Product Standards
-- This is an open-source product. All code must be production-quality.
-- No hacks, no workarounds, no "good enough" shortcuts.
-- Fix root causes, not symptoms. If something is broken, fix it properly.
-- Every fix must be the professional, correct solution — not a patch.
+- Open-source product. All code must be production-quality.
+- No hacks, no workarounds, no shortcuts. Fix root causes.
+- Every fix must be the professional, correct solution.
 
-## Architecture
-- TypeScript monorepo (pnpm workspaces)
-- `packages/server` — Express + better-sqlite3 + zod
-- `packages/dashboard` — React + Vite + Tailwind
-- `scripts/` — Install, enforce, restore, and migration scripts
-
-## Testing
-- Run `pnpm --filter @clawlens/server test` before every commit
-- All API changes must have corresponding tests
-- Test on Docker containers (clawlens-dev1/2/3) for integration
-
-## Spec
-- Design spec: `docs/superpowers/specs/2026-03-28-clawlens-v02-design.md`
-- Build checklist: `CHECKLIST.md`
+## Quick Reference
+- Run tests: `pnpm --filter @clawlens/server test`
+- Dev server: `PORT=3000 pnpm dev`
+- Build dashboard: `pnpm --filter dashboard build`
+- Full spec: `docs/superpowers/specs/2026-03-28-clawlens-v02-design.md`
+- Architecture details: `.claude/ARCHITECTURE.md`
