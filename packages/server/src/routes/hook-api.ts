@@ -120,24 +120,43 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
       cwd: data.cwd,
     });
 
-    // Handle subscription info from enriched hook data
+    // ── Collect ALL enriched data from client ──
+    const userUpdates: Record<string, string> = {};
+
+    // Update user email from subscription if we don't have it
+    if (body.subscription_email && (!user.email || user.email === '')) {
+      userUpdates.email = body.subscription_email;
+    }
+
+    // Update default model based on what client detected
+    if (body.detected_model && body.detected_model !== user.default_model) {
+      userUpdates.default_model = body.detected_model;
+    }
+
+    // Apply user updates if any
+    if (Object.keys(userUpdates).length > 0) {
+      try { updateUser(user.id, userUpdates); } catch {}
+    }
+
+    // Handle subscription record
     if (body.subscription_email || body.subscription_type) {
       try {
         const sub = createSubscription({
           email: body.subscription_email || user.email || '',
           subscription_type: body.subscription_type || 'unknown',
+          plan_name: body.org_name || undefined,
         });
         if (sub && !user.subscription_id) {
           updateUser(user.id, { subscription_id: String(sub.id) });
         }
-      } catch { /* best-effort */ }
+      } catch {}
     }
 
     // Update last_event_at
     touchUserLastEvent(user.id);
     maybeResolveInactiveAlerts(user);
 
-    // Record hook event
+    // Record full hook event (includes all device info, subscription, etc.)
     recordHookEvent({
       user_id: user.id,
       session_id: data.session_id,
@@ -145,7 +164,15 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
       payload: JSON.stringify(body),
     });
 
-    broadcast({ type: 'session_start', user_id: user.id, user_name: user.name, model });
+    broadcast({
+      type: 'session_start',
+      user_id: user.id,
+      user_name: user.name,
+      model,
+      subscription_email: body.subscription_email,
+      hostname: body.hostname,
+      platform: body.platform,
+    });
 
     res.json({});
   } catch (err) {
