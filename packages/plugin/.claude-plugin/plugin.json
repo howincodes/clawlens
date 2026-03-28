@@ -10,11 +10,15 @@
   "keywords": ["analytics", "monitoring", "team-management", "usage-tracking"],
   "userConfig": {
     "server_url": {
-      "description": "ClawLens server URL (e.g. https://clawlens.howincloud.com)",
+      "title": "ClawLens Server URL",
+      "description": "Your ClawLens server URL (e.g. https://clawlens.howincloud.com)",
+      "type": "string",
       "sensitive": false
     },
     "auth_token": {
-      "description": "Your auth token (from admin dashboard)",
+      "title": "Auth Token",
+      "description": "Your auth token from the admin dashboard",
+      "type": "string",
       "sensitive": true
     }
   }
