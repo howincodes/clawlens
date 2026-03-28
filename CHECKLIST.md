@@ -90,19 +90,23 @@
 - [x] Kill switch works on pre-tool (permissionDecision:deny)
 - [x] Analytics returns correct data
 - [x] Admin API: user creation with token, status update, user listing
-- [ ] Test with real Claude Code plugin (requires interactive session — user to verify)
-- [ ] Test on Docker devbox (claude -p auth issue — user to verify interactively)
-- [ ] Playwright E2E tests (deferred — needs running server + dashboard)
+- [x] Test hook script on Docker containers with env vars — all hooks fire ✅
+- [x] Test with 3 dev containers (clawlens-dev1/2/3) — data flows to server ✅
+- [x] Playwright E2E: all 9 dashboard pages load, Add User flow works ✅
 
 ## Phase 11: Remaining (for user to verify)
-- [ ] Test plugin with `claude --plugin-dir packages/plugin --debug` locally
-- [ ] Test on Docker devbox with interactive `claude`
-- [ ] Deploy server to VPS
-- [ ] Test full end-to-end: plugin → hooks → server → dashboard
+- [ ] Test with real Claude Code interactive session (weekly limit was hit during testing)
+- [ ] Deploy server to VPS (clawlens.howincloud.com)
+- [ ] Test Tier 2: enforce.sh on a machine
+- [ ] Test Tier 3: enforce.sh --tier3 with kill switch auth logout
 
 ## Test Summary
 - 149 unit/integration tests passing
 - Server: 47 db + 16 auth + 21 hook-api + 19 tamper + 39 admin + 7 ai = 149
-- Manual integration: all hook endpoints verified via curl
-- Kill switch: verified all 3 blocking layers
-- Dashboard: builds successfully with TypeScript + Vite
+- Integration: hook script tested on 3 Docker containers — data flows correctly
+- Kill switch: all 3 layers verified (continue:false, decision:block, permissionDecision:deny)
+- Rate limiting: blocks correctly when credits exceed daily limit
+- Tamper detection: ConfigChange + FileChanged create alerts, dashboard shows "tampered"
+- Token rotation: old token rejected (401), new token works (200)
+- User deletion: cascading cleanup, deleted token rejected
+- Dashboard: all 9 pages load, Add User creates user + shows token + install steps
