@@ -179,7 +179,7 @@ elif command -v node >/dev/null 2>&1; then
 elif command -v python3 >/dev/null 2>&1; then
   EVENT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('hook_event_name',''))" 2>/dev/null)
 else
-  EVENT=""
+  EVENT=$(echo "$INPUT" | grep -o '"hook_event_name":"[^"]*"' | head -1 | cut -d'"' -f4)
 fi
 case "$EVENT" in
   SessionStart)       PATH_SUFFIX="session-start" ;;
