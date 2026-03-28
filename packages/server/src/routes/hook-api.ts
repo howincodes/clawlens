@@ -36,6 +36,16 @@ import {
 } from '../schemas/hook-events.js';
 
 // ---------------------------------------------------------------------------
+// Debug logging — enabled by CLAWLENS_DEBUG=1
+// ---------------------------------------------------------------------------
+
+const DEBUG = process.env.CLAWLENS_DEBUG === '1' || process.env.CLAWLENS_DEBUG === 'true';
+
+function debug(msg: string): void {
+  if (DEBUG) console.log(`[hook-api] ${msg}`);
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -84,14 +94,23 @@ export const hookRouter = Router();
 // ---------------------------------------------------------------------------
 
 hookRouter.post('/session-start', (req: Request, res: Response) => {
+  debug(`──── /session-start ────`);
   try {
     const user = req.user!;
     const body = req.body;
+    debug(`user: id=${user.id}, name=${user.name}, status=${user.status}, email=${user.email || '(none)'}, default_model=${user.default_model || '(none)'}`);
+    debug(`body keys: ${Object.keys(body).join(', ')}`);
+    debug(`body.session_id=${body.session_id}, body.model=${body.model || '(none)'}, body.detected_model=${body.detected_model || '(none)'}`);
+    debug(`body.subscription_email=${body.subscription_email || '(none)'}, body.subscription_type=${body.subscription_type || '(none)'}`);
+    debug(`body.org_name=${body.org_name || '(none)'}, body.hostname=${body.hostname || '(none)'}, body.platform=${body.platform || '(none)'}`);
+
     const parsed = SessionStartEvent.safeParse(body);
+    debug(`zod parse: ${parsed.success ? 'OK' : `FAILED — ${JSON.stringify(parsed.error?.issues?.map(i => i.message))}`}`);
     const data = parsed.success ? parsed.data : body;
 
     // Check user status
     if (user.status === 'killed') {
+      debug(`user is KILLED — blocking session`);
       recordHookEvent({
         user_id: user.id,
         session_id: data.session_id,
@@ -99,15 +118,15 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
-      res.json({
-        continue: false,
-        stopReason: 'Account suspended by admin. Contact your team lead.',
-      });
+      maybeResolveInactiveAlerts(user);
+      const resp = { continue: false, stopReason: 'Account suspended by admin. Contact your team lead.' };
+      debug(`responding: ${JSON.stringify(resp)}`);
+      res.json(resp);
       return;
     }
 
     if (user.status === 'paused') {
+      debug(`user is PAUSED — blocking session`);
       recordHookEvent({
         user_id: user.id,
         session_id: data.session_id,
@@ -115,24 +134,26 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
-      res.json({
-        continue: false,
-        stopReason: 'Account paused by admin. Contact your team lead.',
-      });
+      maybeResolveInactiveAlerts(user);
+      const resp = { continue: false, stopReason: 'Account paused by admin. Contact your team lead.' };
+      debug(`responding: ${JSON.stringify(resp)}`);
+      res.json(resp);
       return;
     }
 
     // Determine model — from hook JSON, enriched field, or user default
     const model = body.model || body.detected_model || user.default_model || 'sonnet';
+    debug(`resolved model: "${model}" (body.model=${body.model || '(none)'}, body.detected_model=${body.detected_model || '(none)'}, user.default_model=${user.default_model || '(none)'})`);
 
     // Create session
+    debug(`creating session: id=${data.session_id}, user_id=${user.id}, model=${model}, cwd=${data.cwd || '(none)'}`);
     createSession({
       id: data.session_id,
       user_id: user.id,
       model,
       cwd: data.cwd,
     });
+    debug(`session created OK`);
 
     // ── Collect ALL enriched data from client ──
     const userUpdates: Record<string, string> = {};
@@ -140,30 +161,36 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
     // Update user email from subscription if we don't have it
     if (body.subscription_email && (!user.email || user.email === '')) {
       userUpdates.email = body.subscription_email;
+      debug(`will update user email to "${body.subscription_email}"`);
     }
 
     // Update default model based on what client detected
     if (body.detected_model && body.detected_model !== user.default_model) {
       userUpdates.default_model = body.detected_model;
+      debug(`will update user default_model to "${body.detected_model}"`);
     }
 
     // Apply user updates if any
     if (Object.keys(userUpdates).length > 0) {
-      try { updateUser(user.id, userUpdates); } catch {}
+      debug(`updating user: ${JSON.stringify(userUpdates)}`);
+      try { updateUser(user.id, userUpdates); debug(`user updated OK`); } catch (e: any) { debug(`user update FAILED: ${e.message}`); }
     }
 
     // Handle subscription record
     if (body.subscription_email || body.subscription_type) {
+      debug(`creating/updating subscription: email=${body.subscription_email || user.email}, type=${body.subscription_type}, org=${body.org_name}`);
       try {
         const sub = createSubscription({
           email: body.subscription_email || user.email || '',
           subscription_type: body.subscription_type || 'unknown',
           plan_name: body.org_name || undefined,
         });
+        debug(`subscription result: ${sub ? `id=${sub.id}` : '(null)'}`);
         if (sub && !user.subscription_id) {
           updateUser(user.id, { subscription_id: String(sub.id) });
+          debug(`linked subscription ${sub.id} to user`);
         }
-      } catch {}
+      } catch (e: any) { debug(`subscription FAILED: ${e.message}`); }
     }
 
     // Update last_event_at
@@ -171,6 +198,7 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
     maybeResolveInactiveAlerts(user);
 
     // Record full hook event (includes all device info, subscription, etc.)
+    debug(`recording hook event`);
     recordHookEvent({
       user_id: user.id,
       session_id: data.session_id,
@@ -178,6 +206,7 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
       payload: JSON.stringify(body),
     });
 
+    debug(`broadcasting session_start`);
     broadcast({
       type: 'session_start',
       user_id: user.id,
@@ -188,8 +217,10 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
       platform: body.platform,
     });
 
+    debug(`responding: {} (allow)`);
     res.json({});
-  } catch (err) {
+  } catch (err: any) {
+    debug(`ERROR: ${err.stack || err.message}`);
     console.error('[hook-api] session-start error:', err);
     res.json({});
   }
@@ -200,14 +231,21 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 hookRouter.post('/prompt', (req: Request, res: Response) => {
+  debug(`──── /prompt ────`);
   try {
     const user = req.user!;
     const body = req.body;
+    debug(`user: id=${user.id}, name=${user.name}, status=${user.status}`);
+    debug(`body keys: ${Object.keys(body).join(', ')}`);
+    debug(`body.session_id=${body.session_id}, body.prompt=${(body.prompt || '').slice(0, 100)}...`);
+
     const parsed = UserPromptSubmitEvent.safeParse(body);
+    debug(`zod parse: ${parsed.success ? 'OK' : `FAILED — ${JSON.stringify(parsed.error?.issues?.map(i => i.message))}`}`);
     const data = parsed.success ? parsed.data : body;
 
     // Check user status
     if (user.status === 'killed' || user.status === 'paused') {
+      debug(`user is ${user.status} — blocking prompt`);
       // Recording is best-effort — FK may fail if session doesn't exist
       try {
         recordPrompt({
@@ -219,7 +257,8 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
           blocked: true,
           block_reason: 'Account suspended.',
         });
-      } catch { /* FK failure is expected for killed users */ }
+        debug(`blocked prompt recorded`);
+      } catch (e: any) { debug(`recording blocked prompt FAILED (expected if no session): ${e.message}`); }
       try {
         recordHookEvent({
           user_id: user.id,
@@ -227,58 +266,73 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
           event_type: 'UserPromptSubmit',
           payload: JSON.stringify(body),
         });
-      } catch { /* best-effort */ }
+      } catch (e: any) { debug(`recording hook event FAILED: ${e.message}`); }
       touchUserLastEvent(user.id);
       maybeResolveInactiveAlerts(user);
-      res.json({ decision: 'block', reason: 'Account suspended.' });
+      const resp = { decision: 'block', reason: 'Account suspended.' };
+      debug(`responding: ${JSON.stringify(resp)}`);
+      res.json(resp);
       return;
     }
 
     // Ensure session exists (auto-create if SessionStart was missed or failed)
+    debug(`ensuring session exists: session_id=${data.session_id}`);
     ensureSession(data.session_id, user.id, user.default_model, data.cwd);
     const session = getSessionById(data.session_id);
+    debug(`session lookup: ${session ? `found (model=${session.model})` : 'NOT FOUND (even after ensureSession!)'}`);
     const model = session?.model ?? user.default_model ?? 'sonnet';
+    debug(`resolved model: "${model}"`);
 
     // Compute credit cost
     const creditCost = getCreditCost(model);
+    debug(`credit cost for ${model}: ${creditCost}`);
 
     // Check credit limits
     const limits = getLimitsByUser(user.id);
+    debug(`user has ${limits.length} limit rule(s)`);
     let blocked = false;
     let blockReason = '';
 
     for (const limit of limits) {
+      debug(`checking limit: type=${limit.type}, model=${limit.model || '(any)'}, window=${limit.window}, value=${limit.value}`);
       if (limit.type === 'total_credits') {
         const window = limit.window as 'daily' | 'hourly' | 'monthly';
         const usage = getUserCreditUsage(user.id, window);
+        debug(`  total_credits: usage=${usage}, limit=${limit.value}, next_cost=${creditCost}, would_exceed=${usage + creditCost > limit.value}`);
         if (usage + creditCost > limit.value) {
           blocked = true;
           blockReason = `Credit limit reached. ${window} usage: ${usage}/${limit.value}`;
+          debug(`  BLOCKED: ${blockReason}`);
           break;
         }
       } else if (limit.type === 'per_model') {
-        if (!limit.model) continue; // skip nonsensical per_model limits without a model
+        if (!limit.model) { debug(`  skipping per_model limit with no model`); continue; }
         const window = limit.window as 'daily' | 'hourly' | 'monthly';
         const limitModel = limit.model;
         const usage = getUserModelCreditUsage(user.id, limitModel, window);
+        debug(`  per_model(${limitModel}): usage=${usage}, limit=${limit.value}, next_cost=${creditCost}, would_exceed=${usage + creditCost > limit.value}`);
         if (usage + creditCost > limit.value) {
           blocked = true;
           blockReason = `Credit limit reached. ${limitModel} ${window} usage: ${usage}/${limit.value}`;
+          debug(`  BLOCKED: ${blockReason}`);
           break;
         }
       } else if (limit.type === 'time_of_day') {
         const currentHour = new Date().getHours();
         const startHour = limit.start_hour ?? 0;
         const endHour = limit.end_hour ?? 24;
+        debug(`  time_of_day: current_hour=${currentHour}, blocked_range=${startHour}-${endHour}, in_range=${currentHour >= startHour && currentHour < endHour}`);
         if (currentHour >= startHour && currentHour < endHour) {
           blocked = true;
           blockReason = `Usage blocked during hours ${startHour}-${endHour}.`;
+          debug(`  BLOCKED: ${blockReason}`);
           break;
         }
       }
     }
 
     if (blocked) {
+      debug(`prompt BLOCKED — recording and responding`);
       recordPrompt({
         session_id: data.session_id,
         user_id: user.id,
@@ -295,13 +349,16 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
+      maybeResolveInactiveAlerts(user);
       broadcast({ type: 'prompt', user_id: user.id, user_name: user.name, prompt: data.prompt?.slice(0, 100), blocked: true });
-      res.json({ decision: 'block', reason: blockReason });
+      const resp = { decision: 'block', reason: blockReason };
+      debug(`responding: ${JSON.stringify(resp)}`);
+      res.json(resp);
       return;
     }
 
     // Record prompt (allowed)
+    debug(`prompt ALLOWED — recording with credit_cost=${creditCost}`);
     recordPrompt({
       session_id: data.session_id,
       user_id: user.id,
@@ -327,8 +384,10 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
 
     broadcast({ type: 'prompt', user_id: user.id, user_name: user.name, prompt: data.prompt?.slice(0, 100), blocked: false });
 
+    debug(`responding: {} (allow)`);
     res.json({});
-  } catch (err) {
+  } catch (err: any) {
+    debug(`ERROR: ${err.stack || err.message}`);
     console.error('[hook-api] prompt error:', err);
     res.json({});
   }
@@ -339,14 +398,20 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 hookRouter.post('/pre-tool', (req: Request, res: Response) => {
+  debug(`──── /pre-tool ────`);
   try {
     const user = req.user!;
     const body = req.body;
+    debug(`user: id=${user.id}, name=${user.name}, status=${user.status}`);
+    debug(`body.tool_name=${body.tool_name || '(none)'}, body.session_id=${body.session_id}`);
+
     const parsed = PreToolUseEvent.safeParse(body);
+    debug(`zod parse: ${parsed.success ? 'OK' : `FAILED — ${JSON.stringify(parsed.error?.issues?.map(i => i.message))}`}`);
     const data = parsed.success ? parsed.data : body;
 
     // Check user status
     if (user.status === 'killed' || user.status === 'paused') {
+      debug(`user is ${user.status} — denying tool use`);
       recordHookEvent({
         user_id: user.id,
         session_id: data.session_id,
@@ -354,18 +419,21 @@ hookRouter.post('/pre-tool', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
-      res.json({
+      maybeResolveInactiveAlerts(user);
+      const resp = {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
           permissionDecision: 'deny',
           permissionDecisionReason: 'Account suspended.',
         },
-      });
+      };
+      debug(`responding: ${JSON.stringify(resp)}`);
+      res.json(resp);
       return;
     }
 
     // Record tool event
+    debug(`recording tool event: tool_name=${data.tool_name}`);
     recordToolEvent({
       user_id: user.id,
       session_id: data.session_id,
@@ -387,8 +455,10 @@ hookRouter.post('/pre-tool', (req: Request, res: Response) => {
 
     broadcast({ type: 'tool_use', user_id: user.id, user_name: user.name, tool_name: data.tool_name });
 
+    debug(`responding: {} (allow)`);
     res.json({});
-  } catch (err) {
+  } catch (err: any) {
+    debug(`ERROR: ${err.stack || err.message}`);
     console.error('[hook-api] pre-tool error:', err);
     res.json({});
   }
@@ -399,26 +469,37 @@ hookRouter.post('/pre-tool', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 hookRouter.post('/stop', (req: Request, res: Response) => {
+  debug(`──── /stop ────`);
   try {
     const user = req.user!;
     const body = req.body;
+    debug(`user: id=${user.id}, name=${user.name}`);
+    debug(`body.session_id=${body.session_id}`);
+    debug(`body.last_assistant_message length: ${(body.last_assistant_message || '').length}`);
+
     const parsed = StopEvent.safeParse(body);
+    debug(`zod parse: ${parsed.success ? 'OK' : `FAILED — ${JSON.stringify(parsed.error?.issues?.map(i => i.message))}`}`);
     const data = parsed.success ? parsed.data : body;
 
     // Extract response
     const response = (data.last_assistant_message ?? '').slice(0, 10000);
+    debug(`response length (trimmed): ${response.length}`);
 
     // Ensure session exists + determine model
+    debug(`ensuring session: ${data.session_id}`);
     ensureSession(data.session_id, user.id, user.default_model);
     const session = getSessionById(data.session_id);
+    debug(`session lookup: ${session ? `found (model=${session.model})` : 'NOT FOUND'}`);
     const model = session?.model ?? user.default_model ?? 'sonnet';
 
     // Update the most recent unresponded prompt for this session with the response.
     // Credit cost was already recorded by the prompt handler — do NOT re-charge here.
+    debug(`updating last prompt with response (model=${model})`);
     const db = getDb();
-    db.prepare(
+    const result = db.prepare(
       `UPDATE prompts SET response = ?, model = ? WHERE session_id = ? AND response IS NULL ORDER BY id DESC LIMIT 1`,
     ).run(response, model, data.session_id);
+    debug(`prompt update: changes=${result.changes}`);
 
     // Update last_event_at
     touchUserLastEvent(user.id);
@@ -434,8 +515,10 @@ hookRouter.post('/stop', (req: Request, res: Response) => {
 
     broadcast({ type: 'stop', user_id: user.id, user_name: user.name, model });
 
+    debug(`responding: {} (OK)`);
     res.json({});
-  } catch (err) {
+  } catch (err: any) {
+    debug(`ERROR: ${err.stack || err.message}`);
     console.error('[hook-api] stop error:', err);
     res.json({});
   }
@@ -446,13 +529,19 @@ hookRouter.post('/stop', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 hookRouter.post('/stop-error', (req: Request, res: Response) => {
+  debug(`──── /stop-error ────`);
   try {
     const user = req.user!;
     const body = req.body;
+    debug(`user: id=${user.id}, name=${user.name}`);
+    debug(`body.session_id=${body.session_id}, body.error=${body.error || '(none)'}`);
+
     const parsed = StopFailureEvent.safeParse(body);
+    debug(`zod parse: ${parsed.success ? 'OK' : 'FAILED'}`);
     const data = parsed.success ? parsed.data : body;
 
     // Record hook event with error details
+    debug(`recording StopFailure event`);
     recordHookEvent({
       user_id: user.id,
       session_id: data.session_id,
@@ -468,8 +557,10 @@ hookRouter.post('/stop-error', (req: Request, res: Response) => {
     touchUserLastEvent(user.id);
     maybeResolveInactiveAlerts(user);
 
+    debug(`responding: {} (OK)`);
     res.json({});
-  } catch (err) {
+  } catch (err: any) {
+    debug(`ERROR: ${err.stack || err.message}`);
     console.error('[hook-api] stop-error error:', err);
     res.json({});
   }
@@ -480,13 +571,19 @@ hookRouter.post('/stop-error', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 hookRouter.post('/session-end', (req: Request, res: Response) => {
+  debug(`──── /session-end ────`);
   try {
     const user = req.user!;
     const body = req.body;
+    debug(`user: id=${user.id}, name=${user.name}`);
+    debug(`body.session_id=${body.session_id}, body.reason=${body.reason || '(none)'}`);
+
     const parsed = SessionEndEvent.safeParse(body);
+    debug(`zod parse: ${parsed.success ? 'OK' : 'FAILED'}`);
     const data = parsed.success ? parsed.data : body;
 
     // End session
+    debug(`ending session: ${data.session_id}, reason=${data.reason ?? 'unknown'}`);
     endSession(data.session_id, data.reason ?? 'unknown');
 
     // Update last_event_at
@@ -501,8 +598,10 @@ hookRouter.post('/session-end', (req: Request, res: Response) => {
       payload: JSON.stringify(body),
     });
 
+    debug(`responding: {} (OK)`);
     res.json({});
-  } catch (err) {
+  } catch (err: any) {
+    debug(`ERROR: ${err.stack || err.message}`);
     console.error('[hook-api] session-end error:', err);
     res.json({});
   }
@@ -513,13 +612,18 @@ hookRouter.post('/session-end', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 hookRouter.post('/post-tool', (req: Request, res: Response) => {
+  debug(`──── /post-tool ────`);
   try {
     const user = req.user!;
     const body = req.body;
+    debug(`user: id=${user.id}, tool_name=${body.tool_name || '(none)'}, session_id=${body.session_id}`);
+
     const parsed = PostToolUseEvent.safeParse(body);
+    debug(`zod parse: ${parsed.success ? 'OK' : 'FAILED'}`);
     const data = parsed.success ? parsed.data : body;
 
     // Record tool event with success
+    debug(`recording tool event (success): ${data.tool_name}`);
     recordToolEvent({
       user_id: user.id,
       session_id: data.session_id,
@@ -541,8 +645,10 @@ hookRouter.post('/post-tool', (req: Request, res: Response) => {
       payload: JSON.stringify(body),
     });
 
+    debug(`responding: {} (OK)`);
     res.json({});
-  } catch (err) {
+  } catch (err: any) {
+    debug(`ERROR: ${err.stack || err.message}`);
     console.error('[hook-api] post-tool error:', err);
     res.json({});
   }
@@ -553,13 +659,18 @@ hookRouter.post('/post-tool', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 hookRouter.post('/subagent-start', (req: Request, res: Response) => {
+  debug(`──── /subagent-start ────`);
   try {
     const user = req.user!;
     const body = req.body;
+    debug(`user: id=${user.id}, agent_type=${body.agent_type || '(none)'}, agent_id=${body.agent_id || '(none)'}`);
+
     const parsed = SubagentStartEvent.safeParse(body);
+    debug(`zod parse: ${parsed.success ? 'OK' : 'FAILED'}`);
     const data = parsed.success ? parsed.data : body;
 
     // Record subagent event
+    debug(`recording subagent event`);
     recordSubagentEvent({
       user_id: user.id,
       session_id: data.session_id,
@@ -579,8 +690,10 @@ hookRouter.post('/subagent-start', (req: Request, res: Response) => {
       payload: JSON.stringify(body),
     });
 
+    debug(`responding: {} (OK)`);
     res.json({});
-  } catch (err) {
+  } catch (err: any) {
+    debug(`ERROR: ${err.stack || err.message}`);
     console.error('[hook-api] subagent-start error:', err);
     res.json({});
   }
@@ -591,13 +704,18 @@ hookRouter.post('/subagent-start', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 hookRouter.post('/post-tool-failure', (req: Request, res: Response) => {
+  debug(`──── /post-tool-failure ────`);
   try {
     const user = req.user!;
     const body = req.body;
+    debug(`user: id=${user.id}, tool_name=${body.tool_name || '(none)'}, error=${(body.error || '').slice(0, 200)}`);
+
     const parsed = PostToolUseFailureEvent.safeParse(body);
+    debug(`zod parse: ${parsed.success ? 'OK' : 'FAILED'}`);
     const data = parsed.success ? parsed.data : body;
 
     // Record tool event with failure
+    debug(`recording tool event (failure): ${data.tool_name}`);
     recordToolEvent({
       user_id: user.id,
       session_id: data.session_id,
@@ -618,8 +736,10 @@ hookRouter.post('/post-tool-failure', (req: Request, res: Response) => {
       payload: JSON.stringify(body),
     });
 
+    debug(`responding: {} (OK)`);
     res.json({});
-  } catch (err) {
+  } catch (err: any) {
+    debug(`ERROR: ${err.stack || err.message}`);
     console.error('[hook-api] post-tool-failure error:', err);
     res.json({});
   }
@@ -630,13 +750,19 @@ hookRouter.post('/post-tool-failure', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 hookRouter.post('/config-change', (req: Request, res: Response) => {
+  debug(`──── /config-change ────`);
   try {
     const user = req.user!;
     const body = req.body;
+    debug(`user: id=${user.id}, name=${user.name}`);
+    debug(`body.source=${body.source || '(none)'}, body.file_path=${body.file_path || '(none)'}`);
+
     const parsed = ConfigChangeEvent.safeParse(body);
+    debug(`zod parse: ${parsed.success ? 'OK' : 'FAILED'}`);
     const data = parsed.success ? parsed.data : body;
 
     // Record hook event
+    debug(`recording ConfigChange event`);
     recordHookEvent({
       user_id: user.id,
       session_id: data.session_id,
@@ -646,6 +772,7 @@ hookRouter.post('/config-change', (req: Request, res: Response) => {
 
     // If source contains 'settings' -> create tamper alert
     if (data.source && String(data.source).includes('settings')) {
+      debug(`creating tamper alert: config_changed (source=${data.source})`);
       createTamperAlert({
         user_id: user.id,
         alert_type: 'config_changed',
@@ -660,8 +787,10 @@ hookRouter.post('/config-change', (req: Request, res: Response) => {
     touchUserLastEvent(user.id);
     maybeResolveInactiveAlerts(user);
 
+    debug(`responding: {} (OK)`);
     res.json({});
-  } catch (err) {
+  } catch (err: any) {
+    debug(`ERROR: ${err.stack || err.message}`);
     console.error('[hook-api] config-change error:', err);
     res.json({});
   }
@@ -672,13 +801,19 @@ hookRouter.post('/config-change', (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 hookRouter.post('/file-changed', (req: Request, res: Response) => {
+  debug(`──── /file-changed ────`);
   try {
     const user = req.user!;
     const body = req.body;
+    debug(`user: id=${user.id}, name=${user.name}`);
+    debug(`body.file_path=${body.file_path || '(none)'}, body.event=${body.event || '(none)'}`);
+
     const parsed = FileChangedEvent.safeParse(body);
+    debug(`zod parse: ${parsed.success ? 'OK' : 'FAILED'}`);
     const data = parsed.success ? parsed.data : body;
 
     // Record hook event
+    debug(`recording FileChanged event`);
     recordHookEvent({
       user_id: user.id,
       session_id: data.session_id,
@@ -687,6 +822,7 @@ hookRouter.post('/file-changed', (req: Request, res: Response) => {
     });
 
     // Create tamper alert
+    debug(`creating tamper alert: file_changed`);
     createTamperAlert({
       user_id: user.id,
       alert_type: 'file_changed',
@@ -700,8 +836,10 @@ hookRouter.post('/file-changed', (req: Request, res: Response) => {
     touchUserLastEvent(user.id);
     maybeResolveInactiveAlerts(user);
 
+    debug(`responding: {} (OK)`);
     res.json({});
-  } catch (err) {
+  } catch (err: any) {
+    debug(`ERROR: ${err.stack || err.message}`);
     console.error('[hook-api] file-changed error:', err);
     res.json({});
   }

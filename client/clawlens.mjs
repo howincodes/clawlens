@@ -4,15 +4,32 @@
 // Reads Claude Code hook JSON from stdin, enriches it, POSTs to server.
 // Returns server response to stdout (for blocking decisions).
 // Fails open on any error — never breaks Claude Code.
+//
+// Debug: set CLAWLENS_DEBUG=1 to enable verbose logging to stderr + log file.
 
-import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir, hostname, platform, release } from 'os';
 import { execSync } from 'child_process';
 
-// ── Configuration ────────────────────────────────────
+// ── Debug logging ───────────────────────────────────
 const HOME = homedir();
 const HOOKS_DIR = join(HOME, '.claude', 'hooks');
+const DEBUG = process.env.CLAWLENS_DEBUG === '1' || process.env.CLAWLENS_DEBUG === 'true';
+const LOG_FILE = join(HOOKS_DIR, '.clawlens-debug.log');
+
+function debug(msg) {
+  if (!DEBUG) return;
+  const ts = new Date().toISOString();
+  const line = `[${ts}] ${msg}`;
+  try { process.stderr.write(line + '\n'); } catch {}
+  try {
+    mkdirSync(dirname(LOG_FILE), { recursive: true });
+    appendFileSync(LOG_FILE, line + '\n');
+  } catch {}
+}
+
+// ── Configuration ────────────────────────────────────
 const CACHE_FILE = join(HOOKS_DIR, '.clawlens-cache.json');
 const MODEL_CACHE = join(HOOKS_DIR, '.clawlens-model.txt');
 
@@ -21,31 +38,64 @@ const SERVER_URL = process.env.CLAUDE_PLUGIN_OPTION_SERVER_URL
 const AUTH_TOKEN = process.env.CLAUDE_PLUGIN_OPTION_AUTH_TOKEN
   || process.env.CLAWLENS_TOKEN || '';
 
-if (!SERVER_URL || !AUTH_TOKEN) process.exit(0);
+debug(`──── ClawLens hook starting ────`);
+debug(`HOME=${HOME}`);
+debug(`HOOKS_DIR=${HOOKS_DIR}`);
+debug(`SERVER_URL=${SERVER_URL ? SERVER_URL : '(empty)'}`);
+debug(`AUTH_TOKEN=${AUTH_TOKEN ? AUTH_TOKEN.slice(0, 8) + '...' : '(empty)'}`);
+debug(`ENV CLAUDE_PLUGIN_OPTION_SERVER_URL=${process.env.CLAUDE_PLUGIN_OPTION_SERVER_URL || '(not set)'}`);
+debug(`ENV CLAWLENS_SERVER=${process.env.CLAWLENS_SERVER || '(not set)'}`);
+debug(`ENV CLAUDE_PLUGIN_OPTION_AUTH_TOKEN=${process.env.CLAUDE_PLUGIN_OPTION_AUTH_TOKEN ? '(set)' : '(not set)'}`);
+debug(`ENV CLAWLENS_TOKEN=${process.env.CLAWLENS_TOKEN ? '(set)' : '(not set)'}`);
+debug(`Node ${process.version}, platform=${platform()}, cwd=${process.cwd()}`);
+
+if (!SERVER_URL || !AUTH_TOKEN) {
+  debug(`EXITING: missing SERVER_URL or AUTH_TOKEN — nothing to do`);
+  process.exit(0);
+}
 
 // ── Helpers ──────────────────────────────────────────
 function readJSON(filepath) {
-  try { return JSON.parse(readFileSync(filepath, 'utf-8')); }
-  catch { return null; }
+  try {
+    const raw = readFileSync(filepath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    debug(`readJSON(${filepath}): OK (keys: ${Object.keys(parsed).join(', ')})`);
+    return parsed;
+  } catch (e) {
+    debug(`readJSON(${filepath}): FAILED — ${e.message}`);
+    return null;
+  }
 }
 
 function readText(filepath) {
-  try { return readFileSync(filepath, 'utf-8').trim(); }
-  catch { return null; }
+  try {
+    const val = readFileSync(filepath, 'utf-8').trim();
+    debug(`readText(${filepath}): "${val}"`);
+    return val;
+  } catch (e) {
+    debug(`readText(${filepath}): FAILED — ${e.message}`);
+    return null;
+  }
 }
 
 function writeText(filepath, text) {
   try {
     mkdirSync(dirname(filepath), { recursive: true });
     writeFileSync(filepath, text);
-  } catch {}
+    debug(`writeText(${filepath}): wrote "${text}"`);
+  } catch (e) {
+    debug(`writeText(${filepath}): FAILED — ${e.message}`);
+  }
 }
 
 function writeJSON(filepath, data) {
   try {
     mkdirSync(dirname(filepath), { recursive: true });
     writeFileSync(filepath, JSON.stringify(data));
-  } catch {}
+    debug(`writeJSON(${filepath}): OK`);
+  } catch (e) {
+    debug(`writeJSON(${filepath}): FAILED — ${e.message}`);
+  }
 }
 
 // ── Event → API path ────────────────────────────────
@@ -65,8 +115,18 @@ const EVENT_PATHS = {
 
 // ── Read stdin ───────────────────────────────────────
 function readStdin() {
-  try { return JSON.parse(readFileSync(0, 'utf-8').trim()); }
-  catch { return null; }
+  debug(`readStdin: reading fd 0...`);
+  try {
+    const raw = readFileSync(0, 'utf-8').trim();
+    debug(`readStdin: got ${raw.length} chars`);
+    debug(`readStdin: first 500 chars: ${raw.slice(0, 500)}`);
+    const parsed = JSON.parse(raw);
+    debug(`readStdin: parsed OK — hook_event_name=${parsed.hook_event_name}, session_id=${parsed.session_id}`);
+    return parsed;
+  } catch (e) {
+    debug(`readStdin: FAILED — ${e.message}`);
+    return null;
+  }
 }
 
 // ══════════════════════════════════════════════════════
@@ -90,59 +150,96 @@ function readStdin() {
 
 function normalizeModel(raw) {
   const lower = String(raw || '').toLowerCase();
-  if (lower.includes('opus')) return 'opus';
-  if (lower.includes('sonnet')) return 'sonnet';
-  if (lower.includes('haiku')) return 'haiku';
-  return raw || 'sonnet';
+  let result;
+  if (lower.includes('opus')) result = 'opus';
+  else if (lower.includes('sonnet')) result = 'sonnet';
+  else if (lower.includes('haiku')) result = 'haiku';
+  else result = raw || 'sonnet';
+  debug(`normalizeModel("${raw}") → "${result}"`);
+  return result;
 }
 
 function getPlanDefaultModel() {
-  // Determine from subscription type: Max → opus, everything else → sonnet
+  debug(`getPlanDefaultModel: checking cache file...`);
   const cache = readJSON(CACHE_FILE);
   const subType = (cache?.subscriptionType || '').toLowerCase();
-  if (subType.includes('max')) return 'opus';
-  if (subType.includes('team_premium')) return 'opus';
+  debug(`getPlanDefaultModel: subscriptionType="${subType}"`);
+  if (subType.includes('max')) { debug(`getPlanDefaultModel → opus (max plan)`); return 'opus'; }
+  if (subType.includes('team_premium')) { debug(`getPlanDefaultModel → opus (team_premium)`); return 'opus'; }
+  debug(`getPlanDefaultModel → sonnet (default)`);
   return 'sonnet';
 }
 
 function detectModel(hookData) {
+  debug(`detectModel: starting model detection chain...`);
+
   // 1. From hook JSON (SessionStart sends model, others don't)
   if (hookData?.model) {
+    debug(`detectModel: [1] found model in hook JSON: "${hookData.model}"`);
     return normalizeModel(hookData.model);
   }
+  debug(`detectModel: [1] no model in hook JSON`);
 
   // 2. User settings (~/.claude/settings.json)
-  const userSettings = readJSON(join(HOME, '.claude', 'settings.json'));
+  const settingsPath = join(HOME, '.claude', 'settings.json');
+  debug(`detectModel: [2] checking ${settingsPath}`);
+  const userSettings = readJSON(settingsPath);
   if (userSettings) {
     if (userSettings.model) {
+      debug(`detectModel: [2] found model in user settings: "${userSettings.model}"`);
       return normalizeModel(userSettings.model);
     }
-    // Settings exists but no model key = user chose the default
-    // Use plan default immediately, don't fall through to stale caches
+    debug(`detectModel: [2] settings exists but no model key → plan default`);
     return getPlanDefaultModel();
   }
+  debug(`detectModel: [2] no user settings file`);
 
   // 3. Local project settings (.claude/settings.local.json)
+  const localPath = join(process.cwd(), '.claude', 'settings.local.json');
+  debug(`detectModel: [3] checking ${localPath}`);
   try {
-    const localSettings = readJSON(join(process.cwd(), '.claude', 'settings.local.json'));
-    if (localSettings?.model) return normalizeModel(localSettings.model);
+    const localSettings = readJSON(localPath);
+    if (localSettings?.model) {
+      debug(`detectModel: [3] found model in local settings: "${localSettings.model}"`);
+      return normalizeModel(localSettings.model);
+    }
   } catch {}
+  debug(`detectModel: [3] no local settings model`);
 
   // 4. Project settings (.claude/settings.json)
+  const projPath = join(process.cwd(), '.claude', 'settings.json');
+  debug(`detectModel: [4] checking ${projPath}`);
   try {
-    const projSettings = readJSON(join(process.cwd(), '.claude', 'settings.json'));
-    if (projSettings?.model) return normalizeModel(projSettings.model);
+    const projSettings = readJSON(projPath);
+    if (projSettings?.model) {
+      debug(`detectModel: [4] found model in project settings: "${projSettings.model}"`);
+      return normalizeModel(projSettings.model);
+    }
   } catch {}
+  debug(`detectModel: [4] no project settings model`);
 
   // 5. Cached from last SessionStart
+  debug(`detectModel: [5] checking model cache ${MODEL_CACHE}`);
   const cached = readText(MODEL_CACHE);
-  if (cached) return normalizeModel(cached);
+  if (cached) {
+    debug(`detectModel: [5] found cached model: "${cached}"`);
+    return normalizeModel(cached);
+  }
+  debug(`detectModel: [5] no cached model`);
 
   // 6. Environment variables
-  if (process.env.ANTHROPIC_MODEL) return normalizeModel(process.env.ANTHROPIC_MODEL);
-  if (process.env.CLAUDE_MODEL) return normalizeModel(process.env.CLAUDE_MODEL);
+  if (process.env.ANTHROPIC_MODEL) {
+    debug(`detectModel: [6] ANTHROPIC_MODEL="${process.env.ANTHROPIC_MODEL}"`);
+    return normalizeModel(process.env.ANTHROPIC_MODEL);
+  }
+  if (process.env.CLAUDE_MODEL) {
+    debug(`detectModel: [6] CLAUDE_MODEL="${process.env.CLAUDE_MODEL}"`);
+    return normalizeModel(process.env.CLAUDE_MODEL);
+  }
+  debug(`detectModel: [6] no env vars`);
 
   // 7. Plan default
+  debug(`detectModel: [7] falling back to plan default`);
   return getPlanDefaultModel();
 }
 
@@ -151,44 +248,66 @@ function detectModel(hookData) {
 // ══════════════════════════════════════════════════════
 
 function getSubscriptionInfo() {
+  debug(`getSubscriptionInfo: starting...`);
+
   // Check cache (5 minute TTL)
   const cached = readJSON(CACHE_FILE);
   if (cached?.email && Date.now() - (cached._ts || 0) < 300000) {
+    const age = Math.round((Date.now() - cached._ts) / 1000);
+    debug(`getSubscriptionInfo: using cache (age=${age}s) — email=${cached.email}, type=${cached.subscriptionType}`);
     return cached;
   }
+  debug(`getSubscriptionInfo: cache miss or expired`);
 
   // Method 1: claude auth status (most accurate, ~1-2s)
+  debug(`getSubscriptionInfo: [method 1] running "claude auth status"...`);
   try {
+    const start = Date.now();
     const output = execSync('claude auth status', {
       timeout: 2000,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
+    const elapsed = Date.now() - start;
+    debug(`getSubscriptionInfo: [method 1] completed in ${elapsed}ms`);
+    debug(`getSubscriptionInfo: [method 1] raw output: ${output.slice(0, 500)}`);
     const auth = JSON.parse(output);
+    debug(`getSubscriptionInfo: [method 1] parsed keys: ${Object.keys(auth).join(', ')}`);
     const info = {
       email: auth.email || auth.emailAddress || '',
       subscriptionType: auth.subscriptionType || auth.planType || '',
       orgName: auth.orgName || auth.organizationName || '',
     };
+    debug(`getSubscriptionInfo: [method 1] result: email=${info.email}, type=${info.subscriptionType}, org=${info.orgName}`);
     writeJSON(CACHE_FILE, { ...info, _ts: Date.now() });
     return info;
-  } catch {}
+  } catch (e) {
+    debug(`getSubscriptionInfo: [method 1] FAILED — ${e.message}`);
+  }
 
   // Method 2: read ~/.claude.json directly (no subprocess, instant)
+  const claudeJsonPath = join(HOME, '.claude.json');
+  debug(`getSubscriptionInfo: [method 2] reading ${claudeJsonPath}...`);
   try {
-    const cj = readJSON(join(HOME, '.claude.json'));
+    const cj = readJSON(claudeJsonPath);
     if (cj?.oauthAccount) {
       const acct = cj.oauthAccount;
+      debug(`getSubscriptionInfo: [method 2] oauthAccount keys: ${Object.keys(acct).join(', ')}`);
       const info = {
         email: acct.emailAddress || acct.email || '',
         subscriptionType: acct.planType || acct.billingType || '',
         orgName: acct.organizationName || acct.displayName || '',
       };
+      debug(`getSubscriptionInfo: [method 2] result: email=${info.email}, type=${info.subscriptionType}, org=${info.orgName}`);
       writeJSON(CACHE_FILE, { ...info, _ts: Date.now() });
       return info;
     }
-  } catch {}
+    debug(`getSubscriptionInfo: [method 2] no oauthAccount in file`);
+  } catch (e) {
+    debug(`getSubscriptionInfo: [method 2] FAILED — ${e.message}`);
+  }
 
+  debug(`getSubscriptionInfo: all methods failed — returning empty`);
   return { email: '', subscriptionType: '', orgName: '' };
 }
 
@@ -197,13 +316,14 @@ function getSubscriptionInfo() {
 // ══════════════════════════════════════════════════════
 
 function enrichSessionStart(data) {
+  debug(`enrichSessionStart: enriching session data...`);
   const sub = getSubscriptionInfo();
   const model = detectModel(data);
 
   // Cache model for subsequent hooks (they don't get model in stdin)
   writeText(MODEL_CACHE, model);
 
-  return {
+  const enriched = {
     ...data,
     model,
     detected_model: model,
@@ -215,6 +335,8 @@ function enrichSessionStart(data) {
     os_version: release(),
     node_version: process.version,
   };
+  debug(`enrichSessionStart: model=${model}, email=${sub.email}, type=${sub.subscriptionType}, hostname=${enriched.hostname}`);
+  return enriched;
 }
 
 // ══════════════════════════════════════════════════════
@@ -223,10 +345,18 @@ function enrichSessionStart(data) {
 
 async function postToServer(apiPath, body) {
   const url = `${SERVER_URL.replace(/\/$/, '')}/api/v1/hook/${apiPath}`;
+  debug(`postToServer: POST ${url}`);
+  debug(`postToServer: payload keys: ${Object.keys(body).join(', ')}`);
+  debug(`postToServer: payload size: ${JSON.stringify(body).length} bytes`);
+
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 3000);
+  const timer = setTimeout(() => {
+    debug(`postToServer: TIMEOUT after 3000ms — aborting`);
+    controller.abort();
+  }, 3000);
 
   try {
+    const start = Date.now();
     const resp = await fetch(url, {
       method: 'POST',
       headers: {
@@ -237,10 +367,20 @@ async function postToServer(apiPath, body) {
       signal: controller.signal,
     });
     clearTimeout(timer);
+    const elapsed = Date.now() - start;
+    debug(`postToServer: response status=${resp.status} (${resp.statusText}) in ${elapsed}ms`);
+
     const text = await resp.text();
+    debug(`postToServer: response body (${text.length} chars): ${text.slice(0, 500)}`);
+
+    if (resp.status !== 200) {
+      debug(`postToServer: WARNING — non-200 status: ${resp.status}`);
+    }
+
     return text || '';
-  } catch {
+  } catch (e) {
     clearTimeout(timer);
+    debug(`postToServer: FAILED — ${e.name}: ${e.message}`);
     return '';
   }
 }
@@ -251,17 +391,42 @@ async function postToServer(apiPath, body) {
 
 async function main() {
   const data = readStdin();
-  if (!data?.hook_event_name) process.exit(0);
+  if (!data?.hook_event_name) {
+    debug(`EXITING: no hook_event_name in stdin data`);
+    process.exit(0);
+  }
 
   const event = data.hook_event_name;
   const apiPath = EVENT_PATHS[event];
-  if (!apiPath) process.exit(0);
+  debug(`main: event="${event}" → apiPath="${apiPath || '(unknown)'}"`);
+  debug(`main: session_id=${data.session_id || '(none)'}`);
+
+  if (!apiPath) {
+    debug(`EXITING: unknown event "${event}" — not in EVENT_PATHS`);
+    process.exit(0);
+  }
 
   // Enrich SessionStart with subscription + model + device info
-  const payload = event === 'SessionStart' ? enrichSessionStart(data) : data;
+  let payload;
+  if (event === 'SessionStart') {
+    debug(`main: enriching SessionStart...`);
+    payload = enrichSessionStart(data);
+  } else {
+    debug(`main: using raw data (no enrichment for ${event})`);
+    payload = data;
+  }
 
   const response = await postToServer(apiPath, payload);
-  if (response) process.stdout.write(response);
+  if (response) {
+    debug(`main: writing response to stdout: ${response.slice(0, 200)}`);
+    process.stdout.write(response);
+  } else {
+    debug(`main: no response from server (empty) — allowing`);
+  }
+  debug(`──── ClawLens hook done ────`);
 }
 
-main().catch(() => process.exit(0));
+main().catch((e) => {
+  debug(`FATAL: main() threw: ${e.stack || e.message}`);
+  process.exit(0);
+});
