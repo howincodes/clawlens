@@ -260,117 +260,31 @@ cat > "$SETTINGS_FILE" << EOF
       }
     ],
     "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "http",
-            "url": "$SERVER_URL/api/v1/hook/prompt",
-            "headers": {"Authorization": "Bearer $AUTH_TOKEN"},
-            "timeout": 5
-          }
-        ]
-      }
+      {"hooks": [{"type": "command", "command": "$GATE_DIR/clawlens-hook.sh", "timeout": 5}]}
     ],
     "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "http",
-            "url": "$SERVER_URL/api/v1/hook/pre-tool",
-            "headers": {"Authorization": "Bearer $AUTH_TOKEN"},
-            "timeout": 2
-          }
-        ]
-      }
+      {"hooks": [{"type": "command", "command": "$GATE_DIR/clawlens-hook.sh", "timeout": 2}]}
     ],
     "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "http",
-            "url": "$SERVER_URL/api/v1/hook/stop",
-            "headers": {"Authorization": "Bearer $AUTH_TOKEN"},
-            "timeout": 5
-          }
-        ]
-      }
+      {"hooks": [{"type": "command", "command": "$GATE_DIR/clawlens-hook.sh", "timeout": 5}]}
     ],
     "StopFailure": [
-      {
-        "hooks": [
-          {
-            "type": "http",
-            "url": "$SERVER_URL/api/v1/hook/stop-error",
-            "headers": {"Authorization": "Bearer $AUTH_TOKEN"},
-            "timeout": 2,
-            "async": true
-          }
-        ]
-      }
+      {"hooks": [{"type": "command", "command": "$GATE_DIR/clawlens-hook.sh", "timeout": 2, "async": true}]}
     ],
     "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "http",
-            "url": "$SERVER_URL/api/v1/hook/session-end",
-            "headers": {"Authorization": "Bearer $AUTH_TOKEN"},
-            "timeout": 3,
-            "async": true
-          }
-        ]
-      }
+      {"hooks": [{"type": "command", "command": "$GATE_DIR/clawlens-hook.sh", "timeout": 3, "async": true}]}
     ],
     "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "http",
-            "url": "$SERVER_URL/api/v1/hook/post-tool",
-            "headers": {"Authorization": "Bearer $AUTH_TOKEN"},
-            "timeout": 3,
-            "async": true
-          }
-        ]
-      }
+      {"hooks": [{"type": "command", "command": "$GATE_DIR/clawlens-hook.sh", "timeout": 3, "async": true}]}
     ],
     "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "type": "http",
-            "url": "$SERVER_URL/api/v1/hook/subagent-start",
-            "headers": {"Authorization": "Bearer $AUTH_TOKEN"},
-            "timeout": 2,
-            "async": true
-          }
-        ]
-      }
+      {"hooks": [{"type": "command", "command": "$GATE_DIR/clawlens-hook.sh", "timeout": 2, "async": true}]}
     ],
     "PostToolUseFailure": [
-      {
-        "hooks": [
-          {
-            "type": "http",
-            "url": "$SERVER_URL/api/v1/hook/post-tool-failure",
-            "headers": {"Authorization": "Bearer $AUTH_TOKEN"},
-            "timeout": 2,
-            "async": true
-          }
-        ]
-      }
+      {"hooks": [{"type": "command", "command": "$GATE_DIR/clawlens-hook.sh", "timeout": 2, "async": true}]}
     ],
     "ConfigChange": [
-      {
-        "hooks": [
-          {
-            "type": "http",
-            "url": "$SERVER_URL/api/v1/hook/config-change",
-            "headers": {"Authorization": "Bearer $AUTH_TOKEN"},
-            "timeout": 3
-          }
-        ]
-      }
+      {"hooks": [{"type": "command", "command": "$GATE_DIR/clawlens-hook.sh", "timeout": 3}]}
     ],
     "FileChanged": [
       {
