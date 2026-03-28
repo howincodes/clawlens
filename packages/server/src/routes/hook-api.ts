@@ -59,6 +59,20 @@ function maybeResolveInactiveAlerts(user: { id: string; last_event_at: string | 
   }
 }
 
+/**
+ * Ensure session exists — auto-create if SessionStart was missed or failed.
+ * This prevents FK constraint errors on prompts/tools referencing unknown sessions.
+ */
+function ensureSession(sessionId: string | undefined, userId: string, model?: string, cwd?: string) {
+  if (!sessionId) return;
+  const existing = getSessionById(sessionId);
+  if (!existing) {
+    try {
+      createSession({ id: sessionId, user_id: userId, model: model || 'sonnet', cwd });
+    } catch {}
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -220,7 +234,8 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
       return;
     }
 
-    // Determine model
+    // Ensure session exists (auto-create if SessionStart was missed or failed)
+    ensureSession(data.session_id, user.id, user.default_model, data.cwd);
     const session = getSessionById(data.session_id);
     const model = session?.model ?? user.default_model ?? 'sonnet';
 
@@ -393,7 +408,8 @@ hookRouter.post('/stop', (req: Request, res: Response) => {
     // Extract response
     const response = (data.last_assistant_message ?? '').slice(0, 10000);
 
-    // Determine model from session
+    // Ensure session exists + determine model
+    ensureSession(data.session_id, user.id, user.default_model);
     const session = getSessionById(data.session_id);
     const model = session?.model ?? user.default_model ?? 'sonnet';
 
