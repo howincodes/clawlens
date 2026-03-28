@@ -75,13 +75,14 @@ cat > "$HOOK_SCRIPT" << 'HOOKEOF'
 
 INPUT=$(cat)
 
-# Extract event name — try jq, node, python3, then pure grep fallback
+# Extract event name — try jq, node, then grep fallback
+# Note: python3/python are intentionally skipped because on Windows the
+# Microsoft Store stubs pass `command -v` but fail at runtime, which
+# prevents fallthrough to the grep fallback.
 if command -v jq >/dev/null 2>&1; then
   EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // ""')
 elif command -v node >/dev/null 2>&1; then
   EVENT=$(echo "$INPUT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).hook_event_name||'')}catch{console.log('')}})")
-elif command -v python3 >/dev/null 2>&1; then
-  EVENT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('hook_event_name',''))" 2>/dev/null)
 else
   # Pure grep fallback — works everywhere including Windows Git Bash
   EVENT=$(echo "$INPUT" | grep -o '"hook_event_name":"[^"]*"' | head -1 | cut -d'"' -f4)
