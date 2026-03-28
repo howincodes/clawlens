@@ -2,7 +2,7 @@
 set -e
 
 # ClawLens Server Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-server.sh | bash
+# Usage: bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install-server.sh)
 
 echo ""
 echo "  ClawLens Server Installer"
@@ -12,23 +12,26 @@ echo ""
 # ── Prompt config ─────────────────────────────────
 ADMIN_PASS=""
 while [ -z "$ADMIN_PASS" ]; do
-  read -p "  Admin password: " ADMIN_PASS < /dev/tty
+  read -p "  Admin password: " ADMIN_PASS
   [ -z "$ADMIN_PASS" ] && echo "  Cannot be empty!"
 done
 
 JWT_SECRET=""
 while [ -z "$JWT_SECRET" ]; do
-  read -p "  JWT secret: " JWT_SECRET < /dev/tty
+  read -p "  JWT secret: " JWT_SECRET
   [ -z "$JWT_SECRET" ] && echo "  Cannot be empty!"
 done
 
-read -p "  Port [3000]: " PORT < /dev/tty
+read -p "  Port [3000]: " PORT
 PORT="${PORT:-3000}"
 
 # ── Detect install method ─────────────────────────
 HAS_DOCKER=false
 HAS_NODE=false
-command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && HAS_DOCKER=true
+
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  HAS_DOCKER=true
+fi
 if command -v node >/dev/null 2>&1; then
   NODE_VER=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
   [ "$NODE_VER" -ge 20 ] 2>/dev/null && HAS_NODE=true
@@ -37,12 +40,14 @@ fi
 if $HAS_DOCKER && $HAS_NODE; then
   echo ""
   echo "  Both Docker and Node.js 20+ detected."
-  read -p "  Install method: (d)ocker or (n)ode? [d]: " METHOD < /dev/tty
+  read -p "  Install method: (d)ocker or (n)ode? [d]: " METHOD
   METHOD="${METHOD:-d}"
 elif $HAS_DOCKER; then
   METHOD="d"
+  echo "  Using Docker"
 elif $HAS_NODE; then
   METHOD="n"
+  echo "  Using Node.js"
 else
   echo ""
   echo "  Neither Docker nor Node.js 20+ found."
@@ -67,33 +72,46 @@ fi
 # ── Docker install ────────────────────────────────
 if [ "$METHOD" = "d" ] || [ "$METHOD" = "D" ]; then
   echo "[2/3] Configuring Docker..."
+
+  # Write .env
   cat > /opt/clawlens/.env << EOF
 ADMIN_PASSWORD=${ADMIN_PASS}
 JWT_SECRET=${JWT_SECRET}
 PORT=${PORT}
 EOF
-  echo "  -> .env written"
+
+  # Override port mapping in compose
+  cat > /opt/clawlens/docker-compose.override.yml << EOF
+services:
+  clawlens:
+    ports:
+      - "${PORT}:3000"
+EOF
+
+  echo "  -> Configured"
 
   echo "[3/3] Building and starting..."
-  # Support both "docker compose" (v2) and "docker-compose" (v1)
+  # Support both docker compose v2 and docker-compose v1
   COMPOSE="docker compose"
   $COMPOSE version >/dev/null 2>&1 || COMPOSE="docker-compose"
   $COMPOSE down 2>/dev/null || true
   $COMPOSE up -d --build 2>&1 | tail -5
 
-  sleep 3
+  sleep 5
   if curl -sf "http://localhost:${PORT}/health" > /dev/null 2>&1; then
     echo "  -> Running on port ${PORT} ✅"
   else
-    echo "  -> Building... check: cd /opt/clawlens && $COMPOSE logs -f"
+    echo "  -> Still building... check: cd /opt/clawlens && $COMPOSE logs -f"
   fi
 
   echo ""
   echo "  ============================="
   echo "  ClawLens installed! (Docker)"
   echo "  ============================="
+  echo ""
   echo "  Dashboard: http://localhost:${PORT}"
   echo "  Logs:      cd /opt/clawlens && $COMPOSE logs -f"
+  echo "  Stop:      cd /opt/clawlens && $COMPOSE down"
   echo "  Update:    cd /opt/clawlens && git pull && $COMPOSE up -d --build"
   echo ""
   exit 0
@@ -101,7 +119,7 @@ fi
 
 # ── Node.js install ───────────────────────────────
 echo "[2/3] Building..."
-npm install -g pnpm 2>/dev/null || true
+command -v pnpm >/dev/null 2>&1 || npm install -g pnpm 2>/dev/null
 pnpm install 2>&1 | tail -1
 pnpm --filter dashboard build 2>&1 | tail -1
 pnpm --filter @clawlens/server bundle 2>&1 | tail -1
@@ -148,7 +166,8 @@ echo ""
 echo "  =============================="
 echo "  ClawLens installed! (Node.js)"
 echo "  =============================="
+echo ""
 echo "  Dashboard: http://localhost:${PORT}"
 echo "  Logs:      journalctl -u clawlens -f"
-echo "  Update:    curl -fsSL .../update-server.sh | bash"
+echo "  Update:    cd /opt/clawlens && git pull && bash scripts/update-server.sh"
 echo ""
