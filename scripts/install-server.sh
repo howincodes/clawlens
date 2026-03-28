@@ -12,17 +12,17 @@ echo ""
 # ── Prompt config ─────────────────────────────────
 ADMIN_PASS=""
 while [ -z "$ADMIN_PASS" ]; do
-  read -p "  Admin password: " ADMIN_PASS
+  read -p "  Admin password: " ADMIN_PASS < /dev/tty
   [ -z "$ADMIN_PASS" ] && echo "  Cannot be empty!"
 done
 
 JWT_SECRET=""
 while [ -z "$JWT_SECRET" ]; do
-  read -p "  JWT secret: " JWT_SECRET
+  read -p "  JWT secret: " JWT_SECRET < /dev/tty
   [ -z "$JWT_SECRET" ] && echo "  Cannot be empty!"
 done
 
-read -p "  Port [3000]: " PORT
+read -p "  Port [3000]: " PORT < /dev/tty
 PORT="${PORT:-3000}"
 
 # ── Detect install method ─────────────────────────
@@ -37,7 +37,7 @@ fi
 if $HAS_DOCKER && $HAS_NODE; then
   echo ""
   echo "  Both Docker and Node.js 20+ detected."
-  read -p "  Install method: (d)ocker or (n)ode? [d]: " METHOD
+  read -p "  Install method: (d)ocker or (n)ode? [d]: " METHOD < /dev/tty
   METHOD="${METHOD:-d}"
 elif $HAS_DOCKER; then
   METHOD="d"
@@ -75,14 +75,17 @@ EOF
   echo "  -> .env written"
 
   echo "[3/3] Building and starting..."
-  docker compose down 2>/dev/null || true
-  docker compose up -d --build 2>&1 | tail -5
+  # Support both "docker compose" (v2) and "docker-compose" (v1)
+  COMPOSE="docker compose"
+  $COMPOSE version >/dev/null 2>&1 || COMPOSE="docker-compose"
+  $COMPOSE down 2>/dev/null || true
+  $COMPOSE up -d --build 2>&1 | tail -5
 
   sleep 3
   if curl -sf "http://localhost:${PORT}/health" > /dev/null 2>&1; then
     echo "  -> Running on port ${PORT} ✅"
   else
-    echo "  -> Building... check: docker compose logs -f"
+    echo "  -> Building... check: cd /opt/clawlens && $COMPOSE logs -f"
   fi
 
   echo ""
@@ -90,8 +93,8 @@ EOF
   echo "  ClawLens installed! (Docker)"
   echo "  ============================="
   echo "  Dashboard: http://localhost:${PORT}"
-  echo "  Logs:      cd /opt/clawlens && docker compose logs -f"
-  echo "  Update:    cd /opt/clawlens && git pull && docker compose up -d --build"
+  echo "  Logs:      cd /opt/clawlens && $COMPOSE logs -f"
+  echo "  Update:    cd /opt/clawlens && git pull && $COMPOSE up -d --build"
   echo ""
   exit 0
 fi
