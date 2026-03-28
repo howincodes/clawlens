@@ -5,12 +5,13 @@ set -e
 # Usage: bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install.sh)
 #
 # This script:
-# 1. Checks for claude CLI
+# 1. Checks for claude CLI and Node.js
 # 2. Prompts for server URL and auth token
-# 3. Copies the hook script to ~/.claude/hooks/clawlens-hook.sh
-# 4. Writes hook configuration into ~/.claude/settings.json (merging, not overwriting)
-# 5. Sets env vars in settings.json
-# 6. Verifies server connectivity
+# 3. Installs the Node.js hook handler to ~/.claude/hooks/clawlens.mjs
+# 4. Creates a thin bash wrapper at ~/.claude/hooks/clawlens-hook.sh
+# 5. Writes hook configuration into ~/.claude/settings.json (merging, not overwriting)
+# 6. Sets env vars in settings.json
+# 7. Verifies server connectivity
 
 echo ""
 echo "  ClawLens Installer"
@@ -28,6 +29,14 @@ fi
 if ! command -v node >/dev/null 2>&1; then
   echo "  Error: node command not found."
   echo "  Claude Code requires Node.js — install it first."
+  exit 1
+fi
+
+# Verify Node.js version >= 18 (needed for native fetch)
+NODE_MAJOR=$(node -e "console.log(process.versions.node.split('.')[0])")
+if [ "$NODE_MAJOR" -lt 18 ] 2>/dev/null; then
+  echo "  Error: Node.js 18+ required (found v${NODE_MAJOR})."
+  echo "  Update Node.js: https://nodejs.org/"
   exit 1
 fi
 
@@ -59,125 +68,295 @@ done
 
 echo ""
 
-# ── Step 1: Install hook script ──────────────────────────────────────────────
+# ── Step 1: Install Node.js hook handler ────────────────────────────────────
 
-echo "[1/3] Installing hook script..."
+echo "[1/3] Installing hook handler..."
 
 HOOK_DIR="$HOME/.claude/hooks"
+MJS_FILE="$HOOK_DIR/clawlens.mjs"
 HOOK_SCRIPT="$HOOK_DIR/clawlens-hook.sh"
 mkdir -p "$HOOK_DIR"
 
+# Write the Node.js hook handler (zero dependencies, Node 18+)
+cat > "$MJS_FILE" << 'MJSEOF'
+#!/usr/bin/env node
+
+// ClawLens Hook Handler
+// Reads Claude Code hook JSON from stdin, enriches it, POSTs to server.
+// Returns server response to stdout (for blocking decisions).
+// Fails open on any error — never breaks Claude Code.
+
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { homedir, hostname, platform, release } from 'os';
+import { execSync } from 'child_process';
+
+// ── Configuration ────────────────────────────────────
+const HOME = homedir();
+const HOOKS_DIR = join(HOME, '.claude', 'hooks');
+const CACHE_FILE = join(HOOKS_DIR, '.clawlens-cache.json');
+const MODEL_CACHE = join(HOOKS_DIR, '.clawlens-model.txt');
+
+const SERVER_URL = process.env.CLAUDE_PLUGIN_OPTION_SERVER_URL
+  || process.env.CLAWLENS_SERVER || '';
+const AUTH_TOKEN = process.env.CLAUDE_PLUGIN_OPTION_AUTH_TOKEN
+  || process.env.CLAWLENS_TOKEN || '';
+
+if (!SERVER_URL || !AUTH_TOKEN) process.exit(0);
+
+// ── Helpers ──────────────────────────────────────────
+function readJSON(filepath) {
+  try { return JSON.parse(readFileSync(filepath, 'utf-8')); }
+  catch { return null; }
+}
+
+function readText(filepath) {
+  try { return readFileSync(filepath, 'utf-8').trim(); }
+  catch { return null; }
+}
+
+function writeText(filepath, text) {
+  try {
+    mkdirSync(dirname(filepath), { recursive: true });
+    writeFileSync(filepath, text);
+  } catch {}
+}
+
+function writeJSON(filepath, data) {
+  try {
+    mkdirSync(dirname(filepath), { recursive: true });
+    writeFileSync(filepath, JSON.stringify(data));
+  } catch {}
+}
+
+// ── Event → API path ────────────────────────────────
+const EVENT_PATHS = {
+  SessionStart: 'session-start',
+  UserPromptSubmit: 'prompt',
+  PreToolUse: 'pre-tool',
+  Stop: 'stop',
+  StopFailure: 'stop-error',
+  SessionEnd: 'session-end',
+  PostToolUse: 'post-tool',
+  SubagentStart: 'subagent-start',
+  PostToolUseFailure: 'post-tool-failure',
+  ConfigChange: 'config-change',
+  FileChanged: 'file-changed',
+};
+
+// ── Read stdin ───────────────────────────────────────
+function readStdin() {
+  try { return JSON.parse(readFileSync(0, 'utf-8').trim()); }
+  catch { return null; }
+}
+
+// ══════════════════════════════════════════════════════
+// MODEL DETECTION
+//
+// Priority (matches claude-code-limiter):
+//   1. Hook stdin JSON → model field (SessionStart only)
+//   2. ~/.claude/settings.json → model (set by /model command)
+//      - If settings exists but NO model key → user chose plan default
+//   3. .claude/settings.local.json → model (project-local override)
+//   4. .claude/settings.json (project) → model
+//   5. Cached session-model.txt (from last SessionStart)
+//   6. ANTHROPIC_MODEL env var
+//   7. CLAUDE_MODEL env var
+//   8. Plan default (Max=opus, Pro/Team=sonnet)
+//   9. "sonnet" ultimate fallback
+//
+// Key insight: /model writes "model" key for non-default.
+// Selecting default REMOVES the key. So key absent = plan default.
+// ══════════════════════════════════════════════════════
+
+function normalizeModel(raw) {
+  const lower = String(raw || '').toLowerCase();
+  if (lower.includes('opus')) return 'opus';
+  if (lower.includes('sonnet')) return 'sonnet';
+  if (lower.includes('haiku')) return 'haiku';
+  return raw || 'sonnet';
+}
+
+function getPlanDefaultModel() {
+  // Determine from subscription type: Max → opus, everything else → sonnet
+  const cache = readJSON(CACHE_FILE);
+  const subType = (cache?.subscriptionType || '').toLowerCase();
+  if (subType.includes('max')) return 'opus';
+  if (subType.includes('team_premium')) return 'opus';
+  return 'sonnet';
+}
+
+function detectModel(hookData) {
+  // 1. From hook JSON (SessionStart sends model, others don't)
+  if (hookData?.model) {
+    return normalizeModel(hookData.model);
+  }
+
+  // 2. User settings (~/.claude/settings.json)
+  const userSettings = readJSON(join(HOME, '.claude', 'settings.json'));
+  if (userSettings) {
+    if (userSettings.model) {
+      return normalizeModel(userSettings.model);
+    }
+    // Settings exists but no model key = user chose the default
+    // Use plan default immediately, don't fall through to stale caches
+    return getPlanDefaultModel();
+  }
+
+  // 3. Local project settings (.claude/settings.local.json)
+  try {
+    const localSettings = readJSON(join(process.cwd(), '.claude', 'settings.local.json'));
+    if (localSettings?.model) return normalizeModel(localSettings.model);
+  } catch {}
+
+  // 4. Project settings (.claude/settings.json)
+  try {
+    const projSettings = readJSON(join(process.cwd(), '.claude', 'settings.json'));
+    if (projSettings?.model) return normalizeModel(projSettings.model);
+  } catch {}
+
+  // 5. Cached from last SessionStart
+  const cached = readText(MODEL_CACHE);
+  if (cached) return normalizeModel(cached);
+
+  // 6. Environment variables
+  if (process.env.ANTHROPIC_MODEL) return normalizeModel(process.env.ANTHROPIC_MODEL);
+  if (process.env.CLAUDE_MODEL) return normalizeModel(process.env.CLAUDE_MODEL);
+
+  // 7. Plan default
+  return getPlanDefaultModel();
+}
+
+// ══════════════════════════════════════════════════════
+// SUBSCRIPTION INFO (cached — expensive to fetch)
+// ══════════════════════════════════════════════════════
+
+function getSubscriptionInfo() {
+  // Check cache (5 minute TTL)
+  const cached = readJSON(CACHE_FILE);
+  if (cached?.email && Date.now() - (cached._ts || 0) < 300000) {
+    return cached;
+  }
+
+  // Method 1: claude auth status (most accurate, ~1-2s)
+  try {
+    const output = execSync('claude auth status', {
+      timeout: 2000,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const auth = JSON.parse(output);
+    const info = {
+      email: auth.email || auth.emailAddress || '',
+      subscriptionType: auth.subscriptionType || auth.planType || '',
+      orgName: auth.orgName || auth.organizationName || '',
+    };
+    writeJSON(CACHE_FILE, { ...info, _ts: Date.now() });
+    return info;
+  } catch {}
+
+  // Method 2: read ~/.claude.json directly (no subprocess, instant)
+  try {
+    const cj = readJSON(join(HOME, '.claude.json'));
+    if (cj?.oauthAccount) {
+      const acct = cj.oauthAccount;
+      const info = {
+        email: acct.emailAddress || acct.email || '',
+        subscriptionType: acct.planType || acct.billingType || '',
+        orgName: acct.organizationName || acct.displayName || '',
+      };
+      writeJSON(CACHE_FILE, { ...info, _ts: Date.now() });
+      return info;
+    }
+  } catch {}
+
+  return { email: '', subscriptionType: '', orgName: '' };
+}
+
+// ══════════════════════════════════════════════════════
+// SESSION START ENRICHMENT
+// ══════════════════════════════════════════════════════
+
+function enrichSessionStart(data) {
+  const sub = getSubscriptionInfo();
+  const model = detectModel(data);
+
+  // Cache model for subsequent hooks (they don't get model in stdin)
+  writeText(MODEL_CACHE, model);
+
+  return {
+    ...data,
+    model,
+    detected_model: model,
+    subscription_email: sub.email,
+    subscription_type: sub.subscriptionType,
+    org_name: sub.orgName,
+    hostname: hostname(),
+    platform: platform(),
+    os_version: release(),
+    node_version: process.version,
+  };
+}
+
+// ══════════════════════════════════════════════════════
+// POST TO SERVER
+// ══════════════════════════════════════════════════════
+
+async function postToServer(apiPath, body) {
+  const url = `${SERVER_URL.replace(/\/$/, '')}/api/v1/hook/${apiPath}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3000);
+
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${AUTH_TOKEN}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    const text = await resp.text();
+    return text || '';
+  } catch {
+    clearTimeout(timer);
+    return '';
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// MAIN
+// ══════════════════════════════════════════════════════
+
+async function main() {
+  const data = readStdin();
+  if (!data?.hook_event_name) process.exit(0);
+
+  const event = data.hook_event_name;
+  const apiPath = EVENT_PATHS[event];
+  if (!apiPath) process.exit(0);
+
+  // Enrich SessionStart with subscription + model + device info
+  const payload = event === 'SessionStart' ? enrichSessionStart(data) : data;
+
+  const response = await postToServer(apiPath, payload);
+  if (response) process.stdout.write(response);
+}
+
+main().catch(() => process.exit(0));
+MJSEOF
+
+chmod 644 "$MJS_FILE"
+echo "  -> $MJS_FILE"
+
+# Write the thin bash wrapper (calls Node.js handler, fails open)
 cat > "$HOOK_SCRIPT" << 'HOOKEOF'
 #!/bin/bash
-# ClawLens hook handler — universal for ALL hook events
-# Reads hook JSON from stdin, POSTs to ClawLens server, outputs response.
-# Response may contain blocking decisions (continue:false, decision:block, etc.)
-
-# Save stdin to temp file (avoids shell escaping issues with large JSON)
-TMPFILE=$(mktemp 2>/dev/null || echo "/tmp/clawlens-hook-$$")
-cat > "$TMPFILE"
-
-# Extract event name — try jq, node, then grep fallback
-if command -v jq >/dev/null 2>&1; then
-  EVENT=$(jq -r '.hook_event_name // ""' < "$TMPFILE")
-elif command -v node >/dev/null 2>&1; then
-  EVENT=$(node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).hook_event_name||'')}catch{console.log('')}})" < "$TMPFILE")
-else
-  EVENT=$(grep -o '"hook_event_name":"[^"]*"' "$TMPFILE" | head -1 | cut -d'"' -f4)
-fi
-
-# Map event names to API path suffixes
-case "$EVENT" in
-  SessionStart)       PATH_SUFFIX="session-start" ;;
-  UserPromptSubmit)   PATH_SUFFIX="prompt" ;;
-  PreToolUse)         PATH_SUFFIX="pre-tool" ;;
-  Stop)               PATH_SUFFIX="stop" ;;
-  StopFailure)        PATH_SUFFIX="stop-error" ;;
-  SessionEnd)         PATH_SUFFIX="session-end" ;;
-  PostToolUse)        PATH_SUFFIX="post-tool" ;;
-  SubagentStart)      PATH_SUFFIX="subagent-start" ;;
-  PostToolUseFailure) PATH_SUFFIX="post-tool-failure" ;;
-  ConfigChange)       PATH_SUFFIX="config-change" ;;
-  FileChanged)        PATH_SUFFIX="file-changed" ;;
-  *)                  exit 0 ;;
-esac
-
-# Determine server URL and token
-# Plugin env vars (set via settings.json env block)
-SERVER_URL="${CLAUDE_PLUGIN_OPTION_SERVER_URL}"
-AUTH_TOKEN="${CLAUDE_PLUGIN_OPTION_AUTH_TOKEN}"
-
-# Fallback: managed settings env vars (enforced mode)
-if [ -z "$SERVER_URL" ]; then SERVER_URL="${CLAWLENS_SERVER}"; fi
-if [ -z "$AUTH_TOKEN" ]; then AUTH_TOKEN="${CLAWLENS_TOKEN}"; fi
-
-# No config = fail-open
-if [ -z "$SERVER_URL" ] || [ -z "$AUTH_TOKEN" ]; then
-  rm -f "$TMPFILE"
-  exit 0
-fi
-
-# Enrich SessionStart with subscription info + model detection
-if [ "$EVENT" = "SessionStart" ]; then
-  # Get subscription email and type from claude auth status
-  AUTH_JSON=$(claude auth status 2>/dev/null || true)
-  if [ -n "$AUTH_JSON" ]; then
-    if command -v jq >/dev/null 2>&1; then
-      SUB_EMAIL=$(echo "$AUTH_JSON" | jq -r '.email // ""')
-      SUB_TYPE=$(echo "$AUTH_JSON" | jq -r '.subscriptionType // .planType // ""')
-    else
-      SUB_EMAIL=$(echo "$AUTH_JSON" | grep -o '"email":"[^"]*"' | head -1 | cut -d'"' -f4)
-      SUB_TYPE=$(echo "$AUTH_JSON" | grep -o '"subscriptionType":"[^"]*"' | head -1 | cut -d'"' -f4)
-    fi
-  fi
-
-  # Read model from user settings if not in hook JSON
-  if command -v jq >/dev/null 2>&1; then
-    HOOK_MODEL=$(jq -r '.model // ""' < "$TMPFILE")
-  else
-    HOOK_MODEL=$(grep -o '"model":"[^"]*"' "$TMPFILE" | head -1 | cut -d'"' -f4)
-  fi
-
-  if [ -z "$HOOK_MODEL" ]; then
-    SETTINGS_MODEL=""
-    SETTINGS_FILE="$HOME/.claude/settings.json"
-    if [ -f "$SETTINGS_FILE" ]; then
-      if command -v jq >/dev/null 2>&1; then
-        SETTINGS_MODEL=$(jq -r '.model // ""' "$SETTINGS_FILE")
-      else
-        SETTINGS_MODEL=$(grep -o '"model":"[^"]*"' "$SETTINGS_FILE" | head -1 | cut -d'"' -f4)
-      fi
-    fi
-  fi
-
-  # Build enriched JSON — merge extra fields into the hook JSON
-  ENRICH=""
-  [ -n "$SUB_EMAIL" ] && ENRICH="${ENRICH}\"subscription_email\":\"$SUB_EMAIL\","
-  [ -n "$SUB_TYPE" ] && ENRICH="${ENRICH}\"subscription_type\":\"$SUB_TYPE\","
-  [ -n "$SETTINGS_MODEL" ] && ENRICH="${ENRICH}\"detected_model\":\"$SETTINGS_MODEL\","
-  ENRICH="${ENRICH}\"hostname\":\"$(hostname 2>/dev/null || echo unknown)\","
-  ENRICH="${ENRICH}\"platform\":\"$(uname -s 2>/dev/null || echo unknown)\""
-
-  if [ -n "$ENRICH" ]; then
-    # Inject extra fields into the JSON object (before the closing brace)
-    sed -i.bak "s/}$/,${ENRICH}}/" "$TMPFILE" 2>/dev/null || \
-      sed "s/}$/,${ENRICH}}/" "$TMPFILE" > "${TMPFILE}.new" && mv "${TMPFILE}.new" "$TMPFILE"
-    rm -f "${TMPFILE}.bak"
-  fi
-fi
-
-# POST to server and output response
-RESP=$(curl -sf -m 5 -X POST \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -d @"$TMPFILE" \
-  "${SERVER_URL}/api/v1/hook/${PATH_SUFFIX}" 2>/dev/null)
-
-rm -f "$TMPFILE"
-
-if [ -n "$RESP" ]; then
-  echo "$RESP"
-fi
+# ClawLens hook — thin wrapper that calls Node.js handler
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+node "$SCRIPT_DIR/clawlens.mjs" 2>/dev/null || exit 0
 HOOKEOF
 
 chmod 755 "$HOOK_SCRIPT"
@@ -248,7 +427,8 @@ echo "  ============================="
 echo "  ClawLens installed!"
 echo "  ============================="
 echo ""
-echo "  Hook script:  $HOOK_SCRIPT"
+echo "  Hook handler: $MJS_FILE"
+echo "  Hook wrapper: $HOOK_SCRIPT"
 echo "  Settings:     $SETTINGS_FILE"
 echo "  Server:       $SERVER_URL"
 echo ""
