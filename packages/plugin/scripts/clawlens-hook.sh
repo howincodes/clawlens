@@ -1,8 +1,7 @@
 #!/bin/bash
-# ClawLens hook handler for command-only events (SessionStart, FileChanged)
-# Claude Code only supports type:"command" for these events.
-# This script reads the hook JSON from stdin, POSTs it to the ClawLens server,
-# and outputs the server's response (which may contain blocking decisions).
+# ClawLens hook handler — universal for ALL hook events
+# Reads hook JSON from stdin, POSTs to ClawLens server, outputs response.
+# Response may contain blocking decisions (continue:false, decision:block, etc.)
 
 INPUT=$(cat)
 
@@ -19,25 +18,30 @@ fi
 
 # Map event names to API path suffixes
 case "$EVENT" in
-  SessionStart) PATH_SUFFIX="session-start" ;;
-  FileChanged)  PATH_SUFFIX="file-changed" ;;
-  *)            PATH_SUFFIX="unknown" ;;
+  SessionStart)       PATH_SUFFIX="session-start" ;;
+  UserPromptSubmit)   PATH_SUFFIX="prompt" ;;
+  PreToolUse)         PATH_SUFFIX="pre-tool" ;;
+  Stop)               PATH_SUFFIX="stop" ;;
+  StopFailure)        PATH_SUFFIX="stop-error" ;;
+  SessionEnd)         PATH_SUFFIX="session-end" ;;
+  PostToolUse)        PATH_SUFFIX="post-tool" ;;
+  SubagentStart)      PATH_SUFFIX="subagent-start" ;;
+  PostToolUseFailure) PATH_SUFFIX="post-tool-failure" ;;
+  ConfigChange)       PATH_SUFFIX="config-change" ;;
+  FileChanged)        PATH_SUFFIX="file-changed" ;;
+  *)                  exit 0 ;;
 esac
 
-# Determine server URL and token from plugin env vars
-# Claude Code exports userConfig values as CLAUDE_PLUGIN_OPTION_<KEY>
+# Determine server URL and token
+# Plugin env vars (set via settings.json env block)
 SERVER_URL="${CLAUDE_PLUGIN_OPTION_SERVER_URL}"
 AUTH_TOKEN="${CLAUDE_PLUGIN_OPTION_AUTH_TOKEN}"
 
-# Fallback: check if running under managed settings (Tier 2/3)
-if [ -z "$SERVER_URL" ]; then
-  SERVER_URL="${CLAWLENS_SERVER}"
-fi
-if [ -z "$AUTH_TOKEN" ]; then
-  AUTH_TOKEN="${CLAWLENS_TOKEN}"
-fi
+# Fallback: managed settings env vars (Tier 2/3)
+if [ -z "$SERVER_URL" ]; then SERVER_URL="${CLAWLENS_SERVER}"; fi
+if [ -z "$AUTH_TOKEN" ]; then AUTH_TOKEN="${CLAWLENS_TOKEN}"; fi
 
-# If still no server URL, exit silently (fail-open)
+# No config = fail-open
 if [ -z "$SERVER_URL" ] || [ -z "$AUTH_TOKEN" ]; then
   exit 0
 fi
@@ -49,7 +53,6 @@ RESP=$(curl -sf -m 5 -X POST \
   -d "$INPUT" \
   "${SERVER_URL}/api/v1/hook/${PATH_SUFFIX}" 2>/dev/null)
 
-# Output response if non-empty (may contain blocking decisions)
 if [ -n "$RESP" ]; then
   echo "$RESP"
 fi
