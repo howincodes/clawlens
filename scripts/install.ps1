@@ -17,7 +17,7 @@ if (-not $AuthToken) { Write-Host "  Error: Auth token required"; exit 1 }
 Write-Host ""
 Write-Host "[1/3] Installing hook script..."
 
-$HooksDir = "$env:USERPROFILE\.claude\hooks"
+$HooksDir = Join-Path $env:USERPROFILE ".claude\hooks"
 New-Item -ItemType Directory -Path $HooksDir -Force | Out-Null
 
 $HookScript = @'
@@ -54,56 +54,82 @@ RESP=$(curl -sf -m 3 -X POST -H "Content-Type: application/json" -H "Authorizati
 [ -n "$RESP" ] && echo "$RESP"
 '@
 
-$HookPath = "$HooksDir\clawlens-hook.sh"
+$HookPath = Join-Path $HooksDir "clawlens-hook.sh"
 [System.IO.File]::WriteAllText($HookPath, $HookScript.Replace("`r`n", "`n"), [System.Text.UTF8Encoding]::new($false))
 Write-Host "  -> $HookPath"
 
 # Step 2: Configure hooks in settings.json
 Write-Host "[2/3] Configuring hooks..."
 
-$SettingsPath = "$env:USERPROFILE\.claude\settings.json"
-$HookCmd = ($HookPath -replace '\\', '/')
+$ClaudeDir = Join-Path $env:USERPROFILE ".claude"
+$SettingsPath = Join-Path $ClaudeDir "settings.json"
+New-Item -ItemType Directory -Path $ClaudeDir -Force | Out-Null
 
-# Read existing settings or start fresh
+# Hook command path with forward slashes (Claude Code runs hooks via bash)
+$HookCmd = $HookPath.Replace('\', '/')
+
+# Read existing settings
 $Settings = $null
 if (Test-Path $SettingsPath) {
     try { $Settings = Get-Content $SettingsPath -Raw | ConvertFrom-Json } catch {}
 }
-if (-not $Settings) { $Settings = New-Object PSObject }
 
-# Set env vars
-if (-not (Get-Member -InputObject $Settings -Name 'env' -MemberType NoteProperty)) {
-    $Settings | Add-Member -NotePropertyName 'env' -NotePropertyValue (New-Object PSObject)
-}
-$Settings.env | Add-Member -NotePropertyName 'CLAUDE_PLUGIN_OPTION_SERVER_URL' -NotePropertyValue $ServerUrl -Force
-$Settings.env | Add-Member -NotePropertyName 'CLAUDE_PLUGIN_OPTION_AUTH_TOKEN' -NotePropertyValue $AuthToken -Force
-
-# Build hooks JSON string directly (avoids PS 5.1 hashtable depth issues)
-$HooksJson = @"
+# Build the complete settings JSON using a template
+# This avoids PowerShell hashtable/PSObject depth issues entirely
+$Template = @'
 {
-  "SessionStart": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 5}]}],
-  "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 3}]}],
-  "PreToolUse": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 2, "async": true}]}],
-  "Stop": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 3}]}],
-  "StopFailure": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 2, "async": true}]}],
-  "SessionEnd": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 3, "async": true}]}],
-  "PostToolUse": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 3, "async": true}]}],
-  "SubagentStart": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 2, "async": true}]}],
-  "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 2, "async": true}]}],
-  "ConfigChange": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 3}]}],
-  "FileChanged": [{"matcher": "settings.json", "hooks": [{"type": "command", "command": "$HookCmd", "timeout": 3}]}]
+  "env": {
+    "CLAUDE_PLUGIN_OPTION_SERVER_URL": "__SERVER_URL__",
+    "CLAUDE_PLUGIN_OPTION_AUTH_TOKEN": "__AUTH_TOKEN__"
+  },
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "__HOOK_CMD__", "timeout": 5}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "__HOOK_CMD__", "timeout": 3}]}],
+    "PreToolUse": [{"hooks": [{"type": "command", "command": "__HOOK_CMD__", "timeout": 2, "async": true}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "__HOOK_CMD__", "timeout": 3}]}],
+    "StopFailure": [{"hooks": [{"type": "command", "command": "__HOOK_CMD__", "timeout": 2, "async": true}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "__HOOK_CMD__", "timeout": 3, "async": true}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "__HOOK_CMD__", "timeout": 3, "async": true}]}],
+    "SubagentStart": [{"hooks": [{"type": "command", "command": "__HOOK_CMD__", "timeout": 2, "async": true}]}],
+    "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "__HOOK_CMD__", "timeout": 2, "async": true}]}],
+    "ConfigChange": [{"hooks": [{"type": "command", "command": "__HOOK_CMD__", "timeout": 3}]}],
+    "FileChanged": [{"matcher": "settings.json", "hooks": [{"type": "command", "command": "__HOOK_CMD__", "timeout": 3}]}]
+  }
 }
-"@
-$Settings | Add-Member -NotePropertyName 'hooks' -NotePropertyValue ($HooksJson | ConvertFrom-Json) -Force
+'@
 
-$Json = $Settings | ConvertTo-Json -Depth 10
+# Parse template, replace placeholders, merge with existing settings
+$NewSettings = $Template | ConvertFrom-Json
+
+$NewSettings.env.CLAUDE_PLUGIN_OPTION_SERVER_URL = $ServerUrl
+$NewSettings.env.CLAUDE_PLUGIN_OPTION_AUTH_TOKEN = $AuthToken
+
+# Fix hook command paths (ConvertFrom-Json preserves __HOOK_CMD__ as literal)
+$Json = $NewSettings | ConvertTo-Json -Depth 10
+$Json = $Json.Replace('__HOOK_CMD__', $HookCmd)
+
+# Merge: keep existing non-clawlens settings
+if ($Settings) {
+    $Merged = $Settings
+    # Overwrite env and hooks
+    $NewObj = $Json | ConvertFrom-Json
+    if (-not (Get-Member -InputObject $Merged -Name 'env' -MemberType NoteProperty)) {
+        $Merged | Add-Member -NotePropertyName 'env' -NotePropertyValue $NewObj.env
+    } else {
+        $Merged.env | Add-Member -NotePropertyName 'CLAUDE_PLUGIN_OPTION_SERVER_URL' -NotePropertyValue $ServerUrl -Force
+        $Merged.env | Add-Member -NotePropertyName 'CLAUDE_PLUGIN_OPTION_AUTH_TOKEN' -NotePropertyValue $AuthToken -Force
+    }
+    $Merged | Add-Member -NotePropertyName 'hooks' -NotePropertyValue $NewObj.hooks -Force
+    $Json = $Merged | ConvertTo-Json -Depth 10
+}
+
 [System.IO.File]::WriteAllText($SettingsPath, $Json, [System.Text.UTF8Encoding]::new($false))
 Write-Host "  -> $SettingsPath"
 
 # Step 3: Verify
 Write-Host "[3/3] Verifying..."
 try {
-    $Health = Invoke-RestMethod -Uri "$ServerUrl/health" -TimeoutSec 5
+    Invoke-RestMethod -Uri "$ServerUrl/health" -TimeoutSec 5 | Out-Null
     Write-Host "  -> Server: OK"
 } catch {
     Write-Host "  -> Server: UNREACHABLE (check URL)"
