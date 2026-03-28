@@ -36,3 +36,6 @@ Thumbs.db
 # Lock files (pnpm only)
 package-lock.json
 yarn.lock
+
+# Release bundle
+release/

@@ -7,7 +7,8 @@
     "dev": "pnpm --filter server dev",
     "build": "pnpm --filter server build && pnpm --filter dashboard build",
     "test": "pnpm --filter server test",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r lint",
+    "bundle": "pnpm --filter dashboard build && pnpm --filter @clawlens/server bundle"
   },
   "engines": {
     "node": ">=20.0.0"
