@@ -104,42 +104,28 @@ export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSu
                 <p className="text-xs text-muted-foreground">Save this token — it will not be shown again.</p>
               </div>
 
-              {/* Plugin Install Steps */}
+              {/* Install Steps */}
               <div className="space-y-3 pt-2">
-                <Label className="text-xs text-muted-foreground uppercase tracking-wider">Plugin Install Steps</Label>
+                <Label className="text-xs text-muted-foreground uppercase tracking-wider">Install Steps</Label>
 
-                {/* Step 1 */}
+                {/* Step 1: One-command install */}
                 <div className="border rounded-md overflow-hidden">
                   <div className="flex items-center justify-between px-3 py-1.5 bg-blue-500/10 border-b">
-                    <span className="text-xs font-medium text-blue-600">Step 1: Add marketplace (one-time per machine)</span>
+                    <span className="text-xs font-medium text-blue-600">Step 1: Run the installer</span>
                     <CopyButton
-                      text="claude /plugin marketplace add --source github --repo howincodes/claude-plugins"
+                      text={`bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install.sh)`}
                       label="step1"
                     />
                   </div>
                   <pre className="p-3 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed">
-{`claude /plugin marketplace add --source github --repo howincodes/claude-plugins`}
+{`bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install.sh)`}
                   </pre>
                 </div>
 
-                {/* Step 2 */}
-                <div className="border rounded-md overflow-hidden">
-                  <div className="flex items-center justify-between px-3 py-1.5 bg-purple-500/10 border-b">
-                    <span className="text-xs font-medium text-purple-600">Step 2: Install plugin</span>
-                    <CopyButton
-                      text="claude plugin install clawlens"
-                      label="step2"
-                    />
-                  </div>
-                  <pre className="p-3 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed">
-{`claude plugin install clawlens`}
-                  </pre>
-                </div>
-
-                {/* Step 3 */}
+                {/* Step 2: When prompted, enter */}
                 <div className="border rounded-md overflow-hidden">
                   <div className="flex items-center justify-between px-3 py-1.5 bg-green-500/10 border-b">
-                    <span className="text-xs font-medium text-green-600">Step 3: When prompted, enter</span>
+                    <span className="text-xs font-medium text-green-600">Step 2: When prompted, enter</span>
                   </div>
                   <div className="p-3 space-y-2">
                     <div className="flex items-center gap-2">
@@ -156,7 +142,7 @@ export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSu
                 </div>
 
                 <p className="text-xs text-muted-foreground">
-                  Send these instructions to <strong>{name}</strong>. The plugin auto-configures all hooks.
+                  Send these instructions to <strong>{name}</strong>. The installer configures all hooks automatically.
                 </p>
               </div>
             </CardContent>

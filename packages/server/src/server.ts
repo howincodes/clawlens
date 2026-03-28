@@ -7,7 +7,6 @@ import { existsSync, mkdirSync } from 'node:fs';
 
 import { initDb, getDb, closeDb } from './services/db.js';
 import { initWebSocket } from './services/websocket.js';
-import { startDeadmanSwitch } from './services/deadman.js';
 import { hookAuth } from './middleware/hook-auth.js';
 import { adminRouter } from './routes/admin-api.js';
 import { hookRouter } from './routes/hook-api.js';
@@ -119,9 +118,6 @@ if (process.env.NODE_ENV !== 'test') {
   const server = createServer(app);
   initWebSocket(server);
 
-  // Start dead man's switch
-  const stopDeadman = startDeadmanSwitch();
-
   server.listen(port, () => {
     console.log(`[clawlens] Server running on port ${port}`);
     console.log(`[clawlens] Dashboard: http://localhost:${port}`);
@@ -140,7 +136,6 @@ if (process.env.NODE_ENV !== 'test') {
   // Graceful shutdown
   const shutdown = () => {
     console.log('[clawlens] Shutting down...');
-    stopDeadman();
     try {
       getDb().pragma('wal_checkpoint(FULL)');
     } catch {}

@@ -4,8 +4,8 @@
     ClawLens Enforcement Removal — clean uninstall (Windows)
 
 .DESCRIPTION
-    Removes all managed settings, hook/gate scripts, watchdog scheduled task,
-    and log files installed by enforce.ps1.
+    Removes all managed settings, hook/gate scripts, and backup files
+    installed by enforce.ps1.
 
 .EXAMPLE
     .\restore.ps1
@@ -21,8 +21,6 @@ $ErrorActionPreference = "Stop"
 
 $ManagedDir = "C:\Program Files\ClaudeCode\managed-settings.d"
 $GateDir    = "C:\Program Files\ClaudeCode"
-$LogDir     = "C:\ProgramData\ClawLens\logs"
-$TaskName   = "ClawLensWatchdog"
 
 # ── Pre-flight ───────────────────────────────────────────────────────────────
 
@@ -36,24 +34,6 @@ Write-Host ""
 Write-Host "  ClawLens Enforcement Removal"
 Write-Host "  =============================="
 Write-Host ""
-
-# ── Remove scheduled task ────────────────────────────────────────────────────
-
-$existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-if ($existingTask) {
-    try {
-        # Stop the task if running
-        if ($existingTask.State -eq "Running") {
-            Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        }
-        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-        Write-Host "  -> Removed scheduled task: $TaskName"
-    } catch {
-        Write-Warning "Failed to remove scheduled task: $_"
-    }
-} else {
-    Write-Host "  -> Scheduled task not found (already removed or never installed)"
-}
 
 # ── Remove managed settings ─────────────────────────────────────────────────
 
@@ -93,7 +73,7 @@ if (Test-Path $ManagedDir) {
 # ── Remove scripts ──────────────────────────────────────────────────────────
 
 $scriptsRemoved = 0
-$scriptNames = @("clawlens-hook.ps1", "clawlens-gate.ps1", "clawlens-watchdog.ps1")
+$scriptNames = @("clawlens-hook.ps1", "clawlens-gate.ps1")
 
 foreach ($scriptName in $scriptNames) {
     $scriptPath = Join-Path $GateDir $scriptName
@@ -107,45 +87,6 @@ if ($scriptsRemoved -gt 0) {
     Write-Host "  -> Removed $scriptsRemoved script(s)"
 } else {
     Write-Host "  -> No scripts found to remove"
-}
-
-# ── Remove log files ────────────────────────────────────────────────────────
-
-if (Test-Path $LogDir) {
-    Remove-Item -Path "$LogDir\clawlens-watchdog.log" -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path "$LogDir\clawlens-watchdog.log.old" -Force -ErrorAction SilentlyContinue
-
-    # Clean up empty log directory
-    $remaining = (Get-ChildItem -Path $LogDir -Force -ErrorAction SilentlyContinue | Measure-Object).Count
-    if ($remaining -eq 0) {
-        Remove-Item -Path $LogDir -Recurse -Force -ErrorAction SilentlyContinue
-        # Also remove parent if empty
-        $parentDir = Split-Path $LogDir -Parent
-        $parentRemaining = (Get-ChildItem -Path $parentDir -Force -ErrorAction SilentlyContinue | Measure-Object).Count
-        if ($parentRemaining -eq 0) {
-            Remove-Item -Path $parentDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
-}
-Write-Host "  -> Removed log files"
-
-# ── Optional: uninstall plugin ───────────────────────────────────────────────
-
-Write-Host ""
-$choice = Read-Host "  Also uninstall the ClawLens plugin? (y/n)"
-if ($choice -in @("y", "Y")) {
-    if (Get-Command "claude" -ErrorAction SilentlyContinue) {
-        try {
-            & claude plugin uninstall clawlens 2>$null
-            Write-Host "  -> Plugin uninstalled"
-        } catch {
-            Write-Host "  -> Plugin not installed or uninstall failed"
-        }
-    } else {
-        Write-Host "  -> claude command not found (skipping plugin removal)"
-    }
-} else {
-    Write-Host "  -> Skipped plugin removal"
 }
 
 # ── Done ─────────────────────────────────────────────────────────────────────
