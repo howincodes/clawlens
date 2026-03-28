@@ -64,39 +64,38 @@ Write-Host "[2/3] Configuring hooks..."
 $SettingsPath = "$env:USERPROFILE\.claude\settings.json"
 $HookCmd = ($HookPath -replace '\\', '/')
 
-$Settings = @{}
+# Read existing settings or start fresh
+$Settings = $null
 if (Test-Path $SettingsPath) {
-    $Settings = Get-Content $SettingsPath -Raw | ConvertFrom-Json -AsHashtable
+    try { $Settings = Get-Content $SettingsPath -Raw | ConvertFrom-Json } catch {}
 }
-if (-not $Settings) { $Settings = @{} }
+if (-not $Settings) { $Settings = New-Object PSObject }
 
 # Set env vars
-if (-not $Settings.ContainsKey('env')) { $Settings['env'] = @{} }
-$Settings['env']['CLAUDE_PLUGIN_OPTION_SERVER_URL'] = $ServerUrl
-$Settings['env']['CLAUDE_PLUGIN_OPTION_AUTH_TOKEN'] = $AuthToken
-
-# Build hooks config
-$MakeHook = { param($timeout, $async)
-    $h = @{ type = "command"; command = $HookCmd; timeout = $timeout }
-    if ($async) { $h['async'] = $true }
-    return @( @{ hooks = @( $h ) } )
+if (-not (Get-Member -InputObject $Settings -Name 'env' -MemberType NoteProperty)) {
+    $Settings | Add-Member -NotePropertyName 'env' -NotePropertyValue (New-Object PSObject)
 }
+$Settings.env | Add-Member -NotePropertyName 'CLAUDE_PLUGIN_OPTION_SERVER_URL' -NotePropertyValue $ServerUrl -Force
+$Settings.env | Add-Member -NotePropertyName 'CLAUDE_PLUGIN_OPTION_AUTH_TOKEN' -NotePropertyValue $AuthToken -Force
 
-$Hooks = @{
-    SessionStart       = & $MakeHook 5 $false
-    UserPromptSubmit   = & $MakeHook 3 $false
-    PreToolUse         = & $MakeHook 2 $true
-    Stop               = & $MakeHook 3 $false
-    StopFailure        = & $MakeHook 2 $true
-    SessionEnd         = & $MakeHook 3 $true
-    PostToolUse        = & $MakeHook 3 $true
-    SubagentStart      = & $MakeHook 2 $true
-    PostToolUseFailure = & $MakeHook 2 $true
-    ConfigChange       = & $MakeHook 3 $false
-    FileChanged        = @( @{ matcher = "settings.json"; hooks = @( @{ type = "command"; command = $HookCmd; timeout = 3 } ) } )
+# Build hooks JSON string directly (avoids PS 5.1 hashtable depth issues)
+$HooksJson = @"
+{
+  "SessionStart": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 5}]}],
+  "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 3}]}],
+  "PreToolUse": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 2, "async": true}]}],
+  "Stop": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 3}]}],
+  "StopFailure": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 2, "async": true}]}],
+  "SessionEnd": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 3, "async": true}]}],
+  "PostToolUse": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 3, "async": true}]}],
+  "SubagentStart": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 2, "async": true}]}],
+  "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 2, "async": true}]}],
+  "ConfigChange": [{"hooks": [{"type": "command", "command": "$HookCmd", "timeout": 3}]}],
+  "FileChanged": [{"matcher": "settings.json", "hooks": [{"type": "command", "command": "$HookCmd", "timeout": 3}]}]
 }
+"@
+$Settings | Add-Member -NotePropertyName 'hooks' -NotePropertyValue ($HooksJson | ConvertFrom-Json) -Force
 
-$Settings['hooks'] = $Hooks
 $Json = $Settings | ConvertTo-Json -Depth 10
 [System.IO.File]::WriteAllText($SettingsPath, $Json, [System.Text.UTF8Encoding]::new($false))
 Write-Host "  -> $SettingsPath"
