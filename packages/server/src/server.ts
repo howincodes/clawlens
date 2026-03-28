@@ -129,7 +129,7 @@ if (process.env.NODE_ENV !== 'test') {
       console.warn('[clawlens] WARNING: Using default admin password. Set ADMIN_PASSWORD env var for production.');
     }
     if (!process.env.JWT_SECRET) {
-      console.warn('[clawlens] WARNING: Using default JWT secret. Set JWT_SECRET env var for production.');
+      console.log('[clawlens] JWT secret auto-generated (sessions reset on restart)');
     }
   });
 

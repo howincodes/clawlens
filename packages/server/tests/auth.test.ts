@@ -239,7 +239,7 @@ describe('adminAuth', () => {
     // Sign a token that already expired
     const expiredToken = jwt.sign(
       adminPayload,
-      process.env.JWT_SECRET ?? 'clawlens-dev-secret-change-me',
+      process.env.JWT_SECRET ?? 'test-jwt-secret',
       { expiresIn: '0s' },
     );
 
@@ -311,7 +311,7 @@ describe('token helpers', () => {
   it('verifyToken should throw for expired token', () => {
     const token = jwt.sign(
       { sub: 'x', email: 'x@x.com', role: 'admin' },
-      process.env.JWT_SECRET ?? 'clawlens-dev-secret-change-me',
+      process.env.JWT_SECRET ?? 'test-jwt-secret',
       { expiresIn: '0s' },
     );
     expect(() => verifyToken(token)).toThrow();

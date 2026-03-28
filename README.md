@@ -2,58 +2,63 @@
 
 AI usage analytics and team management for Claude Code.
 
-Track prompts, credits, tool usage. Enforce rate limits. Kill switch. Tamper detection. Works with any Claude Code subscription.
+Track prompts, credits, tool usage. Enforce rate limits. Kill switch. Tamper detection.
 
-## Quick Start
+## Deploy Server
 
-### Server
 ```bash
-# Clone and install
 git clone https://github.com/howincodes/clawlens.git
 cd clawlens
-pnpm install
-pnpm build
-
-# Start
-PORT=3000 ADMIN_PASSWORD=your-secret JWT_SECRET=your-jwt-secret pnpm dev
+cp .env.example .env
+nano .env                  # set ADMIN_PASSWORD
+docker compose up -d
 ```
 
-### Client (per developer)
+Dashboard: `http://your-server:3000`
+
+## Install on Developer Machines
+
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install.sh)
 ```
 
-### Enforced Mode (admin, optional)
+Prompts for server URL and auth token (admin creates tokens in dashboard).
+
+## Enforced Mode (optional, requires sudo)
+
+Hooks in managed settings — developers cannot disable them.
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/enforce.sh | sudo bash
+bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/enforce.sh)
 ```
-
-## Architecture
-
-- **Server**: Express + TypeScript + SQLite (better-sqlite3)
-- **Dashboard**: React + Vite + Tailwind
-- **Client**: Shell script hook registered in `~/.claude/settings.json`
-- **Enforcement**: Managed settings with `allowManagedHooksOnly`
 
 ## Features
 
-- 11 Claude Code hook events tracked (SessionStart, Prompt, Tool, Stop, etc.)
+- 11 Claude Code hook events tracked
 - Credit-based rate limiting (opus=10, sonnet=3, haiku=1)
 - Kill/pause switch (blocks session + prompt + tool use)
-- Tamper detection (ConfigChange, FileChanged)
-- AI summaries via `claude -p --bare --json-schema`
-- Real-time WebSocket feed
-- Token rotation
-- Two deployment modes: Standard (user settings) + Enforced (managed settings with auth revocation)
+- Tamper detection (ConfigChange, FileChanged alerts)
+- AI summaries via `claude -p`
+- Real-time WebSocket dashboard
+- Two modes: Standard (user settings) + Enforced (managed settings + auth revocation)
 
 ## Uninstall
 
 ```bash
-# Client
+# Developer machine
 bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/uninstall.sh)
 
 # Enforced mode
-curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/restore.sh | sudo bash
+bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/restore.sh)
+```
+
+## Development
+
+```bash
+pnpm install
+pnpm dev                   # start server on :3000
+pnpm test                  # run 149 tests
+pnpm --filter dashboard dev  # dashboard dev server on :5173
 ```
 
 ## License

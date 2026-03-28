@@ -9,7 +9,6 @@ services:
       - clawlens-data:/app/data
     environment:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
-      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
       - PORT=3000
       - DB_PATH=/app/data/clawlens.db
 

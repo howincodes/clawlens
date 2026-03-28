@@ -1,11 +1,12 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { randomBytes } from 'node:crypto';
 
 // ---------------------------------------------------------------------------
-// JWT secret — use env var in production, fallback for dev
+// JWT secret — use env var, or auto-generate a random one per process
 // ---------------------------------------------------------------------------
 
-const JWT_SECRET = process.env.JWT_SECRET ?? 'clawlens-dev-secret-change-me';
+const JWT_SECRET = process.env.JWT_SECRET || randomBytes(32).toString('hex');
 const TOKEN_EXPIRY = '24h';
 
 // ---------------------------------------------------------------------------
