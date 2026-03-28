@@ -39,10 +39,11 @@ function normalizeModel(model: string): string {
 
 function tamperStatusDisplay(user: any): { icon: string; label: string; variant: 'success' | 'warning' | 'destructive' | 'secondary' | 'outline' } {
   const tamper = user.tamper_status
+  const tamperStatus = typeof tamper === 'object' && tamper ? tamper.status : tamper
   if (user.status === 'killed') return { icon: '\u{1F534}', label: 'Killed', variant: 'destructive' }
   if (user.status === 'paused') return { icon: '\u23F8', label: 'Paused', variant: 'secondary' }
-  if (tamper === 'hooks_modified' || tamper === 'config_changed') return { icon: '\u26A0\uFE0F', label: 'Tampered', variant: 'warning' }
-  if (tamper === 'inactive') return { icon: '\u{1F7E1}', label: 'Inactive', variant: 'outline' }
+  if (tamperStatus === 'hooks_modified' || tamperStatus === 'config_changed') return { icon: '\u26A0\uFE0F', label: 'Tampered', variant: 'warning' }
+  if (tamperStatus === 'inactive') return { icon: '\u{1F7E1}', label: 'Inactive', variant: 'outline' }
   return { icon: '\u{1F7E2}', label: 'Active', variant: 'success' }
 }
 
@@ -67,9 +68,10 @@ export function UsersPage() {
         getUsers(),
         getLeaderboard(30).catch(() => ({ leaderboard: [] })),
       ])
-      setUsers(usersRes?.users || [])
+      setUsers(usersRes?.data || usersRes?.users || [])
       const lMap = new Map()
-      for (const entry of leaderRes?.leaderboard || []) {
+      const leaderData = leaderRes?.data || leaderRes?.leaderboard || []
+      for (const entry of leaderData) {
         lMap.set(String(entry.user_id || entry.id), entry)
       }
       setLeaderMap(lMap)
@@ -228,7 +230,7 @@ export function UsersPage() {
                           {Number(stats.prompts || 0).toLocaleString()}
                         </TableCell>
                         <TableCell className="text-right">
-                          {Number(stats.cost_usd || stats.cost || 0)}
+                          {Number(stats.credits ?? stats.cost_usd ?? stats.cost ?? 0)}
                         </TableCell>
                         <TableCell className="text-right">
                           {Number(stats.sessions || 0)}

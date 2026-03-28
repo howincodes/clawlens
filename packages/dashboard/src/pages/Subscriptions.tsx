@@ -5,14 +5,14 @@ import { Badge } from '@/components/ui/badge'
 import { Loader2, Users, Coins, MessageSquare } from 'lucide-react'
 
 export function Subscriptions() {
-  const [data, setData] = useState<any>({ subscriptions: [] })
+  const [data, setData] = useState<any>({ data: [] })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
       try {
         const res = await fetchClient('/subscriptions')
-        setData(res || { subscriptions: [] })
+        setData(res || { data: [] })
       } catch (err) {
         console.error('Failed to load subscriptions', err)
       } finally {
@@ -30,7 +30,7 @@ export function Subscriptions() {
     )
   }
 
-  const subscriptions = data.subscriptions || []
+  const subscriptions = data.data || data.subscriptions || []
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">

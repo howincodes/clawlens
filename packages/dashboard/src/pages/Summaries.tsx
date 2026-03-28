@@ -17,7 +17,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 }
 
 export function Summaries() {
-  const [data, setData] = useState<{ summaries: Record<string, unknown>[] }>({ summaries: [] })
+  const [data, setData] = useState<{ data: Record<string, unknown>[]; summaries?: Record<string, unknown>[] }>({ data: [] })
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [generateMessage, setGenerateMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -28,7 +28,7 @@ export function Summaries() {
   // Load users on mount
   useEffect(() => {
     getUsers()
-      .then(res => setUsers(res?.users || []))
+      .then(res => setUsers(res?.data || res?.users || []))
       .catch(() => setUsers([]))
   }, [])
 
@@ -39,7 +39,7 @@ export function Summaries() {
       if (days && days !== 'all') params.days = days
       if (userId) params.userId = userId
       const res = await getSummaries(params)
-      setData(res || { summaries: [] })
+      setData(res || { data: [] })
     } catch (_err) {
       console.error('Failed to load summaries')
     } finally {
@@ -88,7 +88,7 @@ export function Summaries() {
     )
   }
 
-  if (loading && data.summaries.length === 0) {
+  if (loading && (data.data || data.summaries || []).length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
@@ -145,7 +145,7 @@ export function Summaries() {
         </select>
       </div>
 
-      {data.summaries.length === 0 ? (
+      {(data.data || data.summaries || []).length === 0 ? (
         <Card className="p-12 text-center border-dashed bg-muted/20">
           <Sparkles className="mx-auto w-10 h-10 text-muted-foreground mb-4 opacity-50" />
           <h3 className="text-lg font-medium mb-1">No AI summaries generated yet</h3>
@@ -155,7 +155,7 @@ export function Summaries() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {data.summaries.map((summary, idx) => {
+          {(data.data || data.summaries || []).map((summary, idx) => {
             // Parse categories — API returns JSON string, not object
             let categories: Record<string, number> = {}
             try {

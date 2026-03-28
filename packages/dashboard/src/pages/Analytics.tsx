@@ -51,14 +51,14 @@ export function Analytics() {
     try {
       const [analyticsRes, leaderboardRes, costsRes, projectsRes] = await Promise.all([
         getAnalytics(days).catch(() => null),
-        getLeaderboard(days, sortBy).catch(() => ({ leaderboard: [] })),
+        getLeaderboard(days, sortBy).catch(() => ({ data: [] })),
         getCosts(days).catch(() => null),
-        getProjectAnalytics(days).catch(() => ({ projects: [] })),
+        getProjectAnalytics(days).catch(() => ({ data: [] })),
       ])
       setAnalytics(analyticsRes)
-      setLeaderboard(leaderboardRes?.leaderboard || [])
+      setLeaderboard(leaderboardRes?.data || leaderboardRes?.leaderboard || [])
       setCosts(costsRes)
-      setProjects(projectsRes?.projects || [])
+      setProjects(projectsRes?.data || projectsRes?.projects || [])
     } catch (err) {
       setError(String(err))
     } finally {
@@ -75,13 +75,23 @@ export function Analytics() {
   const overview = (analytics as Record<string, unknown>)?.overview as Record<string, unknown> | undefined
 
   // ── Chart data helpers ─────────────────────────────────
-  const modelDistribution = (overview?.models as Record<string, unknown>[] | undefined) || []
+  const analyticsObj = analytics as Record<string, unknown> | null
+  // New API returns models at top level with { model, count, credits }; old at overview.models with { name, value }
+  const modelDistRaw = (overview?.models as Record<string, unknown>[] | undefined) || (analyticsObj?.models as Record<string, unknown>[] | undefined) || []
+  const modelDistribution = modelDistRaw.map(m => ({ name: m.name || m.model, value: m.value ?? m.count ?? 0, ...m }))
   const toolUsage = (overview?.tools as Record<string, unknown>[] | undefined) || []
   const peakHours = (overview?.peak_hours as Record<string, unknown>[] | undefined) || []
-  const trends = (analytics as Record<string, unknown>)?.trends as Record<string, unknown>[] | undefined
+  // New API uses 'daily', old API uses 'trends'
+  const dailyRaw = (analyticsObj?.daily || analyticsObj?.trends) as Record<string, unknown>[] | undefined
+  // Normalize daily data: new API has { date, prompts, credits }, chart expects { date, cost }
+  const trends = dailyRaw?.map(d => ({ ...d, cost: d.cost ?? d.credits ?? 0 }))
 
+  // Normalize costs: new API returns { data: [{ model, credits, prompts, cost_usd }] }
+  // Old API returns { by_user, by_model, by_project }
+  const costsRaw = (costs as Record<string, unknown>)?.data as Record<string, unknown>[] | undefined
+  const costsNormalized = costsRaw?.map(c => ({ name: c.model || c.name, cost: c.cost_usd ?? c.credits ?? c.cost ?? 0, ...c }))
   const costByUser = (costs as Record<string, unknown>)?.by_user as Record<string, unknown>[] | undefined
-  const costByModel = (costs as Record<string, unknown>)?.by_model as Record<string, unknown>[] | undefined
+  const costByModel = costsNormalized || ((costs as Record<string, unknown>)?.by_model as Record<string, unknown>[] | undefined)
   const costByProject = (costs as Record<string, unknown>)?.by_project as Record<string, unknown>[] | undefined
 
   const sortArrow = (field: SortField) => sortBy === field ? ' \u2193' : ''
@@ -208,7 +218,7 @@ export function Analytics() {
                           <TableCell className="font-medium">{String(user.user_name || user.name || '')}</TableCell>
                           <TableCell className="text-right">{Number(user.prompts || 0).toLocaleString()}</TableCell>
                           <TableCell className="text-right">{Number(user.sessions || 0).toLocaleString()}</TableCell>
-                          <TableCell className="text-right">{fmtCredits(Number(user.cost_usd || user.cost || 0))}</TableCell>
+                          <TableCell className="text-right">{fmtCredits(Number(user.credits ?? user.cost_usd ?? user.cost ?? 0))}</TableCell>
                           <TableCell className="text-right">{Number(user.avg_turns || 0).toFixed(1)}</TableCell>
                           <TableCell className="text-right">
                             <Badge variant="outline" className="capitalize">{String(user.top_model || user.model_preference || 'N/A')}</Badge>
@@ -452,7 +462,7 @@ export function Analytics() {
                           <TableCell className="font-medium">{String(p.project || p.name || 'Unknown')}</TableCell>
                           <TableCell className="text-right">{Number(p.prompts || 0).toLocaleString()}</TableCell>
                           <TableCell className="text-right">{Number(p.users || 0)}</TableCell>
-                          <TableCell className="text-right">{fmtCredits(Number(p.cost_usd || p.cost || 0))}</TableCell>
+                          <TableCell className="text-right">{fmtCredits(Number(p.credits ?? p.cost_usd ?? p.cost ?? 0))}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

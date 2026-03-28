@@ -128,12 +128,13 @@ export function UserDetail() {
     try {
       setError(null)
       const res = await getUser(id)
-      const userData = res
+      // New API returns user fields directly; old API wraps in { user: {...} }
+      const userData = res?.user ? res : { user: res, ...res }
       // If the user doesn't already have a subscription_email, look it up from subscriptions
       if (userData?.user && !userData.user.subscription_email && userData.user.subscription_id) {
         try {
           const subsRes = await getSubscriptions()
-          const subs = subsRes?.subscriptions || []
+          const subs = subsRes?.data || subsRes?.subscriptions || []
           const linkedSub = subs.find((s: any) => s.id === userData.user.subscription_id)
           if (linkedSub) {
             userData.user.subscription_email = linkedSub.email
@@ -175,7 +176,7 @@ export function UserDetail() {
     setSessionsLoading(true)
     try {
       const res = await getUserSessions(id, { limit: '20' })
-      setSessions(res.sessions || [])
+      setSessions(res?.data || res?.sessions || [])
     } catch (err) {
       console.error('Failed to load sessions', err)
     } finally {
@@ -197,7 +198,7 @@ export function UserDetail() {
     if (!id) return
     try {
       const res = await getTamperAlerts()
-      const allAlerts = res?.alerts || []
+      const allAlerts = res?.data || res?.alerts || []
       // Filter to this user's alerts
       setTamperAlerts(allAlerts.filter((a: any) => String(a.user_id) === String(id)))
     } catch (_err) {
@@ -348,7 +349,7 @@ export function UserDetail() {
 
   const { user, devices, latest_summary: latestSummary } = data
   const stats = data.stats || data.analytics || {}
-  const limits = data.limits || []
+  const limits = user?.limits || data.limits || []
 
   const totalPrompts = stats.total_prompts ?? stats.allTime?.prompts ?? 0
   const promptsToday = stats.prompts_today ?? stats.today?.prompts ?? 0
@@ -388,10 +389,10 @@ export function UserDetail() {
             >
               {user.status}
             </Badge>
-            {user.tamper_status && user.tamper_status !== 'ok' && (
+            {user.tamper_status && (typeof user.tamper_status === 'string' ? user.tamper_status !== 'ok' : user.tamper_status?.status && user.tamper_status.status !== 'ok') && (
               <Badge variant="warning" className="ml-1 gap-1">
                 <ShieldAlert className="w-3 h-3" />
-                {user.tamper_status.replace(/_/g, ' ')}
+                {(typeof user.tamper_status === 'string' ? user.tamper_status : user.tamper_status?.status || '').replace(/_/g, ' ')}
               </Badge>
             )}
           </p>

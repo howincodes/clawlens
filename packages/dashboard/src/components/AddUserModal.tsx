@@ -27,8 +27,8 @@ export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSu
         method: 'POST',
         body: JSON.stringify({ name, slug })
       })
-      if (res?.install_code) {
-        setInstallCode(res.install_code)
+      if (res?.auth_token || res?.install_code) {
+        setInstallCode(res.auth_token || res.install_code)
       }
       onSuccess()
     } catch (err) {

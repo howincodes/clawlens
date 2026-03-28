@@ -67,7 +67,7 @@ export function PromptsBrowser() {
   // Load users on mount
   useEffect(() => {
     getUsers()
-      .then(res => setUsers(res?.users || []))
+      .then(res => setUsers(res?.data || res?.users || []))
       .catch(() => setUsers([]))
   }, [])
 

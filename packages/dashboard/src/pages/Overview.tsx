@@ -157,15 +157,15 @@ export function Overview() {
         getUsers(),
         getSubscriptions(),
         getAnalytics(1),
-        getLeaderboard(30).catch(() => ({ leaderboard: [] })),
-        getTamperAlerts().catch(() => ({ alerts: [] })),
+        getLeaderboard(30).catch(() => ({ data: [] })),
+        getTamperAlerts().catch(() => ({ data: [] })),
       ])
-      setUsers(usersRes.users || [])
-      setSubscriptions(subsRes.subscriptions || [])
-      setAnalytics(analyticsRes.overview || {})
-      setTamperAlerts(tamperRes?.alerts || [])
+      setUsers(usersRes?.data || usersRes?.users || [])
+      setSubscriptions(subsRes?.data || subsRes?.subscriptions || [])
+      setAnalytics(analyticsRes?.overview || {})
+      setTamperAlerts(tamperRes?.data || tamperRes?.alerts || [])
       const lMap = new Map()
-      for (const entry of leaderRes?.leaderboard || []) {
+      for (const entry of leaderRes?.data || leaderRes?.leaderboard || []) {
         lMap.set(String(entry.user_id || entry.id), entry)
       }
       setLeaderMap(lMap)
@@ -417,8 +417,8 @@ export function Overview() {
                           </Link>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          {(user.tamper_status === 'hooks_modified' || user.tamper_status === 'config_changed') && (
-                            <span title={`Tamper: ${user.tamper_status.replace(/_/g, ' ')}`} className="text-yellow-500">
+                          {((typeof user.tamper_status === 'string' && (user.tamper_status === 'hooks_modified' || user.tamper_status === 'config_changed')) || (typeof user.tamper_status === 'object' && user.tamper_status?.status && user.tamper_status.status !== 'ok')) && (
+                            <span title={`Tamper: ${(typeof user.tamper_status === 'string' ? user.tamper_status : user.tamper_status?.status || '').replace(/_/g, ' ')}`} className="text-yellow-500">
                               <ShieldAlert className="h-4 w-4" />
                             </span>
                           )}
@@ -447,7 +447,7 @@ export function Overview() {
                             <div className="text-[10px] text-muted-foreground">Prompts</div>
                           </div>
                           <div className="text-center p-2 bg-muted/30 rounded">
-                            <div className="text-lg font-bold">{Number(stats.cost_usd || stats.cost || 0)} credits</div>
+                            <div className="text-lg font-bold">{Number(stats.credits ?? stats.cost_usd ?? stats.cost ?? 0)} credits</div>
                             <div className="text-[10px] text-muted-foreground">Credits</div>
                           </div>
                           <div className="text-center p-2 bg-muted/30 rounded">
@@ -472,7 +472,7 @@ export function Overview() {
                         <span className="text-muted-foreground">
                           Credits:{' '}
                           <span className="font-medium text-foreground">
-                            {Number(stats.cost_usd || stats.cost || 0)} credits
+                            {Number(stats.credits ?? stats.cost_usd ?? stats.cost ?? 0)} credits
                           </span>
                         </span>
                       </div>
