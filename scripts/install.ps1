@@ -51,7 +51,23 @@ case "$EVENT" in
   FileChanged)        P="file-changed" ;;
   *)                  rm -f "$TMPFILE"; exit 0 ;;
 esac
-RESP=$(curl -sf -m 3 -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $AUTH_TOKEN" -d @"$TMPFILE" "$SERVER_URL/api/v1/hook/$P" 2>/dev/null)
+# Enrich SessionStart with subscription info
+if [ "$EVENT" = "SessionStart" ]; then
+  AUTH_JSON=$(claude auth status 2>/dev/null || true)
+  if [ -n "$AUTH_JSON" ]; then
+    SUB_EMAIL=$(echo "$AUTH_JSON" | grep -o '"email":"[^"]*"' | head -1 | cut -d'"' -f4)
+    SUB_TYPE=$(echo "$AUTH_JSON" | grep -o '"subscriptionType":"[^"]*"' | head -1 | cut -d'"' -f4)
+  fi
+  HOOK_MODEL=$(grep -o '"model":"[^"]*"' "$TMPFILE" | head -1 | cut -d'"' -f4)
+  ENRICH=""
+  [ -n "$SUB_EMAIL" ] && ENRICH="${ENRICH}\"subscription_email\":\"$SUB_EMAIL\","
+  [ -n "$SUB_TYPE" ] && ENRICH="${ENRICH}\"subscription_type\":\"$SUB_TYPE\","
+  ENRICH="${ENRICH}\"hostname\":\"$(hostname 2>/dev/null || echo unknown)\",\"platform\":\"$(uname -s 2>/dev/null || echo Windows)\""
+  if [ -n "$ENRICH" ]; then
+    sed "s/}$/,${ENRICH}}/" "$TMPFILE" > "${TMPFILE}.new" && mv "${TMPFILE}.new" "$TMPFILE"
+  fi
+fi
+RESP=$(curl -sf -m 5 -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $AUTH_TOKEN" -d @"$TMPFILE" "$SERVER_URL/api/v1/hook/$P" 2>/dev/null)
 rm -f "$TMPFILE"
 [ -n "$RESP" ] && echo "$RESP"
 '@

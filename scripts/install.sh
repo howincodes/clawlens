@@ -113,11 +113,61 @@ if [ -z "$AUTH_TOKEN" ]; then AUTH_TOKEN="${CLAWLENS_TOKEN}"; fi
 
 # No config = fail-open
 if [ -z "$SERVER_URL" ] || [ -z "$AUTH_TOKEN" ]; then
+  rm -f "$TMPFILE"
   exit 0
 fi
 
+# Enrich SessionStart with subscription info + model detection
+if [ "$EVENT" = "SessionStart" ]; then
+  # Get subscription email and type from claude auth status
+  AUTH_JSON=$(claude auth status 2>/dev/null || true)
+  if [ -n "$AUTH_JSON" ]; then
+    if command -v jq >/dev/null 2>&1; then
+      SUB_EMAIL=$(echo "$AUTH_JSON" | jq -r '.email // ""')
+      SUB_TYPE=$(echo "$AUTH_JSON" | jq -r '.subscriptionType // .planType // ""')
+    else
+      SUB_EMAIL=$(echo "$AUTH_JSON" | grep -o '"email":"[^"]*"' | head -1 | cut -d'"' -f4)
+      SUB_TYPE=$(echo "$AUTH_JSON" | grep -o '"subscriptionType":"[^"]*"' | head -1 | cut -d'"' -f4)
+    fi
+  fi
+
+  # Read model from user settings if not in hook JSON
+  if command -v jq >/dev/null 2>&1; then
+    HOOK_MODEL=$(jq -r '.model // ""' < "$TMPFILE")
+  else
+    HOOK_MODEL=$(grep -o '"model":"[^"]*"' "$TMPFILE" | head -1 | cut -d'"' -f4)
+  fi
+
+  if [ -z "$HOOK_MODEL" ]; then
+    SETTINGS_MODEL=""
+    SETTINGS_FILE="$HOME/.claude/settings.json"
+    if [ -f "$SETTINGS_FILE" ]; then
+      if command -v jq >/dev/null 2>&1; then
+        SETTINGS_MODEL=$(jq -r '.model // ""' "$SETTINGS_FILE")
+      else
+        SETTINGS_MODEL=$(grep -o '"model":"[^"]*"' "$SETTINGS_FILE" | head -1 | cut -d'"' -f4)
+      fi
+    fi
+  fi
+
+  # Build enriched JSON — merge extra fields into the hook JSON
+  ENRICH=""
+  [ -n "$SUB_EMAIL" ] && ENRICH="${ENRICH}\"subscription_email\":\"$SUB_EMAIL\","
+  [ -n "$SUB_TYPE" ] && ENRICH="${ENRICH}\"subscription_type\":\"$SUB_TYPE\","
+  [ -n "$SETTINGS_MODEL" ] && ENRICH="${ENRICH}\"detected_model\":\"$SETTINGS_MODEL\","
+  ENRICH="${ENRICH}\"hostname\":\"$(hostname 2>/dev/null || echo unknown)\","
+  ENRICH="${ENRICH}\"platform\":\"$(uname -s 2>/dev/null || echo unknown)\""
+
+  if [ -n "$ENRICH" ]; then
+    # Inject extra fields into the JSON object (before the closing brace)
+    sed -i.bak "s/}$/,${ENRICH}}/" "$TMPFILE" 2>/dev/null || \
+      sed "s/}$/,${ENRICH}}/" "$TMPFILE" > "${TMPFILE}.new" && mv "${TMPFILE}.new" "$TMPFILE"
+    rm -f "${TMPFILE}.bak"
+  fi
+fi
+
 # POST to server and output response
-RESP=$(curl -sf -m 3 -X POST \
+RESP=$(curl -sf -m 5 -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -d @"$TMPFILE" \

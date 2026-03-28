@@ -15,6 +15,8 @@ import {
   endSession,
   getLimitsByUser,
   getDb,
+  createSubscription,
+  updateUser,
   type LimitRow,
 } from '../services/db.js';
 import { autoResolveInactiveAlerts } from '../services/tamper.js';
@@ -107,13 +109,29 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
       return;
     }
 
+    // Determine model — from hook JSON, enriched field, or user default
+    const model = body.model || body.detected_model || user.default_model || 'sonnet';
+
     // Create session
     createSession({
       id: data.session_id,
       user_id: user.id,
-      model: data.model,
+      model,
       cwd: data.cwd,
     });
+
+    // Handle subscription info from enriched hook data
+    if (body.subscription_email || body.subscription_type) {
+      try {
+        const sub = createSubscription({
+          email: body.subscription_email || user.email || '',
+          subscription_type: body.subscription_type || 'unknown',
+        });
+        if (sub && !user.subscription_id) {
+          updateUser(user.id, { subscription_id: String(sub.id) });
+        }
+      } catch { /* best-effort */ }
+    }
 
     // Update last_event_at
     touchUserLastEvent(user.id);
@@ -127,7 +145,7 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
       payload: JSON.stringify(body),
     });
 
-    broadcast({ type: 'session_start', user_id: user.id, user_name: user.name, model: data.model });
+    broadcast({ type: 'session_start', user_id: user.id, user_name: user.name, model });
 
     res.json({});
   } catch (err) {
