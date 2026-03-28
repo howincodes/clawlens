@@ -10,6 +10,7 @@ import {
   getSessionById,
   getPromptsBySession,
   getHookEventsByUser,
+  incrementSessionPromptCount,
   getUnresolvedTamperAlerts,
   recordPrompt,
   getDb,
@@ -289,18 +290,20 @@ describe('POST /pre-tool', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /stop', () => {
-  it('should record credit cost and response', async () => {
+  it('should record response on existing prompt without double-counting credits', async () => {
     const sessionId = 'sess-stop-test';
     createSession({ id: sessionId, user_id: activeUser.id, model: 'opus' });
 
-    // Record a prompt first (will be updated with response by /stop)
+    // Simulate the prompt handler: record prompt with credit_cost already set,
+    // and increment session counts (as the prompt handler now does).
     recordPrompt({
       session_id: sessionId,
       user_id: activeUser.id,
       prompt: 'Do something',
       model: 'opus',
-      credit_cost: 0,
+      credit_cost: 10,
     });
+    incrementSessionPromptCount(sessionId, 10);
 
     const res = await request(app)
       .post('/api/v1/hook/stop')
@@ -315,10 +318,15 @@ describe('POST /stop', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({});
 
-    // Check the session was incremented
+    // Credits should NOT be double-counted — still 10 from the prompt handler
     const session = getSessionById(sessionId);
     expect(session!.prompt_count).toBe(1);
-    expect(session!.total_credits).toBe(10); // opus cost
+    expect(session!.total_credits).toBe(10); // opus cost, charged once by prompt handler
+
+    // Response should be recorded on the prompt row
+    const prompts = getPromptsBySession(sessionId);
+    expect(prompts.length).toBe(1);
+    expect(prompts[0].response).toBe('Done with the task.');
   });
 });
 

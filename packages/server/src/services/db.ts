@@ -427,11 +427,12 @@ export function updateUser(
   >,
 ): UserRow | undefined {
   const database = getDb();
+  const ALLOWED_UPDATE_COLUMNS = new Set(['name', 'email', 'status', 'default_model', 'subscription_id', 'deployment_tier', 'last_event_at', 'hook_integrity_hash', 'killed_at']);
   const setClauses: string[] = [];
   const values: unknown[] = [];
 
   for (const [key, value] of Object.entries(updates)) {
-    if (value !== undefined) {
+    if (value !== undefined && ALLOWED_UPDATE_COLUMNS.has(key)) {
       setClauses.push(`${key} = ?`);
       values.push(value);
     }

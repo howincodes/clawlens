@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync } from 'node:fs';
 
-import { initDb } from './services/db.js';
+import { initDb, getDb, closeDb } from './services/db.js';
 import { initWebSocket } from './services/websocket.js';
 import { startDeadmanSwitch } from './services/deadman.js';
 import { hookAuth } from './middleware/hook-auth.js';
@@ -128,12 +128,26 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`[clawlens] Hook API:  http://localhost:${port}/api/v1/hook/`);
     console.log(`[clawlens] Admin API: http://localhost:${port}/api/admin/`);
     console.log(`[clawlens] Database:  ${dbPath}`);
+
+    if (!process.env.ADMIN_PASSWORD) {
+      console.warn('[clawlens] WARNING: Using default admin password. Set ADMIN_PASSWORD env var for production.');
+    }
+    if (!process.env.JWT_SECRET) {
+      console.warn('[clawlens] WARNING: Using default JWT secret. Set JWT_SECRET env var for production.');
+    }
   });
 
   // Graceful shutdown
-  process.on('SIGTERM', () => {
+  const shutdown = () => {
     console.log('[clawlens] Shutting down...');
     stopDeadman();
+    try {
+      getDb().pragma('wal_checkpoint(FULL)');
+    } catch {}
+    closeDb();
     server.close();
-  });
+  };
+
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }

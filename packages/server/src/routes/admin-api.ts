@@ -126,23 +126,8 @@ adminRouter.put('/team', (req: Request, res: Response) => {
 // PUT /team/password
 // ---------------------------------------------------------------------------
 
-adminRouter.put('/team/password', (req: Request, res: Response) => {
-  try {
-    const { current_password, new_password } = req.body;
-    const adminPassword = process.env.ADMIN_PASSWORD || 'admin';
-
-    if (current_password !== adminPassword) {
-      res.status(401).json({ error: 'Current password is incorrect' });
-      return;
-    }
-
-    // In a real implementation, we'd persist this. For now, just validate.
-    // The password is managed via env var ADMIN_PASSWORD.
-    res.json({ message: 'Password updated. Set ADMIN_PASSWORD env var to persist.' });
-  } catch (err) {
-    console.error('[admin-api] update password error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+adminRouter.put('/team/password', (_req: Request, res: Response) => {
+  res.status(501).json({ error: 'Not implemented. Password management via env var ADMIN_PASSWORD. Proper password storage coming in a future release.' });
 });
 
 // ---------------------------------------------------------------------------
@@ -354,6 +339,8 @@ adminRouter.delete('/users/:id', (req: Request, res: Response) => {
     const db = getDb();
 
     // Delete related data
+    db.prepare('DELETE FROM alerts WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM summaries WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM limits WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM prompts WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);

@@ -45,17 +45,16 @@ function getCreditCost(model: string | undefined): number {
   return 3; // sonnet and everything else
 }
 
-function getWindowStart(window: string): string {
-  const now = new Date();
-  if (window === 'hourly') {
-    now.setMinutes(0, 0, 0);
-  } else if (window === 'daily') {
-    now.setHours(0, 0, 0, 0);
-  } else if (window === 'monthly') {
-    now.setDate(1);
-    now.setHours(0, 0, 0, 0);
+/**
+ * Only resolve inactive alerts if user was previously inactive (>1 hour gap).
+ * Avoids hitting the DB on every single hook event.
+ */
+function maybeResolveInactiveAlerts(user: { id: string; last_event_at: string | null }): void {
+  const lastEvent = user.last_event_at ? new Date(user.last_event_at).getTime() : 0;
+  const oneHourAgo = Date.now() - 3600000;
+  if (lastEvent < oneHourAgo) {
+    autoResolveInactiveAlerts(user.id);
   }
-  return now.toISOString();
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +83,7 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
       res.json({
         continue: false,
         stopReason: 'Account suspended by admin. Contact your team lead.',
@@ -100,7 +99,7 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
       res.json({
         continue: false,
         stopReason: 'Account paused by admin. Contact your team lead.',
@@ -118,7 +117,7 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -171,7 +170,7 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
         });
       } catch { /* best-effort */ }
       touchUserLastEvent(user.id);
-      autoResolveInactiveAlerts(user.id);
+      maybeResolveInactiveAlerts(user);
       res.json({ decision: 'block', reason: 'Account suspended.' });
       return;
     }
@@ -198,8 +197,9 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
           break;
         }
       } else if (limit.type === 'per_model') {
+        if (!limit.model) continue; // skip nonsensical per_model limits without a model
         const window = limit.window as 'daily' | 'hourly' | 'monthly';
-        const limitModel = limit.model ?? model;
+        const limitModel = limit.model;
         const usage = getUserModelCreditUsage(user.id, limitModel, window);
         if (usage + creditCost > limit.value) {
           blocked = true;
@@ -235,7 +235,7 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
       broadcast({ type: 'prompt', user_id: user.id, user_name: user.name, prompt: data.prompt?.slice(0, 100), blocked: true });
       res.json({ decision: 'block', reason: blockReason });
       return;
@@ -250,9 +250,12 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
       credit_cost: creditCost,
     });
 
+    // Increment session prompt count and credits
+    incrementSessionPromptCount(data.session_id, creditCost);
+
     // Update last_event_at
     touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -291,7 +294,7 @@ hookRouter.post('/pre-tool', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
       res.json({
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
@@ -312,7 +315,7 @@ hookRouter.post('/pre-tool', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -349,38 +352,16 @@ hookRouter.post('/stop', (req: Request, res: Response) => {
     const session = getSessionById(data.session_id);
     const model = session?.model ?? user.default_model ?? 'sonnet';
 
-    // Compute credit cost
-    const creditCost = getCreditCost(model);
-
-    // Update the most recent unresponded prompt for this session,
-    // or create a new entry if none found
+    // Update the most recent unresponded prompt for this session with the response.
+    // Credit cost was already recorded by the prompt handler — do NOT re-charge here.
     const db = getDb();
-    const lastPrompt = db
-      .prepare(
-        `SELECT id FROM prompts WHERE session_id = ? AND response IS NULL ORDER BY created_at DESC LIMIT 1`,
-      )
-      .get(data.session_id) as { id: number } | undefined;
-
-    if (lastPrompt) {
-      db.prepare(
-        `UPDATE prompts SET response = ?, credit_cost = ?, model = ? WHERE id = ?`,
-      ).run(response, creditCost, model, lastPrompt.id);
-    } else {
-      recordPrompt({
-        session_id: data.session_id,
-        user_id: user.id,
-        response,
-        model,
-        credit_cost: creditCost,
-      });
-    }
-
-    // Increment session prompt count and credits
-    incrementSessionPromptCount(data.session_id, creditCost);
+    db.prepare(
+      `UPDATE prompts SET response = ?, model = ? WHERE session_id = ? AND response IS NULL ORDER BY id DESC LIMIT 1`,
+    ).run(response, model, data.session_id);
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -424,7 +405,7 @@ hookRouter.post('/stop-error', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
 
     res.json({});
   } catch (err) {
@@ -449,7 +430,7 @@ hookRouter.post('/session-end', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -489,7 +470,7 @@ hookRouter.post('/post-tool', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -527,7 +508,7 @@ hookRouter.post('/subagent-start', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -566,7 +547,7 @@ hookRouter.post('/post-tool-failure', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -616,7 +597,7 @@ hookRouter.post('/config-change', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
 
     res.json({});
   } catch (err) {
@@ -656,7 +637,7 @@ hookRouter.post('/file-changed', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    autoResolveInactiveAlerts(user.id);
+    maybeResolveInactiveAlerts(user);
 
     res.json({});
   } catch (err) {

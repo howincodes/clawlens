@@ -167,9 +167,6 @@ fi
 
 # Pass through server response (contains continue:false or {})
 [ -n "$RESP" ] && echo "$RESP"
-
-# Pass through server response (may contain overrides)
-[ -n "$RESP" ] && echo "$RESP"
 GATEOF
   chmod 755 "$GATE_SCRIPT"
   echo "  -> Gate script: $GATE_SCRIPT"

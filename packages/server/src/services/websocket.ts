@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'node:http';
+import { verifyToken } from '../middleware/admin-auth.js';
 
 let wss: WebSocketServer | null = null;
 
@@ -9,7 +10,19 @@ let wss: WebSocketServer | null = null;
 export function initWebSocket(server: Server): WebSocketServer {
   wss = new WebSocketServer({ server, path: '/ws' });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
+    const url = new URL(req.url || '', 'http://localhost');
+    const token = url.searchParams.get('token');
+    if (!token) {
+      ws.close(4001, 'Unauthorized');
+      return;
+    }
+    try {
+      verifyToken(token);
+    } catch {
+      ws.close(4001, 'Unauthorized');
+      return;
+    }
     ws.send(JSON.stringify({ type: 'connected', timestamp: new Date().toISOString() }));
   });
 
