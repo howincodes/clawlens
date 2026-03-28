@@ -214,7 +214,7 @@ adminRouter.post('/users', (req: Request, res: Response) => {
       user,
       auth_token: authToken,
       install_instructions: {
-        marketplace: 'howincodes/claude-plugins',
+        curl: `curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install.sh | bash`,
         server_url: serverUrl,
         token: authToken,
       },

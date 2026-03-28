@@ -10,8 +10,7 @@
 - TypeScript monorepo (pnpm workspaces)
 - `packages/server` — Express + better-sqlite3 + zod
 - `packages/dashboard` — React + Vite + Tailwind
-- `packages/plugin` — Claude Code plugin (hooks + scripts)
-- `scripts/` — Enforcement and deployment scripts
+- `scripts/` — Install, enforce, restore, and migration scripts
 
 ## Testing
 - Run `pnpm --filter @clawlens/server test` before every commit
@@ -21,4 +20,3 @@
 ## Spec
 - Design spec: `docs/superpowers/specs/2026-03-28-clawlens-v02-design.md`
 - Build checklist: `CHECKLIST.md`
-- Dashboard test checklist: `DASHBOARD-TEST-CHECKLIST.md`

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Rewrite ClawLens from a Go binary-dependent system to a TypeScript monorepo with plugin-based distribution, HTTP hooks, and three deployment tiers with increasing enforcement.
+Rewrite ClawLens from a Go binary-dependent system to a TypeScript monorepo with shell-script-based client distribution, HTTP hooks, and two deployment modes with increasing enforcement.
 
 ## Architecture
 
@@ -10,12 +10,12 @@ Rewrite ClawLens from a Go binary-dependent system to a TypeScript monorepo with
 Developer Machine                          ClawLens Server (VPS)
 ┌────────────────────────┐                ┌──────────────────────────┐
 │ Claude Code            │                │ Express + TypeScript     │
-│ ├── Plugin: clawlens   │   HTTP POST    │ ├── Hook API (11 routes) │
-│ │   ├── HTTP hooks ────┼───────────────►│ ├── Admin API            │
-│ │   ├── Command hooks  │                │ ├── WebSocket            │
-│ │   └── /clawlens-status               │ ├── Dead Man's Switch    │
+│ ├── settings.json      │   HTTP POST    │ ├── Hook API (11 routes) │
+│ │   └── hooks ─────────┼───────────────►│ ├── Admin API            │
+│ │                      │                │ ├── WebSocket            │
+│ │                      │                │ ├── Dead Man's Switch    │
 │ │                      │                │ ├── Claude AI Service    │
-│ └── [Tier 2/3]         │                │ └── SQLite (better-sqlite3)
+│ └── [Enforced]         │                │ └── SQLite (better-sqlite3)
 │     managed-settings.d │                │                          │
 └────────────────────────┘                │ React Dashboard (Vite)   │
                                           └──────────────────────────┘
@@ -29,7 +29,7 @@ Developer Machine                          ClawLens Server (VPS)
 - WebSocket: ws
 - Background jobs: node-cron
 - AI: `claude -p` wrapper with `--bare --json-schema` for structured output
-- Client: Claude Code plugin (HTTP hooks + command hooks)
+- Client: Shell script (install.sh registers hooks in ~/.claude/settings.json)
 - Auth: JWT (admin) + Bearer tokens (hooks)
 
 ---
@@ -63,26 +63,20 @@ clawlens/
 │   │   ├── package.json
 │   │   └── tsconfig.json
 │   │
-│   ├── dashboard/
-│   │   ├── src/                         ← existing React, updated
-│   │   └── package.json
-│   │
-│   └── plugin/
-│       ├── .claude-plugin/
-│       │   └── plugin.json
-│       ├── hooks/
-│       │   └── hooks.json
-│       ├── scripts/
-│       │   └── clawlens-hook.sh         ← command hook handler
-│       └── skills/
-│           └── clawlens-status/
-│               └── SKILL.md
+│   └── dashboard/
+│       ├── src/                         ← existing React, updated
+│       └── package.json
 │
 ├── scripts/
-│   ├── enforce.sh                       ← Tier 2/3 installer
+│   ├── install.sh                       ← client installer (registers hooks in settings.json)
+│   ├── uninstall.sh                     ← client uninstaller
+│   ├── install-server.sh                ← server installer (systemd)
+│   ├── update-server.sh                 ← server updater
+│   ├── enforce.sh                       ← enforced mode installer
 │   ├── enforce.ps1
-│   ├── restore.sh                       ← clean uninstall
-│   └── restore.ps1
+│   ├── restore.sh                       ← clean uninstall of enforced mode
+│   ├── restore.ps1
+│   └── migrate-v01.sh                   ← v0.1 to v0.2 migration
 │
 ├── pnpm-workspace.yaml
 ├── package.json
@@ -169,39 +163,29 @@ export const claude = new ClaudeAI();
 
 ---
 
-## Deployment Tiers
+## Deployment Modes
 
-### Tier 1: Standard (Plugin Only)
+### Standard (install.sh)
 
-**Install:** `claude plugin install clawlens@howincodes`
+**Install:** `bash <(curl -fsSL .../install.sh)`
 **Admin access:** None required
 **Enforcement:** Detection only (dead man's switch, integrity hash)
 **Kill switch:** Block prompts/tools via HTTP hook response
 **Best for:** Startups, trust-based teams
 
-Plugin registers 11 hooks (8 HTTP + 3 command). User enters server URL and auth token during plugin enable. Token stored in system keychain.
+install.sh registers 11 hooks in `~/.claude/settings.json`. User enters server URL and auth token during install.
 
-Users CAN disable by uninstalling plugin or `disableAllHooks: true`. Dead man's switch detects this.
+Users CAN disable by removing hooks or `disableAllHooks: true`. Dead man's switch detects this.
 
-### Tier 2: Enforced (Managed Hooks + Watchdog)
+### Enforced (enforce.sh)
 
-**Install:** Plugin + admin runs `enforce.sh` once per machine (sudo)
+**Install:** Admin runs `enforce.sh` once per machine (sudo)
 **Admin access:** One-time per machine
-**Enforcement:** `allowManagedHooksOnly: true` + watchdog daemon
-**Kill switch:** Block all + hooks cannot be disabled by user
-**Best for:** Compliance teams
+**Enforcement:** `allowManagedHooksOnly: true` + watchdog daemon + optional auth revocation on kill
+**Kill switch:** Block all + hooks cannot be disabled by user; can also revoke Claude Code auth credentials
+**Best for:** Compliance teams, enterprises
 
 Managed settings block all non-managed hooks. Watchdog auto-repairs tampering every 5 minutes.
-
-### Tier 3: Locked (Managed + Auth Revocation + Watchdog)
-
-**Install:** Admin runs `enforce.sh --tier3` once per machine (sudo)
-**Admin access:** One-time per machine
-**Enforcement:** All of Tier 2 + `claude auth logout` on kill
-**Kill switch:** Revokes Claude Code auth credentials — completely unusable
-**Best for:** High-security, enterprises
-
-Ported from claude-code-limiter's `triggerLogout()`.
 
 **Verified 2026-03-28:** `managed-settings.json`, `managed-settings.d/`, and `allowManagedHooksOnly: true` all work on Claude Max subscription (not Enterprise-gated).
 
@@ -228,7 +212,7 @@ Ported from claude-code-limiter's `triggerLogout()`.
 
 ### Command Hook Script (`clawlens-hook.sh`)
 
-Bundled at `${CLAUDE_PLUGIN_ROOT}/scripts/clawlens-hook.sh`. Used for SessionStart and FileChanged (command-only events). Environment variables `CLAUDE_PLUGIN_OPTION_SERVER_URL` and `CLAUDE_PLUGIN_OPTION_AUTH_TOKEN` are auto-exported by Claude Code from plugin `userConfig`.
+Installed at `~/.claude/hooks/clawlens-hook.sh` by install.sh. Used for SessionStart and FileChanged (command-only events). Environment variables `CLAWLENS_SERVER_URL` and `CLAWLENS_AUTH_TOKEN` are set during install.
 
 ```bash
 #!/bin/bash
@@ -244,9 +228,9 @@ esac
 
 RESP=$(curl -sf -m 5 -X POST \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $CLAUDE_PLUGIN_OPTION_AUTH_TOKEN" \
+  -H "Authorization: Bearer $CLAWLENS_AUTH_TOKEN" \
   -d "$INPUT" \
-  "$CLAUDE_PLUGIN_OPTION_SERVER_URL/api/v1/hook/$PATH_SUFFIX" 2>/dev/null)
+  "$CLAWLENS_SERVER_URL/api/v1/hook/$PATH_SUFFIX" 2>/dev/null)
 
 if [ -n "$RESP" ]; then
   echo "$RESP"
@@ -257,151 +241,17 @@ fi
 
 ---
 
-## Plugin Configuration
+## Client Configuration
 
-### plugin.json
+Plugin approach was replaced by install.sh. The install script directly writes hooks into `~/.claude/settings.json`, which is simpler and avoids plugin marketplace dependency.
 
-```json
-{
-  "name": "clawlens",
-  "version": "0.2.0",
-  "description": "AI usage analytics and team management for Claude Code teams",
-  "author": {
-    "name": "Howin Codes",
-    "url": "https://github.com/howincodes"
-  },
-  "repository": "https://github.com/howincodes/clawlens",
-  "keywords": ["analytics", "monitoring", "team-management"],
-  "userConfig": {
-    "server_url": {
-      "description": "ClawLens server URL (e.g. https://clawlens.howincloud.com)",
-      "sensitive": false
-    },
-    "auth_token": {
-      "description": "Your auth token (from admin dashboard)",
-      "sensitive": true
-    }
-  }
-}
-```
-
-### hooks/hooks.json
-
-```json
-{
-  "hooks": {
-    "SessionStart": [{
-      "hooks": [{
-        "type": "command",
-        "command": "${CLAUDE_PLUGIN_ROOT}/scripts/clawlens-hook.sh",
-        "timeout": 5
-      }]
-    }],
-    "UserPromptSubmit": [{
-      "hooks": [{
-        "type": "http",
-        "url": "${user_config.server_url}/api/v1/hook/prompt",
-        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
-        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
-        "timeout": 5
-      }]
-    }],
-    "PreToolUse": [{
-      "hooks": [{
-        "type": "http",
-        "url": "${user_config.server_url}/api/v1/hook/pre-tool",
-        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
-        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
-        "timeout": 2
-      }]
-    }],
-    "Stop": [{
-      "hooks": [{
-        "type": "http",
-        "url": "${user_config.server_url}/api/v1/hook/stop",
-        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
-        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
-        "timeout": 5
-      }]
-    }],
-    "StopFailure": [{
-      "hooks": [{
-        "type": "http",
-        "url": "${user_config.server_url}/api/v1/hook/stop-error",
-        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
-        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
-        "timeout": 2,
-        "async": true
-      }]
-    }],
-    "SessionEnd": [{
-      "hooks": [{
-        "type": "http",
-        "url": "${user_config.server_url}/api/v1/hook/session-end",
-        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
-        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
-        "timeout": 3,
-        "async": true
-      }]
-    }],
-    "PostToolUse": [{
-      "hooks": [{
-        "type": "http",
-        "url": "${user_config.server_url}/api/v1/hook/post-tool",
-        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
-        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
-        "timeout": 3,
-        "async": true
-      }]
-    }],
-    "SubagentStart": [{
-      "hooks": [{
-        "type": "http",
-        "url": "${user_config.server_url}/api/v1/hook/subagent-start",
-        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
-        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
-        "timeout": 2,
-        "async": true
-      }]
-    }],
-    "PostToolUseFailure": [{
-      "hooks": [{
-        "type": "http",
-        "url": "${user_config.server_url}/api/v1/hook/post-tool-failure",
-        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
-        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
-        "timeout": 2,
-        "async": true
-      }]
-    }],
-    "ConfigChange": [{
-      "hooks": [{
-        "type": "http",
-        "url": "${user_config.server_url}/api/v1/hook/config-change",
-        "headers": {"Authorization": "Bearer ${user_config.auth_token}"},
-        "allowedEnvVars": ["CLAUDE_PLUGIN_OPTION_AUTH_TOKEN"],
-        "timeout": 3
-      }]
-    }],
-    "FileChanged": [{
-      "matcher": "settings.json",
-      "hooks": [{
-        "type": "command",
-        "command": "${CLAUDE_PLUGIN_ROOT}/scripts/clawlens-hook.sh",
-        "timeout": 3
-      }]
-    }]
-  }
-}
-```
-
-**Note:** `${user_config.*}` substitution in HTTP hook URLs/headers needs verification via marketplace install. Fallback: use `$CLAUDE_PLUGIN_OPTION_SERVER_URL` env var (auto-exported by Claude Code from userConfig).
+Hooks are registered as HTTP hooks pointing to the server URL with the auth token in headers. SessionStart and FileChanged use command hooks (calling `~/.claude/hooks/clawlens-hook.sh`) since those events only support `type: "command"` in Claude Code.
 
 ---
 
 ## Installation Flows
 
-### Tier 1: Developer Install
+### Standard: Developer Install
 
 **Admin creates user:**
 1. Dashboard → Users → Add User → enters name, email, subscription
@@ -409,35 +259,24 @@ fi
 3. Dashboard shows install instructions with token (shown once)
 
 **Developer installs:**
-```
-Step 1: Add marketplace (one-time)
-  claude /plugin marketplace add --source github --repo howincodes/claude-plugins
-
-Step 2: Install plugin
-  claude plugin install clawlens
-
-Step 3: Enter credentials when prompted
-  Server URL: https://clawlens.howincloud.com
-  Auth Token: clwt_krishna_a8f3k2m9x7
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install.sh)
+# Prompts for server URL and auth token interactively
 ```
 
-### Tier 2/3: Admin Enforces
+### Enforced: Admin Enforces
 
 ```bash
-# Tier 2 (managed hooks + watchdog)
 curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/enforce.sh | sudo bash
-
-# Tier 3 (+ auth revocation on kill)
-curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/enforce.sh | sudo bash -s -- --tier3
 ```
 
 ### Uninstall / Restore
 
 ```bash
-# Tier 1
-claude plugin uninstall clawlens
+# Standard
+bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/uninstall.sh)
 
-# Tier 2/3
+# Enforced
 curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/restore.sh | sudo bash
 ```
 
@@ -482,11 +321,10 @@ Dashboard shows user status: Active / Inactive / Tampered / Killed / Paused with
 
 ## Kill Switch
 
-| Tier | Mechanism | Bypassable? |
+| Mode | Mechanism | Bypassable? |
 |---|---|---|
-| 1 | HTTP response: `continue: false` + `decision: block` + `permissionDecision: deny` | Yes (remove plugin) |
-| 2 | Same as 1, but managed hooks can't be removed | No (without admin access) |
-| 3 | Same as 2, plus `claude auth logout` revokes credentials | No (Claude Code completely dead) |
+| Standard | HTTP response: `continue: false` + `decision: block` + `permissionDecision: deny` | Yes (remove hooks from settings.json) |
+| Enforced | Same as Standard, but managed hooks can't be removed; optional auth revocation | No (without admin access) |
 
 ---
 
@@ -562,32 +400,29 @@ Existing tables (users, sessions, prompts, subscriptions, limits, alerts, teams)
 - All `scripts/` except enforce/restore (install-client.sh, install-client.ps1, update-*, Dockerfile.*, simulate.sh, test-client.sh, setup-container.sh, entrypoint.sh, reset-windows.ps1, install.sh)
 
 **Scripts to keep:**
+- `scripts/install.sh` — client installer
+- `scripts/uninstall.sh` — client uninstaller
 - `scripts/install-server.sh` — updated for Node.js server
 - `scripts/update-server.sh` — updated
-- `scripts/enforce.sh` — new (Tier 2/3)
-- `scripts/enforce.ps1` — new
-- `scripts/restore.sh` — new
-- `scripts/restore.ps1` — new
+- `scripts/enforce.sh` — enforced mode installer
+- `scripts/enforce.ps1` — Windows equivalent
+- `scripts/restore.sh` — clean removal
+- `scripts/restore.ps1` — Windows clean removal
+- `scripts/migrate-v01.sh` — v0.1 to v0.2 migration
 
 ---
 
 ## Risks and Mitigations
 
-### `${user_config.*}` substitution in HTTP hook URLs
-
-Documented for "hook commands" and "MCP/LSP configs" but not explicitly for HTTP URLs. `--plugin-dir` skips userConfig so couldn't test locally.
-
-**Mitigation:** Test via marketplace install early. Fallback: env var `$CLAUDE_PLUGIN_OPTION_SERVER_URL`.
-
 ### SessionStart/FileChanged are command-only
 
-**Confirmed 2026-03-28.** Plugin bundles `clawlens-hook.sh` using curl.
+**Confirmed 2026-03-28.** install.sh installs `clawlens-hook.sh` using curl for these events.
 
 ### HTTP hooks fail-open offline
 
 Claude Code allows all actions when hooks timeout.
 
-**Mitigation:** Dead man's switch detects offline abuse. Tier 3 gate script can fail-closed.
+**Mitigation:** Dead man's switch detects offline abuse. Enforced mode gate script can fail-closed.
 
 ### `claude -p --json-schema` availability
 

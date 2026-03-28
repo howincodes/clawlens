@@ -209,7 +209,7 @@ describe('POST /api/admin/users', () => {
     expect(res.body.auth_token).toBeDefined();
     expect(res.body.auth_token).toMatch(/^clwt_charlie_/);
     expect(res.body.install_instructions).toBeDefined();
-    expect(res.body.install_instructions.marketplace).toBe('howincodes/claude-plugins');
+    expect(res.body.install_instructions.curl).toContain('install.sh');
     expect(res.body.install_instructions.token).toBe(res.body.auth_token);
   });
 
