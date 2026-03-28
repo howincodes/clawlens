@@ -73,19 +73,17 @@ cat > "$HOOK_SCRIPT" << 'HOOKEOF'
 # Reads hook JSON from stdin, POSTs to ClawLens server, outputs response.
 # Response may contain blocking decisions (continue:false, decision:block, etc.)
 
-INPUT=$(cat)
+# Save stdin to temp file (avoids shell escaping issues with large JSON)
+TMPFILE=$(mktemp 2>/dev/null || echo "/tmp/clawlens-hook-$$")
+cat > "$TMPFILE"
 
 # Extract event name — try jq, node, then grep fallback
-# Note: python3/python are intentionally skipped because on Windows the
-# Microsoft Store stubs pass `command -v` but fail at runtime, which
-# prevents fallthrough to the grep fallback.
 if command -v jq >/dev/null 2>&1; then
-  EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // ""')
+  EVENT=$(jq -r '.hook_event_name // ""' < "$TMPFILE")
 elif command -v node >/dev/null 2>&1; then
-  EVENT=$(echo "$INPUT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).hook_event_name||'')}catch{console.log('')}})")
+  EVENT=$(node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).hook_event_name||'')}catch{console.log('')}})" < "$TMPFILE")
 else
-  # Pure grep fallback — works everywhere including Windows Git Bash
-  EVENT=$(echo "$INPUT" | grep -o '"hook_event_name":"[^"]*"' | head -1 | cut -d'"' -f4)
+  EVENT=$(grep -o '"hook_event_name":"[^"]*"' "$TMPFILE" | head -1 | cut -d'"' -f4)
 fi
 
 # Map event names to API path suffixes
@@ -119,11 +117,13 @@ if [ -z "$SERVER_URL" ] || [ -z "$AUTH_TOKEN" ]; then
 fi
 
 # POST to server and output response
-RESP=$(curl -sf -m 5 -X POST \
+RESP=$(curl -sf -m 3 -X POST \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
-  -d "$INPUT" \
+  -d @"$TMPFILE" \
   "${SERVER_URL}/api/v1/hook/${PATH_SUFFIX}" 2>/dev/null)
+
+rm -f "$TMPFILE"
 
 if [ -n "$RESP" ]; then
   echo "$RESP"

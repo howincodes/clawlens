@@ -22,19 +22,20 @@ New-Item -ItemType Directory -Path $HooksDir -Force | Out-Null
 
 $HookScript = @'
 #!/bin/bash
-INPUT=$(cat)
+TMPFILE=$(mktemp 2>/dev/null || echo "/tmp/clawlens-hook-$$")
+cat > "$TMPFILE"
 SERVER_URL="${CLAUDE_PLUGIN_OPTION_SERVER_URL}"
 AUTH_TOKEN="${CLAUDE_PLUGIN_OPTION_AUTH_TOKEN}"
 if [ -z "$SERVER_URL" ] || [ -z "$AUTH_TOKEN" ]; then
   SERVER_URL="${CLAWLENS_SERVER}"; AUTH_TOKEN="${CLAWLENS_TOKEN}"
 fi
-if [ -z "$SERVER_URL" ] || [ -z "$AUTH_TOKEN" ]; then exit 0; fi
+if [ -z "$SERVER_URL" ] || [ -z "$AUTH_TOKEN" ]; then rm -f "$TMPFILE"; exit 0; fi
 if command -v jq >/dev/null 2>&1; then
-  EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // ""')
+  EVENT=$(jq -r '.hook_event_name // ""' < "$TMPFILE")
 elif command -v node >/dev/null 2>&1; then
-  EVENT=$(echo "$INPUT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).hook_event_name||'')}catch{console.log('')}})")
+  EVENT=$(node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).hook_event_name||'')}catch{console.log('')}})" < "$TMPFILE")
 else
-  EVENT=$(echo "$INPUT" | grep -o '"hook_event_name":"[^"]*"' | head -1 | cut -d'"' -f4)
+  EVENT=$(grep -o '"hook_event_name":"[^"]*"' "$TMPFILE" | head -1 | cut -d'"' -f4)
 fi
 case "$EVENT" in
   SessionStart)       P="session-start" ;;
@@ -48,9 +49,10 @@ case "$EVENT" in
   PostToolUseFailure) P="post-tool-failure" ;;
   ConfigChange)       P="config-change" ;;
   FileChanged)        P="file-changed" ;;
-  *)                  exit 0 ;;
+  *)                  rm -f "$TMPFILE"; exit 0 ;;
 esac
-RESP=$(curl -sf -m 3 -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $AUTH_TOKEN" -d "$INPUT" "$SERVER_URL/api/v1/hook/$P" 2>/dev/null)
+RESP=$(curl -sf -m 3 -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $AUTH_TOKEN" -d @"$TMPFILE" "$SERVER_URL/api/v1/hook/$P" 2>/dev/null)
+rm -f "$TMPFILE"
 [ -n "$RESP" ] && echo "$RESP"
 '@
 
