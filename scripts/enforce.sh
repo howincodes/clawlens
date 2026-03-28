@@ -144,8 +144,8 @@ if [ "$TIER" = "tier3" ]; then
 #!/bin/bash
 # ClawLens Tier 3 gate — blocks killed/paused users at session start
 INPUT=$(cat)
-SERVER_URL="${CLAWLENS_SERVER}"
-AUTH_TOKEN="${CLAWLENS_TOKEN}"
+SERVER_URL="${CLAWLENS_SERVER:-${CLAUDE_PLUGIN_OPTION_SERVER_URL}}"
+AUTH_TOKEN="${CLAWLENS_TOKEN:-${CLAUDE_PLUGIN_OPTION_AUTH_TOKEN}}"
 
 # Fail open if env vars missing
 if [ -z "$SERVER_URL" ] || [ -z "$AUTH_TOKEN" ]; then
@@ -159,28 +159,14 @@ RESP=$(curl -sf -m 5 \
   -d "$INPUT" \
   "$SERVER_URL/api/v1/hook/session-start" 2>/dev/null) || exit 0
 
-# Parse user_status from response
-STATUS=$(echo "$RESP" | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    print(data.get('user_status', 'active'))
-except Exception:
-    print('active')
-" 2>/dev/null)
+# Check if server blocked the session (killed/paused)
+if echo "$RESP" | grep -q '"continue".*false'; then
+  # Tier 3: revoke Claude Code auth credentials
+  claude auth logout >/dev/null 2>&1 &
+fi
 
-case "$STATUS" in
-  killed)
-    # Revoke auth in background, then block session
-    claude auth logout >/dev/null 2>&1 &
-    echo '{"continue": false, "stopReason": "Access revoked by admin. Contact your team lead."}'
-    exit 0
-    ;;
-  paused)
-    echo '{"continue": false, "stopReason": "Access paused by admin. Contact your team lead."}'
-    exit 0
-    ;;
-esac
+# Pass through server response (contains continue:false or {})
+[ -n "$RESP" ] && echo "$RESP"
 
 # Pass through server response (may contain overrides)
 [ -n "$RESP" ] && echo "$RESP"
@@ -193,38 +179,35 @@ else
   HOOK_SCRIPT="$GATE_DIR/clawlens-hook.sh"
   cat > "$HOOK_SCRIPT" << 'HOOKEOF'
 #!/bin/bash
-# ClawLens Tier 2 command hook — forwards events that need local context
+# ClawLens hook handler — universal for ALL hook events
 INPUT=$(cat)
-SERVER_URL="${CLAWLENS_SERVER}"
-AUTH_TOKEN="${CLAWLENS_TOKEN}"
-
-# Fail open if env vars missing
-if [ -z "$SERVER_URL" ] || [ -z "$AUTH_TOKEN" ]; then
-  exit 0
+SERVER_URL="${CLAWLENS_SERVER:-${CLAUDE_PLUGIN_OPTION_SERVER_URL}}"
+AUTH_TOKEN="${CLAWLENS_TOKEN:-${CLAUDE_PLUGIN_OPTION_AUTH_TOKEN}}"
+if [ -z "$SERVER_URL" ] || [ -z "$AUTH_TOKEN" ]; then exit 0; fi
+if command -v jq >/dev/null 2>&1; then
+  EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // ""')
+elif command -v node >/dev/null 2>&1; then
+  EVENT=$(echo "$INPUT" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).hook_event_name||'')}catch{console.log('')}})")
+elif command -v python3 >/dev/null 2>&1; then
+  EVENT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('hook_event_name',''))" 2>/dev/null)
+else
+  EVENT=""
 fi
-
-# Determine which event this is
-EVENT=$(echo "$INPUT" | python3 -c "
-import sys, json
-try:
-    print(json.load(sys.stdin).get('hook_event_name', ''))
-except Exception:
-    print('')
-" 2>/dev/null)
-
 case "$EVENT" in
-  SessionStart) PATH_SUFFIX="session-start" ;;
-  FileChanged)  PATH_SUFFIX="file-changed" ;;
-  *)            PATH_SUFFIX="unknown" ;;
+  SessionStart)       PATH_SUFFIX="session-start" ;;
+  UserPromptSubmit)   PATH_SUFFIX="prompt" ;;
+  PreToolUse)         PATH_SUFFIX="pre-tool" ;;
+  Stop)               PATH_SUFFIX="stop" ;;
+  StopFailure)        PATH_SUFFIX="stop-error" ;;
+  SessionEnd)         PATH_SUFFIX="session-end" ;;
+  PostToolUse)        PATH_SUFFIX="post-tool" ;;
+  SubagentStart)      PATH_SUFFIX="subagent-start" ;;
+  PostToolUseFailure) PATH_SUFFIX="post-tool-failure" ;;
+  ConfigChange)       PATH_SUFFIX="config-change" ;;
+  FileChanged)        PATH_SUFFIX="file-changed" ;;
+  *)                  exit 0 ;;
 esac
-
-RESP=$(curl -sf -m 5 \
-  -X POST \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -d "$INPUT" \
-  "$SERVER_URL/api/v1/hook/$PATH_SUFFIX" 2>/dev/null) || exit 0
-
+RESP=$(curl -sf -m 5 -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $AUTH_TOKEN" -d "$INPUT" "$SERVER_URL/api/v1/hook/$PATH_SUFFIX" 2>/dev/null)
 [ -n "$RESP" ] && echo "$RESP"
 HOOKEOF
   chmod 755 "$HOOK_SCRIPT"
