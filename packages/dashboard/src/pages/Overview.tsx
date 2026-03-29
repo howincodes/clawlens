@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { getUsers, getSubscriptions, getAnalytics, getLeaderboard, updateUser } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -184,13 +184,28 @@ export function Overview() {
     return () => clearInterval(interval)
   }, [loadData])
 
-  // Refresh on relevant WS events
-  useWSEvent('prompt_submitted', loadData)
-  useWSEvent('turn_completed', loadData)
-  useWSEvent('session_started', loadData)
-  useWSEvent('session_ended', loadData)
-  useWSEvent('user_killed', loadData)
-  useWSEvent('user_paused', loadData)
+  // Debounced refresh on WS events — coalesce rapid bursts into a single loadData() call
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const debouncedLoadData = useCallback(() => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current)
+    debounceTimer.current = setTimeout(() => {
+      loadData()
+    }, 500)
+  }, [loadData])
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current)
+    }
+  }, [])
+
+  // Refresh on relevant WS events (debounced)
+  useWSEvent('prompt_submitted', debouncedLoadData)
+  useWSEvent('turn_completed', debouncedLoadData)
+  useWSEvent('session_started', debouncedLoadData)
+  useWSEvent('session_ended', debouncedLoadData)
+  useWSEvent('user_killed', debouncedLoadData)
+  useWSEvent('user_paused', debouncedLoadData)
 
   const handleQuickAction = useCallback(
     async (user: any, action: 'killed' | 'paused' | 'active') => {

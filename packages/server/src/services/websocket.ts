@@ -4,6 +4,11 @@ import { verifyToken } from '../middleware/admin-auth.js';
 
 let wss: WebSocketServer | null = null;
 
+// Ping interval to keep connections alive (30 seconds).
+// Clients that don't respond within one interval are terminated.
+const PING_INTERVAL_MS = 30_000;
+let pingTimer: ReturnType<typeof setInterval> | null = null;
+
 /**
  * Initialize WebSocket server attached to the HTTP server.
  */
@@ -23,7 +28,36 @@ export function initWebSocket(server: Server): WebSocketServer {
       ws.close(4001, 'Unauthorized');
       return;
     }
+
+    // Mark connection as alive for ping/pong tracking
+    (ws as any).isAlive = true;
+
+    ws.on('pong', () => {
+      (ws as any).isAlive = true;
+    });
+
     ws.send(JSON.stringify({ type: 'connected', timestamp: new Date().toISOString() }));
+  });
+
+  // Ping all connected clients periodically to keep connections alive
+  // and detect broken connections (proxies, load balancers, idle timeouts).
+  pingTimer = setInterval(() => {
+    if (!wss) return;
+    wss.clients.forEach((ws) => {
+      if ((ws as any).isAlive === false) {
+        ws.terminate();
+        return;
+      }
+      (ws as any).isAlive = false;
+      ws.ping();
+    });
+  }, PING_INTERVAL_MS);
+
+  wss.on('close', () => {
+    if (pingTimer) {
+      clearInterval(pingTimer);
+      pingTimer = null;
+    }
   });
 
   return wss;

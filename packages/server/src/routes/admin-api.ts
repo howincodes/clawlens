@@ -30,6 +30,17 @@ import { getUserTamperStatus, autoResolveInactiveAlerts } from '../services/tamp
 import { generateSummary, isClaudeAvailable } from '../services/claude-ai.js';
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Consider a watcher "recently active" if it sent an event within the last 10 minutes. */
+function isWatcherRecentlyActive(user: { last_event_at?: string | null }): boolean {
+  if (!user.last_event_at) return false;
+  const lastEvent = new Date(user.last_event_at).getTime();
+  return Date.now() - lastEvent < 600_000; // 10 minutes
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
@@ -174,7 +185,7 @@ adminRouter.get('/users', (_req: Request, res: Response) => {
         session_count: sessionStats.session_count,
         top_model: topModelResult?.model || user.default_model || null,
         last_active: user.last_event_at,
-        watcher_connected: isWatcherConnected(user.id),
+        watcher_connected: isWatcherConnected(user.id) || isWatcherRecentlyActive(user),
       };
     });
 
@@ -273,6 +284,7 @@ adminRouter.get('/users/:id', (req: Request, res: Response) => {
       prompt_count: stats.prompt_count,
       total_credits: stats.total_credits,
       session_count: sessions.length,
+      watcher_connected: isWatcherConnected(user.id) || isWatcherRecentlyActive(user),
     });
   } catch (err) {
     console.error('[admin-api] get user error:', err);
@@ -939,7 +951,9 @@ adminRouter.get('/users/:id/watcher/status', (req: Request, res: Response) => {
     if (!user) { res.status(404).json({ error: 'User not found' }); return; }
 
     res.json({
-      connected: isWatcherConnected(user.id),
+      connected: isWatcherConnected(user.id) || isWatcherRecentlyActive(user),
+      ws_connected: isWatcherConnected(user.id),
+      recently_active: isWatcherRecentlyActive(user),
       last_event_at: user.last_event_at,
     });
   } catch (err) {
