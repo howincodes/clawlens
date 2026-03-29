@@ -83,7 +83,8 @@ INSTALL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd
 if [ -f "$INSTALL_SCRIPT_DIR/../client/clawlens.mjs" ]; then
   cp "$INSTALL_SCRIPT_DIR/../client/clawlens.mjs" "$MJS_FILE"
 else
-  curl -fsSL "https://raw.githubusercontent.com/howincodes/clawlens/main/client/clawlens.mjs" -o "$MJS_FILE" || \
+  CACHE_BUST="$(date +%s)"
+  curl -fsSL "https://raw.githubusercontent.com/howincodes/clawlens/main/client/clawlens.mjs?v=$CACHE_BUST" -H "Cache-Control: no-cache" -o "$MJS_FILE" || \
     { echo "  ERROR: Could not download clawlens.mjs"; exit 1; }
 fi
 
@@ -95,7 +96,8 @@ WATCHER_FILE="$HOOK_DIR/clawlens-watcher.mjs"
 if [ -f "$INSTALL_SCRIPT_DIR/../client/clawlens-watcher.mjs" ]; then
   cp "$INSTALL_SCRIPT_DIR/../client/clawlens-watcher.mjs" "$WATCHER_FILE"
 else
-  curl -fsSL "https://raw.githubusercontent.com/howincodes/clawlens/main/client/clawlens-watcher.mjs" -o "$WATCHER_FILE" || \
+  CACHE_BUST="$(date +%s)"
+  curl -fsSL "https://raw.githubusercontent.com/howincodes/clawlens/main/client/clawlens-watcher.mjs?v=$CACHE_BUST" -H "Cache-Control: no-cache" -o "$WATCHER_FILE" || \
     { echo "  ERROR: Could not download clawlens-watcher.mjs"; exit 1; }
 fi
 chmod 644 "$WATCHER_FILE"

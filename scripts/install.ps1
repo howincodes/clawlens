@@ -56,9 +56,10 @@ New-Item -ItemType Directory -Path $HooksDir -Force | Out-Null
 
 # Download the Node.js hook handler (zero dependencies, Node 18+)
 $MjsPath = Join-Path $HooksDir "clawlens.mjs"
-$MjsUrl = "https://raw.githubusercontent.com/howincodes/clawlens/main/client/clawlens.mjs"
+$CacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$MjsUrl = "https://raw.githubusercontent.com/howincodes/clawlens/main/client/clawlens.mjs?v=$CacheBust"
 try {
-    Invoke-WebRequest -Uri $MjsUrl -OutFile $MjsPath -UseBasicParsing
+    Invoke-WebRequest -Uri $MjsUrl -OutFile $MjsPath -UseBasicParsing -Headers @{"Cache-Control"="no-cache"}
 } catch {
     Write-Host "  ERROR: Could not download clawlens.mjs from $MjsUrl"
     exit 1
@@ -66,7 +67,7 @@ try {
 Write-Host "  -> $MjsPath"
 
 # Install watcher
-$WatcherUrl = "https://raw.githubusercontent.com/howincodes/clawlens/main/client/clawlens-watcher.mjs"
+$WatcherUrl = "https://raw.githubusercontent.com/howincodes/clawlens/main/client/clawlens-watcher.mjs?v=$CacheBust"
 $WatcherPath = Join-Path $HooksDir "clawlens-watcher.mjs"
 try {
     Invoke-WebRequest -Uri $WatcherUrl -OutFile $WatcherPath -UseBasicParsing

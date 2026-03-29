@@ -8,6 +8,7 @@ import {
   getPendingWatcherCommands,
   markWatcherCommandDelivered,
   saveWatcherLogs,
+  createSubscription,
 } from '../services/db.js';
 
 // ---------------------------------------------------------------------------
@@ -56,9 +57,28 @@ watcherRouter.post('/sync', (req: Request, res: Response) => {
       debug(`will update default_model to "${body.model}"`);
     }
 
-    if (body.subscription_email && (!user.email || user.email === '')) {
-      userUpdates.email = body.subscription_email;
-      debug(`will update email to "${body.subscription_email}"`);
+    if (body.subscription_email) {
+      if (!user.email || user.email === '') {
+        userUpdates.email = body.subscription_email;
+        debug(`will update email to "${body.subscription_email}"`);
+      }
+
+      // Update subscription from watcher (watcher runs claude auth status with fresh data)
+      if (body.subscription_type) {
+        const lower = String(body.subscription_type).toLowerCase();
+        const subType = lower.includes('max') ? 'max' : 'pro';
+        debug(`watcher subscription update: raw=${body.subscription_type}, normalized=${subType}`);
+        try {
+          const sub = createSubscription({
+            email: body.subscription_email,
+            subscription_type: subType,
+          });
+          if (sub && !user.subscription_id) {
+            updateUser(user.id, { subscription_id: String(sub.id) });
+            debug(`linked subscription ${sub.id} to user`);
+          }
+        } catch (e: any) { debug(`subscription update failed: ${e.message}`); }
+      }
     }
 
     if (Object.keys(userUpdates).length > 0) {
