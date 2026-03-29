@@ -7,9 +7,12 @@ import { existsSync, mkdirSync } from 'node:fs';
 
 import { initDb, getDb, closeDb } from './services/db.js';
 import { initWebSocket } from './services/websocket.js';
+import { initWatcherWebSocket } from './services/watcher-ws.js';
+import { startDeadmanSwitch } from './services/deadman.js';
 import { hookAuth } from './middleware/hook-auth.js';
 import { adminRouter } from './routes/admin-api.js';
 import { hookRouter } from './routes/hook-api.js';
+import { watcherRouter } from './routes/watcher-api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -52,6 +55,7 @@ app.get('/api/v1/health', (_req, res) => {
 // ---------------------------------------------------------------------------
 
 app.use('/api/v1/hook', hookAuth, hookRouter);
+app.use('/api/v1/watcher', hookAuth, watcherRouter);
 
 // ---------------------------------------------------------------------------
 // Admin API routes (React dashboard endpoints)
@@ -117,6 +121,9 @@ if (process.env.NODE_ENV !== 'test') {
 
   const server = createServer(app);
   initWebSocket(server);
+  initWatcherWebSocket(server);
+
+  let stopDeadman: (() => void) | undefined;
 
   server.listen(port, () => {
     console.log(`[clawlens] Server running on port ${port}`);
@@ -131,11 +138,17 @@ if (process.env.NODE_ENV !== 'test') {
     if (!process.env.JWT_SECRET) {
       console.log('[clawlens] JWT secret auto-generated (sessions reset on restart)');
     }
+
+    stopDeadman = startDeadmanSwitch();
+    console.log('[clawlens] Dead man\'s switch started');
   });
 
   // Graceful shutdown
   const shutdown = () => {
     console.log('[clawlens] Shutting down...');
+    if (stopDeadman) {
+      stopDeadman();
+    }
     try {
       getDb().pragma('wal_checkpoint(FULL)');
     } catch {}

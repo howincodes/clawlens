@@ -20,7 +20,11 @@ import {
   type UserRow,
   getUnresolvedTamperAlerts,
   resolveTamperAlert,
+  createWatcherCommand,
+  markWatcherCommandDelivered,
+  getLatestWatcherLogs,
 } from '../services/db.js';
+import { sendToWatcher, isWatcherConnected } from '../services/watcher-ws.js';
 import { adminAuth, generateToken } from '../middleware/admin-auth.js';
 import { getUserTamperStatus, autoResolveInactiveAlerts } from '../services/tamper.js';
 import { generateSummary, isClaudeAvailable } from '../services/claude-ai.js';
@@ -170,6 +174,7 @@ adminRouter.get('/users', (_req: Request, res: Response) => {
         session_count: sessionStats.session_count,
         top_model: topModelResult?.model || user.default_model || null,
         last_active: user.last_event_at,
+        watcher_connected: isWatcherConnected(user.id),
       };
     });
 
@@ -875,6 +880,70 @@ adminRouter.post('/tamper-alerts/:id/resolve', (req: Request, res: Response) => 
     res.json({ status: 'resolved' });
   } catch (err) {
     console.error('[admin-api] resolve tamper alert error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /users/:id/watcher/command — Queue a command for the user's watcher
+// ---------------------------------------------------------------------------
+
+adminRouter.post('/users/:id/watcher/command', (req: Request, res: Response) => {
+  try {
+    const user = getUserById(req.params.id);
+    if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+    const { command, message } = req.body;
+    if (!command) { res.status(400).json({ error: 'command required' }); return; }
+
+    const payload = message ? JSON.stringify({ message }) : undefined;
+    const cmd = createWatcherCommand({ user_id: user.id, command, payload });
+
+    // Try instant delivery via WebSocket
+    const delivered = sendToWatcher(user.id, command, message ? { message } : undefined);
+    if (delivered) {
+      markWatcherCommandDelivered(cmd.id);
+    }
+
+    res.json({ id: cmd.id, delivered, status: delivered ? 'delivered' : 'queued' });
+  } catch (err) {
+    console.error('[admin-api] watcher command error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /users/:id/watcher/logs — View most recent uploaded logs
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/users/:id/watcher/logs', (req: Request, res: Response) => {
+  try {
+    const user = getUserById(req.params.id);
+    if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+    const logs = getLatestWatcherLogs(user.id);
+    res.json({ data: logs || null });
+  } catch (err) {
+    console.error('[admin-api] watcher logs error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /users/:id/watcher/status — Watcher connection status
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/users/:id/watcher/status', (req: Request, res: Response) => {
+  try {
+    const user = getUserById(req.params.id);
+    if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+    res.json({
+      connected: isWatcherConnected(user.id),
+      last_event_at: user.last_event_at,
+    });
+  } catch (err) {
+    console.error('[admin-api] watcher status error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

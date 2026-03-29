@@ -49,7 +49,7 @@ if (-not $AuthToken) { Write-Host "  Error: Auth token required"; exit 1 }
 # ── Step 1: Install hook handler ────────────────────────────────────────────
 
 Write-Host ""
-Write-Host "[1/3] Installing hook handler..."
+Write-Host "[1/4] Installing hook handler..."
 
 $HooksDir = Join-Path $env:USERPROFILE ".claude\hooks"
 New-Item -ItemType Directory -Path $HooksDir -Force | Out-Null
@@ -65,6 +65,17 @@ try {
 }
 Write-Host "  -> $MjsPath"
 
+# Install watcher
+$WatcherUrl = "https://raw.githubusercontent.com/howincodes/clawlens/main/client/clawlens-watcher.mjs"
+$WatcherPath = Join-Path $HooksDir "clawlens-watcher.mjs"
+try {
+    Invoke-WebRequest -Uri $WatcherUrl -OutFile $WatcherPath -UseBasicParsing
+} catch {
+    Write-Host "  ERROR: Could not download clawlens-watcher.mjs"
+    exit 1
+}
+Write-Host "  -> $WatcherPath (watcher)"
+
 # Write the thin bash wrapper (Claude Code runs hooks via bash even on Windows)
 $HookScript = @'
 #!/bin/bash
@@ -79,7 +90,7 @@ Write-Host "  -> $HookPath"
 
 # ── Step 2: Configure hooks in settings.json ─────────────────────────────────
 
-Write-Host "[2/3] Configuring hooks..."
+Write-Host "[2/4] Configuring hooks..."
 
 $ClaudeDir = Join-Path $env:USERPROFILE ".claude"
 $SettingsPath = Join-Path $ClaudeDir "settings.json"
@@ -147,13 +158,29 @@ Write-Host "  -> $SettingsPath"
 
 # ── Step 3: Verify ───────────────────────────────────────────────────────────
 
-Write-Host "[3/3] Verifying..."
+Write-Host "[3/4] Verifying..."
 try {
     Invoke-RestMethod -Uri "$ServerUrl/health" -TimeoutSec 5 | Out-Null
     Write-Host "  -> Server: OK"
 } catch {
     Write-Host "  -> Server: UNREACHABLE (check URL)"
 }
+
+# ── Step 4: Setup watcher auto-start ────────────────────────────────────────
+
+Write-Host "[4/4] Setting up watcher auto-start..."
+
+# Setup auto-start via Startup folder
+$StartupDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
+$VbsPath = Join-Path $StartupDir "clawlens-watcher.vbs"
+$NodePath = (Get-Command node).Source
+$VbsContent = "Set WshShell = CreateObject(""WScript.Shell"")`nWshShell.Run """"""$NodePath"""""" """"$WatcherPath"""""" "", 0, False"
+[System.IO.File]::WriteAllText($VbsPath, $VbsContent, [System.Text.UTF8Encoding]::new($false))
+Write-Host "  -> Windows startup: $VbsPath"
+
+# Start watcher now
+Start-Process -FilePath $NodePath -ArgumentList $WatcherPath -WindowStyle Hidden
+Write-Host "  -> Watcher started"
 
 Write-Host ""
 Write-Host "  ============================="
@@ -162,6 +189,7 @@ Write-Host "  ============================="
 Write-Host ""
 Write-Host "  Hook handler: $MjsPath"
 Write-Host "  Hook wrapper: $HookPath"
+Write-Host "  Watcher:      $WatcherPath"
 Write-Host "  Settings:     $SettingsPath"
 Write-Host "  Server:       $ServerUrl"
 Write-Host ""

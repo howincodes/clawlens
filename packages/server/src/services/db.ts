@@ -186,6 +186,26 @@ function runMigrations(database: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Watcher commands (admin → client commands queue)
+    CREATE TABLE IF NOT EXISTS watcher_commands (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      command TEXT NOT NULL,
+      payload TEXT,
+      status TEXT DEFAULT 'pending',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT
+    );
+
+    -- Watcher logs (client → server log uploads)
+    CREATE TABLE IF NOT EXISTS watcher_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      hook_log TEXT,
+      watcher_log TEXT,
+      uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_users_token ON users(auth_token);
     CREATE INDEX IF NOT EXISTS idx_users_team ON users(team_id);
@@ -196,6 +216,7 @@ function runMigrations(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_hook_events_user ON hook_events(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_tool_events_user ON tool_events(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_tamper_alerts_user ON tamper_alerts(user_id);
+    CREATE INDEX IF NOT EXISTS idx_watcher_commands_user ON watcher_commands(user_id, status);
   `);
 }
 
@@ -935,4 +956,73 @@ export function createSubscription(params: {
     params.subscription_type ?? 'pro',
     params.plan_name ?? null,
   ) as SubscriptionRow;
+}
+
+// ---------------------------------------------------------------------------
+// Prepared-statement helpers — Watcher commands
+// ---------------------------------------------------------------------------
+
+export interface WatcherCommandRow {
+  id: number;
+  user_id: string;
+  command: string;
+  payload: string | null;
+  status: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export function createWatcherCommand(params: {
+  user_id: string;
+  command: string;
+  payload?: string;
+}): WatcherCommandRow {
+  const database = getDb();
+  return database.prepare(
+    `INSERT INTO watcher_commands (user_id, command, payload) VALUES (?, ?, ?) RETURNING *`,
+  ).get(params.user_id, params.command, params.payload ?? null) as WatcherCommandRow;
+}
+
+export function getPendingWatcherCommands(userId: string): WatcherCommandRow[] {
+  const database = getDb();
+  return database.prepare(
+    `SELECT * FROM watcher_commands WHERE user_id = ? AND status = 'pending' ORDER BY created_at ASC`,
+  ).all(userId) as WatcherCommandRow[];
+}
+
+export function markWatcherCommandDelivered(commandId: number): void {
+  const database = getDb();
+  database.prepare(
+    `UPDATE watcher_commands SET status = 'delivered', completed_at = datetime('now') WHERE id = ?`,
+  ).run(commandId);
+}
+
+// ---------------------------------------------------------------------------
+// Prepared-statement helpers — Watcher logs
+// ---------------------------------------------------------------------------
+
+export interface WatcherLogRow {
+  id: number;
+  user_id: string;
+  hook_log: string | null;
+  watcher_log: string | null;
+  uploaded_at: string;
+}
+
+export function saveWatcherLogs(params: {
+  user_id: string;
+  hook_log?: string;
+  watcher_log?: string;
+}): WatcherLogRow {
+  const database = getDb();
+  return database.prepare(
+    `INSERT INTO watcher_logs (user_id, hook_log, watcher_log) VALUES (?, ?, ?) RETURNING *`,
+  ).get(params.user_id, params.hook_log ?? null, params.watcher_log ?? null) as WatcherLogRow;
+}
+
+export function getLatestWatcherLogs(userId: string): WatcherLogRow | undefined {
+  const database = getDb();
+  return database.prepare(
+    `SELECT * FROM watcher_logs WHERE user_id = ? ORDER BY id DESC LIMIT 1`,
+  ).get(userId) as WatcherLogRow | undefined;
 }

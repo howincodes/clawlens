@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions, getTamperAlerts, resolveTamperAlert } from '@/lib/api'
+import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions, getTamperAlerts, resolveTamperAlert, getWatcherStatus, getWatcherLogs, sendWatcherCommand } from '@/lib/api'
 import {
   Card,
   CardContent,
@@ -31,6 +31,9 @@ import {
   Zap,
   ShieldAlert,
   CheckCircle2,
+  Bell,
+  Skull,
+  FileText,
 } from 'lucide-react'
 import {
   Table,
@@ -114,6 +117,13 @@ export function UserDetail() {
   // Tamper alerts state
   const [tamperAlerts, setTamperAlerts] = useState<any[]>([])
   const [resolvingAlert, setResolvingAlert] = useState<number | null>(null)
+
+  // Watcher state
+  const [watcherStatus, setWatcherStatus] = useState<any>(null)
+  const [watcherLogs, setWatcherLogs] = useState<any>(null)
+  const [watcherLoading, setWatcherLoading] = useState(false)
+  const [activeLogTab, setActiveLogTab] = useState<'hook' | 'watcher'>('hook')
+  const logPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Modal states
   const [showLimits, setShowLimits] = useState(false)
@@ -233,7 +243,17 @@ export function UserDetail() {
     loadSessions()
     loadAllPromptsForCharts()
     loadTamperAlerts()
-  }, [loadSessions, loadAllPromptsForCharts, loadTamperAlerts])
+    if (id) {
+      getWatcherStatus(id).then(setWatcherStatus).catch(() => {})
+    }
+  }, [loadSessions, loadAllPromptsForCharts, loadTamperAlerts, id])
+
+  // Cleanup log polling on unmount
+  useEffect(() => {
+    return () => {
+      if (logPollRef.current) clearInterval(logPollRef.current)
+    }
+  }, [])
 
   // ── Chart data derived from prompts ───────────────────
   const dailyUsageData = useMemo(() => {
@@ -299,6 +319,59 @@ export function UserDetail() {
       .sort((a, b) => b.prompt_count - a.prompt_count)
       .slice(0, 10)
   }, [allPrompts])
+
+  const handleRequestLogs = useCallback(async () => {
+    if (!id) return
+    setWatcherLoading(true)
+    setWatcherLogs(null)
+    try {
+      await sendWatcherCommand(id, 'upload_logs')
+    } catch (_err) {
+      // command send is best-effort
+    }
+    // Poll for logs every 2s for up to 30s
+    let elapsed = 0
+    if (logPollRef.current) clearInterval(logPollRef.current)
+    logPollRef.current = setInterval(async () => {
+      elapsed += 2000
+      try {
+        const logs = await getWatcherLogs(id)
+        if (logs && (logs.hook_log || logs.watcher_log)) {
+          setWatcherLogs(logs)
+          setWatcherLoading(false)
+          if (logPollRef.current) clearInterval(logPollRef.current)
+        }
+      } catch (_err) {
+        // keep polling
+      }
+      if (elapsed >= 30000) {
+        setWatcherLoading(false)
+        if (logPollRef.current) clearInterval(logPollRef.current)
+      }
+    }, 2000)
+  }, [id])
+
+  const handleSendNotification = useCallback(async () => {
+    if (!id) return
+    const message = window.prompt('Enter notification message:')
+    if (!message) return
+    try {
+      await sendWatcherCommand(id, 'notify', message)
+    } catch (_err) {
+      console.error('Failed to send notification')
+    }
+  }, [id])
+
+  const handleKill = useCallback(async () => {
+    if (!id) return
+    const confirmed = window.confirm('Are you sure you want to kill this user\'s Claude Code session?')
+    if (!confirmed) return
+    try {
+      await sendWatcherCommand(id, 'kill')
+    } catch (_err) {
+      console.error('Failed to send kill command')
+    }
+  }, [id])
 
   const handleGenerateSummary = useCallback(async () => {
     setGeneratingSummary(true)
@@ -472,6 +545,117 @@ export function UserDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Watcher */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2">
+            <span
+              className={`inline-block w-2.5 h-2.5 rounded-full ${
+                watcherStatus?.connected
+                  ? 'bg-green-500'
+                  : watcherStatus?.last_event_at
+                    ? 'bg-red-500'
+                    : 'bg-gray-400'
+              }`}
+            />
+            Watcher
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-4 text-sm">
+            <span className="text-muted-foreground">Status:</span>
+            <span
+              className={`font-medium ${
+                watcherStatus?.connected
+                  ? 'text-green-600'
+                  : watcherStatus?.last_event_at
+                    ? 'text-red-600'
+                    : 'text-gray-500'
+              }`}
+            >
+              {watcherStatus?.connected
+                ? 'Connected'
+                : watcherStatus?.last_event_at
+                  ? 'Disconnected'
+                  : 'Never connected'}
+            </span>
+            {watcherStatus?.last_event_at && (
+              <>
+                <span className="text-muted-foreground">Last heartbeat:</span>
+                <span className="text-sm">
+                  {formatDistanceToNow(new Date(watcherStatus.last_event_at), { addSuffix: true })}
+                </span>
+              </>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRequestLogs}
+              disabled={watcherLoading}
+            >
+              {watcherLoading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <FileText className="w-4 h-4 mr-2" />
+              )}
+              Request Logs
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleSendNotification}>
+              <Bell className="w-4 h-4 mr-2" />
+              Send Notification
+            </Button>
+            <Button variant="destructive" size="sm" onClick={handleKill}>
+              <Skull className="w-4 h-4 mr-2" />
+              Kill Now
+            </Button>
+          </div>
+
+          {watcherLogs && (
+            <div className="space-y-2">
+              <div className="flex gap-1 border-b">
+                <button
+                  className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+                    activeLogTab === 'hook'
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
+                  onClick={() => setActiveLogTab('hook')}
+                >
+                  Hook Log
+                </button>
+                <button
+                  className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+                    activeLogTab === 'watcher'
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
+                  onClick={() => setActiveLogTab('watcher')}
+                >
+                  Watcher Log
+                </button>
+              </div>
+              <div
+                className="bg-muted/30 rounded-md p-3 font-mono text-xs overflow-y-auto"
+                style={{ maxHeight: 300, whiteSpace: 'pre-wrap' }}
+              >
+                {(activeLogTab === 'hook'
+                  ? watcherLogs.hook_log
+                  : watcherLogs.watcher_log
+                )
+                  ?.split('\n')
+                  .reverse()
+                  .join('\n') || (
+                  <span className="text-muted-foreground italic">No log data available.</span>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* AI Summary + Devices / Limits */}
       <div className="grid gap-6 md:grid-cols-2">

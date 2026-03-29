@@ -18,7 +18,6 @@ import {
   updateUser,
   type LimitRow,
 } from '../services/db.js';
-import { autoResolveInactiveAlerts } from '../services/tamper.js';
 import { broadcast } from '../services/websocket.js';
 import {
   SessionStartEvent,
@@ -54,18 +53,6 @@ function getCreditCost(model: string | undefined): number {
   if (m.includes('opus')) return 10;
   if (m.includes('haiku')) return 1;
   return 3; // sonnet and everything else
-}
-
-/**
- * Only resolve inactive alerts if user was previously inactive (>1 hour gap).
- * Avoids hitting the DB on every single hook event.
- */
-function maybeResolveInactiveAlerts(user: { id: string; last_event_at: string | null }): void {
-  const lastEvent = user.last_event_at ? new Date(user.last_event_at).getTime() : 0;
-  const oneHourAgo = Date.now() - 3600000;
-  if (lastEvent < oneHourAgo) {
-    autoResolveInactiveAlerts(user.id);
-  }
 }
 
 /**
@@ -117,7 +104,6 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
-      maybeResolveInactiveAlerts(user);
       const resp = { continue: false, stopReason: 'Account suspended by admin. Contact your team lead.' };
       debug(`responding: ${JSON.stringify(resp)}`);
       res.json(resp);
@@ -133,7 +119,6 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
-      maybeResolveInactiveAlerts(user);
       const resp = { continue: false, stopReason: 'Account paused by admin. Contact your team lead.' };
       debug(`responding: ${JSON.stringify(resp)}`);
       res.json(resp);
@@ -194,7 +179,6 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
 
     // Record full hook event (includes all device info, subscription, etc.)
     debug(`recording hook event`);
@@ -267,7 +251,6 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
         });
       } catch (e: any) { debug(`recording hook event FAILED: ${e.message}`); }
       touchUserLastEvent(user.id);
-      maybeResolveInactiveAlerts(user);
       const resp = { decision: 'block', reason: 'Account suspended.' };
       debug(`responding: ${JSON.stringify(resp)}`);
       res.json(resp);
@@ -348,7 +331,6 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
-      maybeResolveInactiveAlerts(user);
       broadcast({ type: 'prompt', user_id: user.id, user_name: user.name, prompt: data.prompt?.slice(0, 100), blocked: true });
       const resp = { decision: 'block', reason: blockReason };
       debug(`responding: ${JSON.stringify(resp)}`);
@@ -371,7 +353,6 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -418,7 +399,6 @@ hookRouter.post('/pre-tool', (req: Request, res: Response) => {
         payload: JSON.stringify(body),
       });
       touchUserLastEvent(user.id);
-      maybeResolveInactiveAlerts(user);
       const resp = {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
@@ -442,7 +422,6 @@ hookRouter.post('/pre-tool', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -497,7 +476,6 @@ hookRouter.post('/stop', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -549,7 +527,6 @@ hookRouter.post('/stop-error', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
 
     debug(`responding: {} (OK)`);
     res.json({});
@@ -582,7 +559,6 @@ hookRouter.post('/session-end', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -629,7 +605,6 @@ hookRouter.post('/post-tool', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -674,7 +649,6 @@ hookRouter.post('/subagent-start', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -720,7 +694,6 @@ hookRouter.post('/post-tool-failure', (req: Request, res: Response) => {
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
 
     // Record hook event
     recordHookEvent({
@@ -764,13 +737,10 @@ hookRouter.post('/config-change', (req: Request, res: Response) => {
       payload: JSON.stringify(body),
     });
 
-    // ConfigChange is informational only — no tamper alert
     debug(`config change recorded (source=${data.source}, file=${data.file_path})`);
-
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
 
     debug(`responding: {} (OK)`);
     res.json({});
@@ -806,13 +776,10 @@ hookRouter.post('/file-changed', (req: Request, res: Response) => {
       payload: JSON.stringify(body),
     });
 
-    // FileChanged is informational only — no tamper alert
     debug(`file change recorded (file=${data.file_path}, event=${data.event})`);
-
 
     // Update last_event_at
     touchUserLastEvent(user.id);
-    maybeResolveInactiveAlerts(user);
 
     debug(`responding: {} (OK)`);
     res.json({});

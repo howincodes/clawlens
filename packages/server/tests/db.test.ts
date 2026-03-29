@@ -39,6 +39,11 @@ import {
   getUserCreditUsage,
   touchUserLastEvent,
   createSubscription,
+  createWatcherCommand,
+  getPendingWatcherCommands,
+  markWatcherCommandDelivered,
+  saveWatcherLogs,
+  getLatestWatcherLogs,
 } from '../src/services/db.js';
 
 // ---------------------------------------------------------------------------
@@ -80,6 +85,8 @@ describe('table creation', () => {
       'teams',
       'tool_events',
       'users',
+      'watcher_commands',
+      'watcher_logs',
     ]);
   });
 
@@ -101,6 +108,7 @@ describe('table creation', () => {
     expect(indexNames).toContain('idx_hook_events_user');
     expect(indexNames).toContain('idx_tool_events_user');
     expect(indexNames).toContain('idx_tamper_alerts_user');
+    expect(indexNames).toContain('idx_watcher_commands_user');
   });
 
   it('should set WAL journal mode (skipped for in-memory)', () => {
@@ -651,5 +659,115 @@ describe('subscriptions', () => {
     expect(sub.email).toBe('alice@example.com');
     expect(sub.subscription_type).toBe('pro');
     expect(sub.plan_name).toBe('Pro Monthly');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Watcher commands
+// ---------------------------------------------------------------------------
+
+describe('watcher commands', () => {
+  let userId: string;
+
+  beforeEach(() => {
+    const team = createTeam({ name: 'T', slug: 'wc' });
+    const user = createUser({ team_id: team.id, name: 'U', auth_token: 'tok-wc' });
+    userId = user.id;
+  });
+
+  it('should create and retrieve pending commands', () => {
+    const cmd = createWatcherCommand({
+      user_id: userId,
+      command: 'upload_logs',
+    });
+    expect(cmd.id).toBeTruthy();
+    expect(cmd.user_id).toBe(userId);
+    expect(cmd.command).toBe('upload_logs');
+    expect(cmd.status).toBe('pending');
+    expect(cmd.payload).toBeNull();
+    expect(cmd.created_at).toBeTruthy();
+    expect(cmd.completed_at).toBeNull();
+
+    const pending = getPendingWatcherCommands(userId);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].command).toBe('upload_logs');
+  });
+
+  it('should mark commands as delivered', () => {
+    const cmd = createWatcherCommand({
+      user_id: userId,
+      command: 'upload_logs',
+    });
+    markWatcherCommandDelivered(cmd.id);
+
+    const pending = getPendingWatcherCommands(userId);
+    expect(pending).toHaveLength(0);
+  });
+
+  it('should support payload on commands', () => {
+    const payload = JSON.stringify({ reason: 'debug', maxLines: 500 });
+    const cmd = createWatcherCommand({
+      user_id: userId,
+      command: 'upload_logs',
+      payload,
+    });
+    expect(cmd.payload).toBe(payload);
+
+    const parsed = JSON.parse(cmd.payload!);
+    expect(parsed.reason).toBe('debug');
+    expect(parsed.maxLines).toBe(500);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Watcher logs
+// ---------------------------------------------------------------------------
+
+describe('watcher logs', () => {
+  let userId: string;
+
+  beforeEach(() => {
+    const team = createTeam({ name: 'T', slug: 'wl' });
+    const user = createUser({ team_id: team.id, name: 'U', auth_token: 'tok-wl' });
+    userId = user.id;
+  });
+
+  it('should save and retrieve logs', () => {
+    const log = saveWatcherLogs({
+      user_id: userId,
+      hook_log: 'hook output line 1\nhook output line 2',
+      watcher_log: 'watcher started OK',
+    });
+    expect(log.id).toBeTruthy();
+    expect(log.user_id).toBe(userId);
+    expect(log.hook_log).toBe('hook output line 1\nhook output line 2');
+    expect(log.watcher_log).toBe('watcher started OK');
+    expect(log.uploaded_at).toBeTruthy();
+
+    const latest = getLatestWatcherLogs(userId);
+    expect(latest).toBeDefined();
+    expect(latest!.id).toBe(log.id);
+    expect(latest!.hook_log).toBe(log.hook_log);
+  });
+
+  it('should return most recent log entry', () => {
+    saveWatcherLogs({
+      user_id: userId,
+      hook_log: 'old log',
+    });
+    const newer = saveWatcherLogs({
+      user_id: userId,
+      hook_log: 'new log',
+    });
+
+    const latest = getLatestWatcherLogs(userId);
+    expect(latest).toBeDefined();
+    expect(latest!.id).toBe(newer.id);
+    expect(latest!.hook_log).toBe('new log');
+  });
+
+  it('should return undefined when no logs exist', () => {
+    const latest = getLatestWatcherLogs(userId);
+    expect(latest).toBeUndefined();
   });
 });

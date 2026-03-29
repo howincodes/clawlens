@@ -70,7 +70,7 @@ echo ""
 
 # ── Step 1: Install Node.js hook handler ────────────────────────────────────
 
-echo "[1/3] Installing hook handler..."
+echo "[1/4] Installing hook handler..."
 
 HOOK_DIR="$HOME/.claude/hooks"
 MJS_FILE="$HOOK_DIR/clawlens.mjs"
@@ -90,6 +90,17 @@ fi
 chmod 644 "$MJS_FILE"
 echo "  -> $MJS_FILE"
 
+# Install watcher
+WATCHER_FILE="$HOOK_DIR/clawlens-watcher.mjs"
+if [ -f "$INSTALL_SCRIPT_DIR/../client/clawlens-watcher.mjs" ]; then
+  cp "$INSTALL_SCRIPT_DIR/../client/clawlens-watcher.mjs" "$WATCHER_FILE"
+else
+  curl -fsSL "https://raw.githubusercontent.com/howincodes/clawlens/main/client/clawlens-watcher.mjs" -o "$WATCHER_FILE" || \
+    { echo "  ERROR: Could not download clawlens-watcher.mjs"; exit 1; }
+fi
+chmod 644 "$WATCHER_FILE"
+echo "  -> $WATCHER_FILE (watcher)"
+
 # Write the thin bash wrapper (calls Node.js handler, fails open)
 cat > "$HOOK_SCRIPT" << 'HOOKEOF'
 #!/bin/bash
@@ -103,7 +114,7 @@ echo "  -> $HOOK_SCRIPT"
 
 # ── Step 2: Configure settings.json ──────────────────────────────────────────
 
-echo "[2/3] Configuring hooks in settings.json..."
+echo "[2/4] Configuring hooks in settings.json..."
 
 SETTINGS_FILE="$HOME/.claude/settings.json"
 mkdir -p "$(dirname "$SETTINGS_FILE")"
@@ -150,7 +161,7 @@ echo "  -> $SETTINGS_FILE"
 
 # ── Step 3: Verify server connectivity ────────────────────────────────────────
 
-echo "[3/3] Verifying server connectivity..."
+echo "[3/4] Verifying server connectivity..."
 if curl -sf -m 5 "$SERVER_URL/health" >/dev/null 2>&1; then
   echo "  -> Server: OK ($SERVER_URL)"
 else
@@ -158,6 +169,64 @@ else
   echo "     Check the URL and ensure the server is running."
   echo "     (Installation is complete — hooks will work once the server is available.)"
 fi
+
+# ── Step: Setup watcher auto-start ──────────────────────────────────────────
+
+echo "[4/4] Setting up watcher auto-start..."
+
+NODE_PATH="$(which node)"
+
+case "$(uname)" in
+  Darwin)
+    PLIST_DIR="$HOME/Library/LaunchAgents"
+    PLIST_FILE="$PLIST_DIR/com.clawlens.watcher.plist"
+    mkdir -p "$PLIST_DIR"
+    cat > "$PLIST_FILE" << PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.clawlens.watcher</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$NODE_PATH</string>
+    <string>$WATCHER_FILE</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>$HOOK_DIR/.clawlens-watcher-stderr.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CLAUDE_PLUGIN_OPTION_SERVER_URL</key><string>$SERVER_URL</string>
+    <key>CLAUDE_PLUGIN_OPTION_AUTH_TOKEN</key><string>$AUTH_TOKEN</string>
+  </dict>
+</dict>
+</plist>
+PLISTEOF
+    launchctl bootout "gui/$(id -u)/com.clawlens.watcher" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$PLIST_FILE"
+    echo "  -> macOS login agent: $PLIST_FILE"
+    ;;
+  Linux)
+    AUTOSTART_DIR="$HOME/.config/autostart"
+    DESKTOP_FILE="$AUTOSTART_DIR/clawlens-watcher.desktop"
+    mkdir -p "$AUTOSTART_DIR"
+    cat > "$DESKTOP_FILE" << DESKTOPEOF
+[Desktop Entry]
+Type=Application
+Name=ClawLens Watcher
+Exec=/bin/bash -c 'CLAUDE_PLUGIN_OPTION_SERVER_URL="$SERVER_URL" CLAUDE_PLUGIN_OPTION_AUTH_TOKEN="$AUTH_TOKEN" $NODE_PATH $WATCHER_FILE'
+Hidden=true
+X-GNOME-Autostart-enabled=true
+DESKTOPEOF
+    echo "  -> Linux autostart: $DESKTOP_FILE"
+    ;;
+esac
+
+# Start watcher now
+echo "  Starting watcher..."
+CLAUDE_PLUGIN_OPTION_SERVER_URL="$SERVER_URL" CLAUDE_PLUGIN_OPTION_AUTH_TOKEN="$AUTH_TOKEN" nohup "$NODE_PATH" "$WATCHER_FILE" > /dev/null 2>&1 &
+echo "  -> Watcher running (pid $!)"
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 
@@ -168,6 +237,7 @@ echo "  ============================="
 echo ""
 echo "  Hook handler: $MJS_FILE"
 echo "  Hook wrapper: $HOOK_SCRIPT"
+echo "  Watcher:      $WATCHER_FILE"
 echo "  Settings:     $SETTINGS_FILE"
 echo "  Server:       $SERVER_URL"
 echo ""
