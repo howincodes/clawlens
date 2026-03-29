@@ -480,10 +480,6 @@ hookRouter.post('/stop', (req: Request, res: Response) => {
     debug(`zod parse: ${parsed.success ? 'OK' : `FAILED — ${JSON.stringify(parsed.error?.issues?.map(i => i.message))}`}`);
     const data = parsed.success ? parsed.data : body;
 
-    // Extract response
-    const response = (data.last_assistant_message ?? '').slice(0, 10000);
-    debug(`response length (trimmed): ${response.length}`);
-
     // Ensure session exists + determine model
     debug(`ensuring session: ${data.session_id}`);
     ensureSession(data.session_id, user.id, user.default_model);
@@ -491,13 +487,12 @@ hookRouter.post('/stop', (req: Request, res: Response) => {
     debug(`session lookup: ${session ? `found (model=${session.model})` : 'NOT FOUND'}`);
     const model = session?.model ?? user.default_model ?? 'sonnet';
 
-    // Update the most recent unresponded prompt for this session with the response.
-    // Credit cost was already recorded by the prompt handler — do NOT re-charge here.
-    debug(`updating last prompt with response (model=${model})`);
+    // Update model on the most recent prompt (don't store response text)
+    debug(`updating last prompt model (model=${model})`);
     const db = getDb();
     const result = db.prepare(
-      `UPDATE prompts SET response = ?, model = ? WHERE session_id = ? AND response IS NULL ORDER BY id DESC LIMIT 1`,
-    ).run(response, model, data.session_id);
+      `UPDATE prompts SET model = ? WHERE session_id = ? AND response IS NULL ORDER BY id DESC LIMIT 1`,
+    ).run(model, data.session_id);
     debug(`prompt update: changes=${result.changes}`);
 
     // Update last_event_at

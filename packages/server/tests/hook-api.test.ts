@@ -323,10 +323,10 @@ describe('POST /stop', () => {
     expect(session!.prompt_count).toBe(1);
     expect(session!.total_credits).toBe(10); // opus cost, charged once by prompt handler
 
-    // Response should be recorded on the prompt row
+    // Response is NOT stored (privacy) — only model is updated
     const prompts = getPromptsBySession(sessionId);
     expect(prompts.length).toBe(1);
-    expect(prompts[0].response).toBe('Done with the task.');
+    expect(prompts[0].response).toBeNull();
   });
 });
 

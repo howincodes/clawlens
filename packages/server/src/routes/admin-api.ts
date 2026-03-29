@@ -456,8 +456,28 @@ adminRouter.get('/subscriptions', (_req: Request, res: Response) => {
   try {
     const db = getDb();
     const subscriptions = db
-      .prepare('SELECT * FROM subscriptions ORDER BY created_at DESC')
-      .all();
+      .prepare(
+        `SELECT s.*,
+                (SELECT COUNT(*) FROM users u WHERE u.subscription_id = s.id) as user_count,
+                (SELECT COUNT(*) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0) as prompt_count,
+                (SELECT COUNT(*) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0) as total_prompts,
+                (SELECT COALESCE(SUM(p.credit_cost), 0) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0) as total_credits
+         FROM subscriptions s
+         ORDER BY s.created_at DESC`,
+      )
+      .all() as any[];
+
+    // Attach linked users to each subscription
+    for (const sub of subscriptions) {
+      sub.users = db
+        .prepare(
+          `SELECT u.id, u.name, u.email, u.status, u.default_model,
+                  (SELECT COUNT(*) FROM prompts WHERE user_id = u.id AND blocked = 0) as prompt_count,
+                  (SELECT COALESCE(SUM(credit_cost), 0) FROM prompts WHERE user_id = u.id AND blocked = 0) as total_credits
+           FROM users u WHERE u.subscription_id = ?`,
+        )
+        .all(sub.id);
+    }
 
     res.json({ data: subscriptions });
   } catch (err) {
@@ -573,11 +593,12 @@ adminRouter.get('/analytics/users', (req: Request, res: Response) => {
 
     const data = db
       .prepare(
-        `SELECT u.id, u.name, u.email, u.status,
+        `SELECT u.id, u.name, u.email, u.status, u.default_model,
                 COUNT(p.id) as prompts,
                 COALESCE(SUM(p.credit_cost), 0) as credits,
                 (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.started_at >= ?) as sessions,
-                COALESCE(SUM(p.credit_cost), 0) as cost_usd
+                COALESCE(SUM(p.credit_cost), 0) as cost_usd,
+                (SELECT model FROM prompts WHERE user_id = u.id AND blocked = 0 AND model IS NOT NULL GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1) as top_model
          FROM users u
          LEFT JOIN prompts p ON p.user_id = u.id AND p.created_at >= ? AND p.blocked = 0
          WHERE u.team_id = ?

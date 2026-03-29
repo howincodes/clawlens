@@ -411,7 +411,7 @@ export function Overview() {
                         </div>
                       </div>
                       <CardDescription className="text-xs">
-                        {user.subscription_email || 'No subscription linked'}
+                        {user.subscription_email || user.email || 'No subscription linked'}
                       </CardDescription>
                     </CardHeader>
                     <Link to={`/users/${user.id}`} className="flex-1">
@@ -430,7 +430,7 @@ export function Overview() {
                             <div className="text-[10px] text-muted-foreground">Sessions</div>
                           </div>
                           <div className="text-center p-2 bg-muted/30 rounded">
-                            <div className="text-lg font-bold capitalize">{normalizeModel(String(stats.top_model || user.current_model || ''))}</div>
+                            <div className="text-lg font-bold capitalize">{normalizeModel(String(stats.top_model || user.top_model || user.default_model || ''))}</div>
                             <div className="text-[10px] text-muted-foreground">Top Model</div>
                           </div>
                         </div>
@@ -441,7 +441,7 @@ export function Overview() {
                         <span className="text-muted-foreground">
                           Model:{' '}
                           <span className="font-medium text-foreground">
-                            {normalizeModel(user.current_model || '')}
+                            {normalizeModel(user.default_model || '')}
                           </span>
                         </span>
                         <span className="text-muted-foreground">
