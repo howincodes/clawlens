@@ -420,8 +420,66 @@ CREATE TABLE IF NOT EXISTS watcher_logs (
 
 ---
 
+## Dashboard UI Changes
+
+### User Detail Page — New "Watcher" Section
+
+Placed below the existing user info section.
+
+**Status display:**
+
+| Field | Example | Source |
+|---|---|---|
+| Connection | Connected (green) / Disconnected (red) / Never connected (gray) | WebSocket state or last heartbeat recency |
+| Last heartbeat | "30 seconds ago" | watcher heartbeat timestamp |
+| Uptime | "2h 15m" | `uptime_seconds` from heartbeat |
+| Hooks intact | Yes (green) / No (red) | `hooks_intact` from heartbeat |
+| Watcher version | "1.0.0" | `watcher_version` from heartbeat |
+| Platform | "win32 — WIN-02K9JROATFS" | `platform` + `hostname` from heartbeat |
+
+**Action buttons:**
+
+| Button | Action |
+|---|---|
+| Request Logs | Queues `upload_logs` command → shows logs inline when they arrive |
+| Send Notification | Text input modal → queues `notify` command with custom message |
+| Kill Now | Confirmation modal → queues `kill` command |
+
+**Log viewer:**
+When logs arrive after "Request Logs", display in a scrollable monospace panel with two tabs: "Hook Log" and "Watcher Log". Most recent entry at top.
+
+### Overview Page — Watcher Indicator
+
+Each user card gets a small dot next to the status badge:
+- Green dot: watcher WebSocket connected
+- Red dot: watcher disconnected (last heartbeat > 2x poll_interval)
+- No dot: watcher never connected (new user)
+
+### Admin API for Watcher UI
+
+These endpoints are already in the watcher spec:
+- `POST /api/admin/users/:id/watcher/command` — queue command
+- `GET /api/admin/users/:id/watcher/logs` — view uploaded logs
+- `GET /api/admin/users/:id/watcher/status` — connection status + last heartbeat
+
+---
+
+## Enforce Mode — No Changes Needed
+
+The watcher and enforce mode are independent, additive layers:
+
+| Capability | Standard (install.sh + watcher) | Enforced (enforce.sh + watcher) |
+|---|---|---|
+| Hook auto-repair | Watcher restores hooks | Managed-settings.d prevents removal + watcher as backup |
+| Block other hooks | No | Yes (`allowManagedHooksOnly: true`) |
+| Kill switch | Watcher runs `claude auth logout` | Gate script + watcher both handle it |
+| Requires sudo | No | Yes (one-time) |
+| User can uninstall | Yes (run uninstall.sh) | No (without admin access) |
+
+`enforce.sh` and `restore.sh` remain unchanged. The watcher runs alongside in both modes.
+
+---
+
 ## What This Spec Does NOT Cover
 
-- Dashboard UI changes for watcher status/logs (separate spec)
-- Enforce mode changes (enforce.sh already handles managed hooks differently)
 - Server deployment changes (no new infrastructure needed)
