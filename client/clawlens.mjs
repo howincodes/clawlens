@@ -341,7 +341,8 @@ function notifyUser(title, message) {
       // macOS: async, fire-and-forget
       spawn('osascript', ['-e', `display notification "${message.replace(/"/g, '\\"')}" with title "${title.replace(/"/g, '\\"')}" sound name "Ping"`], { stdio: 'ignore' }).unref();
     } else if (p === 'win32') {
-      // Windows: write temp .ps1, run via powershell (NOT detached — needs desktop session)
+      // Windows: write .ps1, launch via cmd.exe /c start "" /b
+      // This keeps the desktop session context (so GUI works) and returns immediately
       const tmpPs1 = join(HOOKS_DIR, '.clawlens-notify.ps1');
       writeFileSync(tmpPs1, `Add-Type -AssemblyName System.Windows.Forms
 $n = New-Object System.Windows.Forms.NotifyIcon
@@ -353,10 +354,7 @@ $n.ShowBalloonTip(5000)
 [System.Media.SystemSounds]::Asterisk.Play()
 Start-Sleep 6
 $n.Dispose()`);
-      // Use Start-Process launcher — only way to keep GUI session context on Windows
-      const launcherPs1 = join(HOOKS_DIR, '.clawlens-notify-launcher.ps1');
-      writeFileSync(launcherPs1, `Start-Process powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','${tmpPs1.replace(/'/g, "''")}') -WindowStyle Hidden`);
-      execSync(`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${launcherPs1}"`, { timeout: 10000, stdio: 'ignore' });
+      execSync(`cmd.exe /c start "" /b powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${tmpPs1}"`, { timeout: 3000, stdio: 'ignore' });
     } else {
       // Linux: async, fire-and-forget
       spawn('notify-send', [title, message, '--urgency=normal'], { stdio: 'ignore' }).unref();
@@ -505,17 +503,17 @@ async function main() {
     payload = { ...data, model: currentModel };
   }
 
-  const response = await postToServer(apiPath, payload);
-
-  // Launch notifications BEFORE writing to stdout.
-  // Claude Code kills the hook process after receiving stdout output,
-  // so anything after stdout.write may never execute.
+  // Fire notifications BEFORE async server call.
+  // Claude Code kills the hook process during await fetch(),
+  // so notifications after the server call never execute.
   if (event === 'Stop' && data.stop_hook_active !== true && shouldNotify('stop')) {
     notifyUser('ClawLens', 'Task completed');
   }
 
+  const response = await postToServer(apiPath, payload);
+
   if (response) {
-    // Check for block decisions before writing stdout
+    // Check for block decisions
     try {
       const resp = JSON.parse(response);
       if (resp.decision === 'block' && shouldNotify('block')) {
