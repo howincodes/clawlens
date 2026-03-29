@@ -346,7 +346,7 @@ function getSubscriptionInfo() {
   // Method 1: claude auth status
   try {
     const output = execSync('claude auth status', {
-      timeout: 2000,
+      timeout: 5000,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
@@ -361,23 +361,9 @@ function getSubscriptionInfo() {
     return info;
   } catch {}
 
-  // Method 2: read ~/.claude.json directly
-  try {
-    const cj = readJSON(join(HOME, '.claude.json'));
-    if (cj?.oauthAccount) {
-      const acct = cj.oauthAccount;
-      const rawSubType = acct.planType || acct.billingType || '';
-      const info = {
-        email: acct.emailAddress || acct.email || '',
-        subscriptionType: normalizeSubscriptionType(rawSubType),
-        orgName: acct.organizationName || acct.displayName || '',
-      };
-      writeJSON(CACHE_FILE, { ...info, _rawSubType: rawSubType, _ts: Date.now(), _v: 2 });
-      return info;
-    }
-  } catch {}
-
-  return { email: '', subscriptionType: '', orgName: '' };
+  // claude auth status is the ONLY source of truth.
+  // Do NOT fall back to ~/.claude.json — has unreliable fields like "stripe_subscription".
+  return { email: '', subscriptionType: 'unknown', orgName: '' };
 }
 
 // ══════════════════════════════════════════════════════

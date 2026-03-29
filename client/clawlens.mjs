@@ -283,7 +283,7 @@ function getSubscriptionInfo() {
   try {
     const start = Date.now();
     const output = execSync('claude auth status', {
-      timeout: 2000,
+      timeout: 5000,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
@@ -306,31 +306,10 @@ function getSubscriptionInfo() {
     debug(`getSubscriptionInfo: [method 1] FAILED — ${e.message}`);
   }
 
-  // Method 2: read ~/.claude.json directly (no subprocess, instant)
-  const claudeJsonPath = join(HOME, '.claude.json');
-  debug(`getSubscriptionInfo: [method 2] reading ${claudeJsonPath}...`);
-  try {
-    const cj = readJSON(claudeJsonPath);
-    if (cj?.oauthAccount) {
-      const acct = cj.oauthAccount;
-      debug(`getSubscriptionInfo: [method 2] oauthAccount keys: ${Object.keys(acct).join(', ')}`);
-      const rawSubType = acct.planType || acct.billingType || '';
-      const info = {
-        email: acct.emailAddress || acct.email || '',
-        subscriptionType: normalizeSubscriptionType(rawSubType),
-        orgName: acct.organizationName || acct.displayName || '',
-      };
-      debug(`getSubscriptionInfo: [method 2] result: email=${info.email}, raw=${rawSubType}, normalized=${info.subscriptionType}`);
-      writeJSON(CACHE_FILE, { ...info, _rawSubType: rawSubType, _ts: Date.now(), _v: 2 });
-      return info;
-    }
-    debug(`getSubscriptionInfo: [method 2] no oauthAccount in file`);
-  } catch (e) {
-    debug(`getSubscriptionInfo: [method 2] FAILED — ${e.message}`);
-  }
-
-  debug(`getSubscriptionInfo: all methods failed — returning empty`);
-  return { email: '', subscriptionType: '', orgName: '' };
+  // claude auth status is the ONLY source of truth for subscription type.
+  // Do NOT fall back to ~/.claude.json — it has unreliable fields like "stripe_subscription".
+  debug(`getSubscriptionInfo: claude auth status failed — returning unknown`);
+  return { email: '', subscriptionType: 'unknown', orgName: '' };
 }
 
 // ══════════════════════════════════════════════════════
