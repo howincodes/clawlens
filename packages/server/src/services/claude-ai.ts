@@ -5,6 +5,20 @@ import zodToJsonSchema from 'zod-to-json-schema';
 
 const execFileAsync = promisify(execFile);
 
+// Find claude CLI — may be in non-standard PATH inside Docker
+const CLAUDE_BIN = (() => {
+  const { execSync } = require('node:child_process');
+  for (const p of [
+    'claude',
+    '/root/.local/bin/claude',
+    '/home/node/.local/bin/claude',
+    '/usr/local/bin/claude',
+  ]) {
+    try { execSync(`${p} --version`, { stdio: 'ignore', timeout: 3000 }); return p; } catch {}
+  }
+  return 'claude'; // fallback
+})();
+
 interface ClaudeRequest<T> {
   prompt: string;
   systemPrompt?: string;
@@ -84,7 +98,7 @@ export async function runClaude<T>(req: ClaudeRequest<T>): Promise<ClaudeRespons
 
     const timeout = req.timeout ?? 30000;
 
-    const { stdout } = await execFileAsync('claude', args, {
+    const { stdout } = await execFileAsync(CLAUDE_BIN, args, {
       timeout,
       maxBuffer: 1024 * 1024, // 1MB
     });
@@ -127,7 +141,7 @@ export async function runClaude<T>(req: ClaudeRequest<T>): Promise<ClaudeRespons
  */
 export async function isClaudeAvailable(): Promise<boolean> {
   try {
-    await execFileAsync('claude', ['--version'], { timeout: 5000 });
+    await execFileAsync(CLAUDE_BIN, ['--version'], { timeout: 5000 });
     return true;
   } catch {
     return false;
