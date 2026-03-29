@@ -264,16 +264,16 @@ function normalizeSubscriptionType(raw) {
 function getSubscriptionInfo() {
   debug(`getSubscriptionInfo: starting...`);
 
-  // Check cache (5 minute TTL)
+  // Check cache (5 minute TTL, version 2 required — old caches are invalidated)
   const cached = readJSON(CACHE_FILE);
-  if (cached?.email && Date.now() - (cached._ts || 0) < 300000) {
+  if (cached?.email && cached._v === 2 && Date.now() - (cached._ts || 0) < 300000) {
     const age = Math.round((Date.now() - cached._ts) / 1000);
-    // Re-normalize in case cache was written by older version
-    cached.subscriptionType = normalizeSubscriptionType(cached.subscriptionType);
-    debug(`getSubscriptionInfo: using cache (age=${age}s) — email=${cached.email}, type=${cached.subscriptionType}`);
-    return cached;
+    // Cache stores RAW value, normalize on read
+    const result = { ...cached, subscriptionType: normalizeSubscriptionType(cached._rawSubType || cached.subscriptionType) };
+    debug(`getSubscriptionInfo: using cache (age=${age}s) — email=${result.email}, raw=${cached._rawSubType}, normalized=${result.subscriptionType}`);
+    return result;
   }
-  debug(`getSubscriptionInfo: cache miss or expired`);
+  debug(`getSubscriptionInfo: cache miss, expired, or old version`);
 
   // Method 1: claude auth status (most accurate, ~1-2s)
   debug(`getSubscriptionInfo: [method 1] running "claude auth status"...`);
@@ -289,13 +289,15 @@ function getSubscriptionInfo() {
     debug(`getSubscriptionInfo: [method 1] raw output: ${output.slice(0, 500)}`);
     const auth = JSON.parse(output);
     debug(`getSubscriptionInfo: [method 1] parsed keys: ${Object.keys(auth).join(', ')}`);
+    const rawSubType = auth.subscriptionType || auth.planType || '';
     const info = {
       email: auth.email || auth.emailAddress || '',
-      subscriptionType: normalizeSubscriptionType(auth.subscriptionType || auth.planType || ''),
+      subscriptionType: normalizeSubscriptionType(rawSubType),
       orgName: auth.orgName || auth.organizationName || '',
     };
-    debug(`getSubscriptionInfo: [method 1] result: email=${info.email}, type=${info.subscriptionType}, org=${info.orgName}`);
-    writeJSON(CACHE_FILE, { ...info, _ts: Date.now() });
+    debug(`getSubscriptionInfo: [method 1] result: email=${info.email}, raw=${rawSubType}, normalized=${info.subscriptionType}`);
+    // Cache RAW value so normalization changes take effect on next read
+    writeJSON(CACHE_FILE, { ...info, _rawSubType: rawSubType, _ts: Date.now(), _v: 2 });
     return info;
   } catch (e) {
     debug(`getSubscriptionInfo: [method 1] FAILED — ${e.message}`);
@@ -309,13 +311,14 @@ function getSubscriptionInfo() {
     if (cj?.oauthAccount) {
       const acct = cj.oauthAccount;
       debug(`getSubscriptionInfo: [method 2] oauthAccount keys: ${Object.keys(acct).join(', ')}`);
+      const rawSubType = acct.planType || acct.billingType || '';
       const info = {
         email: acct.emailAddress || acct.email || '',
-        subscriptionType: normalizeSubscriptionType(acct.planType || acct.billingType || ''),
+        subscriptionType: normalizeSubscriptionType(rawSubType),
         orgName: acct.organizationName || acct.displayName || '',
       };
-      debug(`getSubscriptionInfo: [method 2] result: email=${info.email}, type=${info.subscriptionType}, org=${info.orgName}`);
-      writeJSON(CACHE_FILE, { ...info, _ts: Date.now() });
+      debug(`getSubscriptionInfo: [method 2] result: email=${info.email}, raw=${rawSubType}, normalized=${info.subscriptionType}`);
+      writeJSON(CACHE_FILE, { ...info, _rawSubType: rawSubType, _ts: Date.now(), _v: 2 });
       return info;
     }
     debug(`getSubscriptionInfo: [method 2] no oauthAccount in file`);

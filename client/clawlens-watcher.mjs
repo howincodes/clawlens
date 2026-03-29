@@ -217,11 +217,23 @@ function notify(title, message) {
         });
       } catch {}
     } else if (plat === 'win32') {
-      // Windows balloon notification via PowerShell — single-line command to avoid quoting issues
-      const escapedTitle = escapePowerShell(title);
-      const escapedMsg = escapePowerShell(message);
-      const cmd = `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $n = New-Object System.Windows.Forms.NotifyIcon; $n.Icon = [System.Drawing.SystemIcons]::Information; $n.Visible = $true; $n.BalloonTipTitle = '${escapedTitle}'; $n.BalloonTipText = '${escapedMsg}'; $n.ShowBalloonTip(5000); [System.Media.SystemSounds]::Asterisk.Play(); Start-Sleep 6; $n.Dispose()"`;
-      execSync(cmd, { timeout: 15000, stdio: 'ignore', windowsHide: true });
+      // Windows: write a temp .ps1 file to avoid cmd→powershell quoting hell
+      const tmpPs1 = join(HOOKS_DIR, '.clawlens-notify.ps1');
+      const ps1Content = `Add-Type -AssemblyName System.Windows.Forms
+\$n = New-Object System.Windows.Forms.NotifyIcon
+\$n.Icon = [System.Drawing.SystemIcons]::Information
+\$n.Visible = \$true
+\$n.BalloonTipTitle = '${title.replace(/'/g, "''")}'
+\$n.BalloonTipText = '${message.replace(/'/g, "''")}'
+\$n.ShowBalloonTip(5000)
+[System.Media.SystemSounds]::Asterisk.Play()
+Start-Sleep 6
+\$n.Dispose()`;
+      writeFileSync(tmpPs1, ps1Content);
+      execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpPs1}"`, {
+        timeout: 15000, stdio: 'ignore', windowsHide: true,
+      });
+      try { unlinkSync(tmpPs1); } catch {}
     }
     log(`Notification sent: "${title}" — "${message}"`);
   } catch (e) {
@@ -323,12 +335,10 @@ function detectModel() {
 }
 
 function getSubscriptionInfo() {
-  // Check cache (5 minute TTL)
+  // Check cache (5 minute TTL, version 2 — old caches invalidated)
   const cached = readJSON(CACHE_FILE);
-  if (cached?.email && Date.now() - (cached._ts || 0) < 300000) {
-    // Re-normalize in case cache was written by older version
-    cached.subscriptionType = normalizeSubscriptionType(cached.subscriptionType);
-    return cached;
+  if (cached?.email && cached._v === 2 && Date.now() - (cached._ts || 0) < 300000) {
+    return { ...cached, subscriptionType: normalizeSubscriptionType(cached._rawSubType || cached.subscriptionType) };
   }
 
   // Method 1: claude auth status
@@ -339,12 +349,13 @@ function getSubscriptionInfo() {
       stdio: ['ignore', 'pipe', 'ignore'],
     });
     const auth = JSON.parse(output);
+    const rawSubType = auth.subscriptionType || auth.planType || '';
     const info = {
       email: auth.email || auth.emailAddress || '',
-      subscriptionType: normalizeSubscriptionType(auth.subscriptionType || auth.planType || ''),
+      subscriptionType: normalizeSubscriptionType(rawSubType),
       orgName: auth.orgName || auth.organizationName || '',
     };
-    writeJSON(CACHE_FILE, { ...info, _ts: Date.now() });
+    writeJSON(CACHE_FILE, { ...info, _rawSubType: rawSubType, _ts: Date.now(), _v: 2 });
     return info;
   } catch {}
 
@@ -353,12 +364,13 @@ function getSubscriptionInfo() {
     const cj = readJSON(join(HOME, '.claude.json'));
     if (cj?.oauthAccount) {
       const acct = cj.oauthAccount;
+      const rawSubType = acct.planType || acct.billingType || '';
       const info = {
         email: acct.emailAddress || acct.email || '',
-        subscriptionType: normalizeSubscriptionType(acct.planType || acct.billingType || ''),
+        subscriptionType: normalizeSubscriptionType(rawSubType),
         orgName: acct.organizationName || acct.displayName || '',
       };
-      writeJSON(CACHE_FILE, { ...info, _ts: Date.now() });
+      writeJSON(CACHE_FILE, { ...info, _rawSubType: rawSubType, _ts: Date.now(), _v: 2 });
       return info;
     }
   } catch {}
