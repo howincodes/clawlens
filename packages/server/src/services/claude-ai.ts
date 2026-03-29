@@ -107,7 +107,7 @@ export async function runClaude<T>(req: ClaudeRequest<T>): Promise<ClaudeRespons
     const start = Date.now();
     const bin = getClaudeBin();
 
-    const args = ['-p', '--bare', '--output-format', 'json', '--max-turns', '1'];
+    const args = ['-p', '--output-format', 'json', '--max-turns', '1', '--tools', ''];
 
     if (req.systemPrompt) {
       args.push('--system-prompt', req.systemPrompt);
