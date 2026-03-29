@@ -105,6 +105,8 @@ export const getRecentEvents = (since: string) => fetchClient(`/events/recent?si
 // ── Watcher ───────────────────────────────────────────────
 export const getWatcherStatus = (userId: string) => fetchClient(`/users/${userId}/watcher/status`)
 export const getWatcherLogs = (userId: string) => fetchClient(`/users/${userId}/watcher/logs`)
+export const getWatcherLogHistory = (userId: string) => fetchClient(`/users/${userId}/watcher/logs?history=true`)
+export const getWatcherLogEntry = (userId: string, logId: number) => fetchClient(`/users/${userId}/watcher/logs/${logId}`)
 export const sendWatcherCommand = (userId: string, command: string, message?: string) =>
   fetchClient(`/users/${userId}/watcher/command`, {
     method: 'POST',

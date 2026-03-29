@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions, getWatcherStatus, getWatcherLogs, sendWatcherCommand } from '@/lib/api'
+import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions, getWatcherStatus, getWatcherLogs, getWatcherLogHistory, getWatcherLogEntry, sendWatcherCommand } from '@/lib/api'
 import {
   Card,
   CardContent,
@@ -32,6 +32,10 @@ import {
   Bell,
   Skull,
   FileText,
+  Copy,
+  Download,
+  Clock,
+  Info,
 } from 'lucide-react'
 import {
   Table,
@@ -99,6 +103,15 @@ function formatDuration(ms: number): string {
   return `${hours}h ${remainingMinutes}m`
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  const val = bytes / Math.pow(k, i)
+  return `${val < 10 && i > 0 ? val.toFixed(1) : Math.round(val)}${sizes[i]}`
+}
+
 function extractProjectName(cwd: string): string {
   if (!cwd) return 'unknown'
   // Get last meaningful directory name from path
@@ -132,7 +145,12 @@ export function UserDetail() {
   const [watcherStatus, setWatcherStatus] = useState<any>(null)
   const [watcherLogs, setWatcherLogs] = useState<any>(null)
   const [watcherLoading, setWatcherLoading] = useState(false)
+  const [watcherCommandQueued, setWatcherCommandQueued] = useState(false)
   const [activeLogTab, setActiveLogTab] = useState<'hook' | 'watcher'>('hook')
+  const [logHistory, setLogHistory] = useState<any[]>([])
+  const [selectedLogId, setSelectedLogId] = useState<number | null>(null)
+  const [logEntryLoading, setLogEntryLoading] = useState(false)
+  const [copySuccess, setCopySuccess] = useState(false)
   const logPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Modal states
@@ -317,9 +335,56 @@ export function UserDetail() {
       .slice(0, 10)
   }, [allPrompts, data?.sessions])
 
+  const loadLogHistory = useCallback(async () => {
+    if (!id) return
+    try {
+      const res = await getWatcherLogHistory(id)
+      const history = res?.data || []
+      setLogHistory(history)
+    } catch {
+      // log history is best-effort
+    }
+  }, [id])
+
+  const loadLogEntry = useCallback(async (logId: number) => {
+    if (!id) return
+    setLogEntryLoading(true)
+    setSelectedLogId(logId)
+    try {
+      const res = await getWatcherLogEntry(id, logId)
+      const logData = res?.data || res
+      if (logData) {
+        setWatcherLogs(logData)
+      }
+    } catch {
+      // log entry load is best-effort
+    } finally {
+      setLogEntryLoading(false)
+    }
+  }, [id])
+
+  const handleRefreshLogs = useCallback(async () => {
+    if (!id) return
+    setLogEntryLoading(true)
+    try {
+      const existing = await getWatcherLogs(id)
+      const logs = existing?.data || existing
+      if (logs && (logs.hook_log || logs.watcher_log)) {
+        setWatcherLogs(logs)
+        setSelectedLogId(logs.id || null)
+      }
+      await loadLogHistory()
+    } catch {
+      // refresh is best-effort
+    } finally {
+      setLogEntryLoading(false)
+    }
+  }, [id, loadLogHistory])
+
   const handleRequestLogs = useCallback(async () => {
     if (!id) return
     setWatcherLoading(true)
+    setWatcherCommandQueued(true)
 
     // First check if logs already exist (from previous upload)
     try {
@@ -327,8 +392,12 @@ export function UserDetail() {
       const existingLogs = existing?.data || existing
       if (existingLogs && (existingLogs.hook_log || existingLogs.watcher_log)) {
         setWatcherLogs(existingLogs)
+        setSelectedLogId(existingLogs.id || null)
       }
     } catch {}
+
+    // Load history
+    await loadLogHistory()
 
     // Send upload command
     try {
@@ -350,11 +419,16 @@ export function UserDetail() {
           // Check if this is a fresh upload (after our request)
           if (!requestTime || (logs.uploaded_at && logs.uploaded_at > requestTime)) {
             setWatcherLogs(logs)
+            setSelectedLogId(logs.id || null)
             setWatcherLoading(false)
+            setWatcherCommandQueued(false)
             if (logPollRef.current) clearInterval(logPollRef.current)
+            // Refresh history to include the new entry
+            loadLogHistory()
           } else if (!watcherLogs) {
             // Show old logs while waiting for fresh ones
             setWatcherLogs(logs)
+            setSelectedLogId(logs.id || null)
           }
         }
       } catch (_err) {
@@ -362,10 +436,39 @@ export function UserDetail() {
       }
       if (elapsed >= 90000) {
         setWatcherLoading(false)
+        setWatcherCommandQueued(false)
         if (logPollRef.current) clearInterval(logPollRef.current)
       }
     }, 3000)
-  }, [id, watcherLogs])
+  }, [id, watcherLogs, loadLogHistory])
+
+  const handleCopyLog = useCallback(() => {
+    const logContent = activeLogTab === 'hook' ? watcherLogs?.hook_log : watcherLogs?.watcher_log
+    if (!logContent) return
+    navigator.clipboard.writeText(logContent).then(() => {
+      setCopySuccess(true)
+      setTimeout(() => setCopySuccess(false), 2000)
+    })
+  }, [activeLogTab, watcherLogs])
+
+  const handleDownloadLog = useCallback(() => {
+    const logContent = activeLogTab === 'hook' ? watcherLogs?.hook_log : watcherLogs?.watcher_log
+    if (!logContent) return
+    const blob = new Blob([logContent], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${activeLogTab}-log-${watcherLogs?.id || 'latest'}.txt`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }, [activeLogTab, watcherLogs])
+
+  // Load log history on mount
+  useEffect(() => {
+    loadLogHistory()
+  }, [loadLogHistory])
 
   const handleSendNotification = useCallback(async () => {
     if (!id) return
@@ -555,7 +658,7 @@ export function UserDetail() {
         </Card>
       </div>
 
-      {/* Watcher */}
+      {/* Watcher Status */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2">
@@ -572,7 +675,7 @@ export function UserDetail() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-4 text-sm flex-wrap">
             <span className="text-muted-foreground">Status:</span>
             <span
               className={`font-medium ${
@@ -599,7 +702,7 @@ export function UserDetail() {
             )}
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button
               variant="outline"
               size="sm"
@@ -613,6 +716,19 @@ export function UserDetail() {
               )}
               Request Logs
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefreshLogs}
+              disabled={logEntryLoading}
+            >
+              {logEntryLoading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              Refresh
+            </Button>
             <Button variant="outline" size="sm" onClick={handleSendNotification}>
               <Bell className="w-4 h-4 mr-2" />
               Send Notification
@@ -623,48 +739,167 @@ export function UserDetail() {
             </Button>
           </div>
 
-          {watcherLogs && (
-            <div className="space-y-2">
-              <div className="flex gap-1 border-b">
-                <button
-                  className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
-                    activeLogTab === 'hook'
-                      ? 'border-primary text-primary'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                  onClick={() => setActiveLogTab('hook')}
-                >
-                  Hook Log
-                </button>
-                <button
-                  className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
-                    activeLogTab === 'watcher'
-                      ? 'border-primary text-primary'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                  onClick={() => setActiveLogTab('watcher')}
-                >
-                  Watcher Log
-                </button>
-              </div>
-              <div
-                className="bg-muted/30 rounded-md p-3 font-mono text-xs overflow-y-auto"
-                style={{ maxHeight: 300, whiteSpace: 'pre-wrap' }}
-              >
-                {(activeLogTab === 'hook'
-                  ? watcherLogs.hook_log
-                  : watcherLogs.watcher_log
-                )
-                  ?.split('\n')
-                  .reverse()
-                  .join('\n') || (
-                  <span className="text-muted-foreground italic">No log data available.</span>
-                )}
-              </div>
+          {watcherCommandQueued && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+              <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+              <span>Command queued -- watcher will upload on next sync (up to 5 min)</span>
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Watcher Logs Viewer */}
+      {(watcherLogs || logHistory.length > 0) && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-primary" />
+              Watcher Logs
+            </CardTitle>
+            {watcherLogs?.uploaded_at && (
+              <CardDescription className="flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5" />
+                Last uploaded: {formatDistanceToNow(parseServerDate(watcherLogs.uploaded_at), { addSuffix: true })}
+              </CardDescription>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Log History List */}
+            {logHistory.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2">Log History (click to view):</p>
+                <div className="border rounded-md divide-y max-h-48 overflow-y-auto">
+                  {logHistory.map((entry: any) => (
+                    <button
+                      key={entry.id}
+                      className={`w-full text-left px-3 py-2 text-xs hover:bg-muted/50 transition-colors flex items-center justify-between gap-4 ${
+                        selectedLogId === entry.id ? 'bg-muted/70 font-medium' : ''
+                      }`}
+                      onClick={() => loadLogEntry(entry.id)}
+                    >
+                      <span className="flex items-center gap-2 min-w-0">
+                        <Clock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                        <span className="truncate">
+                          {entry.uploaded_at
+                            ? format(parseServerDate(entry.uploaded_at), 'MMM d, yyyy HH:mm')
+                            : 'Unknown'}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-3 text-muted-foreground flex-shrink-0">
+                        <span>Hook: {entry.hook_log_size ? formatBytes(entry.hook_log_size) : '0B'}</span>
+                        <span>Watcher: {entry.watcher_log_size ? formatBytes(entry.watcher_log_size) : '0B'}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Log Content Tabs */}
+            {watcherLogs && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex gap-1 border-b">
+                    <button
+                      className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+                        activeLogTab === 'hook'
+                          ? 'border-primary text-primary'
+                          : 'border-transparent text-muted-foreground hover:text-foreground'
+                      }`}
+                      onClick={() => setActiveLogTab('hook')}
+                    >
+                      Hook Log
+                      {watcherLogs.hook_log && (
+                        <span className="ml-1.5 text-muted-foreground font-normal">
+                          ({formatBytes(watcherLogs.hook_log.length)})
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+                        activeLogTab === 'watcher'
+                          ? 'border-primary text-primary'
+                          : 'border-transparent text-muted-foreground hover:text-foreground'
+                      }`}
+                      onClick={() => setActiveLogTab('watcher')}
+                    >
+                      Watcher Log
+                      {watcherLogs.watcher_log && (
+                        <span className="ml-1.5 text-muted-foreground font-normal">
+                          ({formatBytes(watcherLogs.watcher_log.length)})
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={handleCopyLog}
+                      disabled={!(activeLogTab === 'hook' ? watcherLogs.hook_log : watcherLogs.watcher_log)}
+                    >
+                      <Copy className="w-3.5 h-3.5 mr-1" />
+                      {copySuccess ? 'Copied!' : 'Copy'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={handleDownloadLog}
+                      disabled={!(activeLogTab === 'hook' ? watcherLogs.hook_log : watcherLogs.watcher_log)}
+                    >
+                      <Download className="w-3.5 h-3.5 mr-1" />
+                      Download
+                    </Button>
+                  </div>
+                </div>
+
+                {logEntryLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <div
+                    className="bg-muted/30 rounded-md p-3 font-mono text-xs overflow-y-auto"
+                    style={{ maxHeight: 400, whiteSpace: 'pre-wrap' }}
+                  >
+                    {(() => {
+                      const logContent = activeLogTab === 'hook'
+                        ? watcherLogs.hook_log
+                        : watcherLogs.watcher_log
+                      if (!logContent) {
+                        return <span className="text-muted-foreground italic">No log data available.</span>
+                      }
+                      const lines = logContent.split('\n')
+                      return lines.map((line: string, idx: number) => (
+                        <div key={idx} className="flex">
+                          <span className="select-none text-muted-foreground/50 w-10 text-right pr-3 flex-shrink-0">
+                            {idx + 1}
+                          </span>
+                          <span className={line.match(/^\[.*?\]/) ? '' : ''}>
+                            {line.match(/^(\[.*?\])(.*)/) ? (
+                              <>
+                                <span className="text-blue-500">{line.match(/^(\[.*?\])/)?.[1]}</span>
+                                {line.replace(/^\[.*?\]/, '')}
+                              </>
+                            ) : line}
+                          </span>
+                        </div>
+                      ))
+                    })()}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-md px-3 py-2">
+              <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+              <span>Watcher polls every 5 min. Logs appear after next sync.</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* AI Summary + Devices / Limits */}
       <div className="grid gap-6 md:grid-cols-2">

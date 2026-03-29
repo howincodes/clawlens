@@ -948,7 +948,7 @@ adminRouter.post('/users/:id/watcher/command', (req: Request, res: Response) => 
 });
 
 // ---------------------------------------------------------------------------
-// GET /users/:id/watcher/logs — View most recent uploaded logs
+// GET /users/:id/watcher/logs — View most recent uploaded logs (or history)
 // ---------------------------------------------------------------------------
 
 adminRouter.get('/users/:id/watcher/logs', (req: Request, res: Response) => {
@@ -956,10 +956,44 @@ adminRouter.get('/users/:id/watcher/logs', (req: Request, res: Response) => {
     const user = getUserById(req.params.id);
     if (!user) { res.status(404).json({ error: 'User not found' }); return; }
 
+    if (req.query.history === 'true') {
+      const db = getDb();
+      const history = db.prepare(
+        `SELECT id, uploaded_at,
+                LENGTH(hook_log) as hook_log_size,
+                LENGTH(watcher_log) as watcher_log_size
+         FROM watcher_logs WHERE user_id = ? ORDER BY id DESC LIMIT 10`
+      ).all(user.id);
+      res.json({ data: history });
+      return;
+    }
+
     const logs = getLatestWatcherLogs(user.id);
     res.json({ data: logs || null });
   } catch (err) {
     console.error('[admin-api] watcher logs error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /users/:id/watcher/logs/:logId — View a specific log entry
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/users/:id/watcher/logs/:logId', (req: Request, res: Response) => {
+  try {
+    const user = getUserById(req.params.id);
+    if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+    const db = getDb();
+    const log = db.prepare(
+      `SELECT * FROM watcher_logs WHERE id = ? AND user_id = ?`
+    ).get(req.params.logId, user.id);
+
+    if (!log) { res.status(404).json({ error: 'Log entry not found' }); return; }
+    res.json({ data: log });
+  } catch (err) {
+    console.error('[admin-api] watcher log entry error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
