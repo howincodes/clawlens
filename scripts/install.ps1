@@ -174,7 +174,10 @@ Write-Host "[4/4] Setting up watcher auto-start..."
 $StartupDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
 $VbsPath = Join-Path $StartupDir "clawlens-watcher.vbs"
 $NodePath = (Get-Command node).Source
-$VbsContent = "Set WshShell = CreateObject(""WScript.Shell"")`nWshShell.Run """"""$NodePath"""""" """"$WatcherPath"""""" "", 0, False"
+$VbsContent = @"
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run """$NodePath"" ""$WatcherPath""", 0, False
+"@
 [System.IO.File]::WriteAllText($VbsPath, $VbsContent, [System.Text.UTF8Encoding]::new($false))
 Write-Host "  -> Windows startup: $VbsPath"
 
