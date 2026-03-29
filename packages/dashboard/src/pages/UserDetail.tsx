@@ -320,33 +320,52 @@ export function UserDetail() {
   const handleRequestLogs = useCallback(async () => {
     if (!id) return
     setWatcherLoading(true)
-    setWatcherLogs(null)
+
+    // First check if logs already exist (from previous upload)
+    try {
+      const existing = await getWatcherLogs(id)
+      const existingLogs = existing?.data || existing
+      if (existingLogs && (existingLogs.hook_log || existingLogs.watcher_log)) {
+        setWatcherLogs(existingLogs)
+      }
+    } catch {}
+
+    // Send upload command
     try {
       await sendWatcherCommand(id, 'upload_logs')
     } catch (_err) {
       // command send is best-effort
     }
-    // Poll for logs every 2s for up to 30s
+
+    // Poll for NEW logs every 3s for up to 90s
+    const requestTime = new Date().toISOString()
     let elapsed = 0
     if (logPollRef.current) clearInterval(logPollRef.current)
     logPollRef.current = setInterval(async () => {
-      elapsed += 2000
+      elapsed += 3000
       try {
-        const logs = await getWatcherLogs(id)
+        const res = await getWatcherLogs(id)
+        const logs = res?.data || res
         if (logs && (logs.hook_log || logs.watcher_log)) {
-          setWatcherLogs(logs)
-          setWatcherLoading(false)
-          if (logPollRef.current) clearInterval(logPollRef.current)
+          // Check if this is a fresh upload (after our request)
+          if (!requestTime || (logs.uploaded_at && logs.uploaded_at > requestTime)) {
+            setWatcherLogs(logs)
+            setWatcherLoading(false)
+            if (logPollRef.current) clearInterval(logPollRef.current)
+          } else if (!watcherLogs) {
+            // Show old logs while waiting for fresh ones
+            setWatcherLogs(logs)
+          }
         }
       } catch (_err) {
         // keep polling
       }
-      if (elapsed >= 30000) {
+      if (elapsed >= 90000) {
         setWatcherLoading(false)
         if (logPollRef.current) clearInterval(logPollRef.current)
       }
-    }, 2000)
-  }, [id])
+    }, 3000)
+  }, [id, watcherLogs])
 
   const handleSendNotification = useCallback(async () => {
     if (!id) return
