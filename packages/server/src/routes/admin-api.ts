@@ -327,13 +327,14 @@ adminRouter.put('/users/:id', (req: Request, res: Response) => {
       return;
     }
 
-    const { name, status, email, default_model, limits } = req.body;
+    const { name, status, email, default_model, poll_interval, limits } = req.body;
 
     const updates: Record<string, unknown> = {};
     if (name !== undefined) updates.name = name;
     if (status !== undefined) updates.status = status;
     if (email !== undefined) updates.email = email;
     if (default_model !== undefined) updates.default_model = default_model;
+    if (poll_interval !== undefined) updates.poll_interval = poll_interval;
 
     // If status changed to 'killed', set killed_at
     if (status === 'killed' && user.status !== 'killed') {

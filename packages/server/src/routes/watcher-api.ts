@@ -118,7 +118,7 @@ watcherRouter.post('/sync', (req: Request, res: Response) => {
     // 6. Build response
     const response = {
       status: user.status === 'active' ? 'active' : user.status,
-      poll_interval_ms: 300000,
+      poll_interval_ms: user.poll_interval || 30000,
       limits: limits.map((l) => ({
         id: l.id,
         type: l.type,

@@ -69,7 +69,7 @@ describe('POST /api/v1/watcher/sync', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('active');
-    expect(res.body.poll_interval_ms).toBe(300000);
+    expect(res.body.poll_interval_ms).toBe(30000);
     expect(res.body.limits).toHaveLength(1);
     expect(res.body.limits[0].type).toBe('total_credits');
     expect(res.body.limits[0].value).toBe(200);

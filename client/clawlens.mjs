@@ -13,9 +13,10 @@ import { homedir, hostname, platform, release } from 'os';
 import { execSync, spawn } from 'child_process';
 
 // ── Debug logging ───────────────────────────────────
+const VERSION = '1.1.0';
 const HOME = homedir();
 const HOOKS_DIR = join(HOME, '.claude', 'hooks');
-const DEBUG = process.env.CLAWLENS_DEBUG === '1' || process.env.CLAWLENS_DEBUG === 'true';
+const DEBUG = true; // Always log — writes to file only, never breaks Claude Code
 const LOG_FILE = join(HOOKS_DIR, '.clawlens-debug.log');
 
 function debug(msg) {
@@ -38,7 +39,7 @@ const SERVER_URL = process.env.CLAUDE_PLUGIN_OPTION_SERVER_URL
 const AUTH_TOKEN = process.env.CLAUDE_PLUGIN_OPTION_AUTH_TOKEN
   || process.env.CLAWLENS_TOKEN || '';
 
-debug(`──── ClawLens hook starting ────`);
+debug(`──── ClawLens hook v${VERSION} starting ────`);
 debug(`HOME=${HOME}`);
 debug(`HOOKS_DIR=${HOOKS_DIR}`);
 debug(`SERVER_URL=${SERVER_URL ? SERVER_URL : '(empty)'}`);
@@ -342,15 +343,16 @@ function shouldNotify(eventType) {
   try {
     const config = readJSON(CONFIG_FILE);
     const prefs = config?.notifications;
-    if (!prefs) return false; // notifications disabled by default until config synced
+    // Default: notifications ON if no config synced yet
+    if (!prefs) return true;
     switch (eventType) {
-      case 'stop': return prefs.on_stop === true;
-      case 'block': return prefs.on_block === true;
-      case 'credit_warning': return prefs.on_credit_warning === true;
-      case 'kill': return prefs.on_kill === true;
-      default: return false;
+      case 'stop': return prefs.on_stop !== false;
+      case 'block': return prefs.on_block !== false;
+      case 'credit_warning': return prefs.on_credit_warning !== false;
+      case 'kill': return prefs.on_kill !== false;
+      default: return true;
     }
-  } catch { return false; }
+  } catch { return true; }
 }
 
 function notifyUser(title, message) {

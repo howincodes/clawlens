@@ -173,11 +173,20 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
     // Handle subscription record
     if (body.subscription_email || body.subscription_type) {
       const subType = normalizeSubscriptionType(body.subscription_type);
-      debug(`creating/updating subscription: email=${body.subscription_email || user.email}, type=${subType} (raw: ${body.subscription_type}), org=${body.org_name}`);
+
+      // Cross-check: if model is opus but subscription says pro, it's likely a Max plan
+      // (Pro users can't use Opus as default — they need Max)
+      let finalSubType = subType;
+      if (subType === 'pro' && model && model.toLowerCase().includes('opus')) {
+        finalSubType = 'max';
+        debug(`subscription cross-check: model is opus, overriding pro → max`);
+      }
+
+      debug(`creating/updating subscription: email=${body.subscription_email || user.email}, type=${finalSubType} (raw: ${body.subscription_type}, after cross-check), org=${body.org_name}`);
       try {
         const sub = createSubscription({
           email: body.subscription_email || user.email || '',
-          subscription_type: subType,
+          subscription_type: finalSubType,
           plan_name: body.org_name || undefined,
         });
         debug(`subscription result: ${sub ? `id=${sub.id}` : '(null)'}`);

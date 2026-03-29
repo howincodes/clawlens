@@ -16,7 +16,7 @@ import { homedir, hostname, platform } from 'os';
 import { execSync } from 'child_process';
 
 // ── Constants ───────────────────────────────────────
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const HOME = homedir();
 const HOOKS_DIR = join(HOME, '.claude', 'hooks');
 const SETTINGS_FILE = join(HOME, '.claude', 'settings.json');
@@ -26,14 +26,14 @@ const CONFIG_FILE = join(HOOKS_DIR, '.clawlens-config.json');
 const CACHE_FILE = join(HOOKS_DIR, '.clawlens-cache.json');
 const MODEL_CACHE = join(HOOKS_DIR, '.clawlens-model.txt');
 const DEBUG_LOG_FILE = join(HOOKS_DIR, '.clawlens-debug.log');
-const DEBUG = process.env.CLAWLENS_DEBUG === '1' || process.env.CLAWLENS_DEBUG === 'true';
+const DEBUG = true; // Always log — writes to file only, never breaks Claude Code
 
 const LOG_MAX_SIZE = 1024 * 1024;       // 1MB
 const LOG_KEEP_SIZE = 512 * 1024;       // 500KB
 const REPAIR_DEBOUNCE_MS = 1000;
-const DEFAULT_POLL_MS = 300000;          // 5 minutes
-const MIN_POLL_MS = 30000;              // 30 seconds
-const MAX_POLL_MS = 3600000;            // 1 hour
+const DEFAULT_POLL_MS = 30000;           // 30 seconds default (server can override)
+const MIN_POLL_MS = 10000;              // 10 seconds minimum
+const MAX_POLL_MS = 300000;             // 5 minutes maximum
 const REQUEST_TIMEOUT_MS = 5000;
 const UPLOAD_MAX_BYTES = 512 * 1024;    // 500KB
 

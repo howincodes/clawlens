@@ -65,6 +65,7 @@ function runMigrations(database: Database.Database): void {
       default_model TEXT DEFAULT 'sonnet',
       subscription_id TEXT,
       deployment_tier TEXT DEFAULT 'standard',
+      poll_interval INTEGER DEFAULT 30000,
       last_event_at TEXT,
       hook_integrity_hash TEXT,
       killed_at TEXT,
@@ -218,6 +219,13 @@ function runMigrations(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tamper_alerts_user ON tamper_alerts(user_id);
     CREATE INDEX IF NOT EXISTS idx_watcher_commands_user ON watcher_commands(user_id, status);
   `);
+
+  // Incremental migrations for existing databases
+  try {
+    database.exec(`ALTER TABLE users ADD COLUMN poll_interval INTEGER DEFAULT 30000`);
+  } catch {
+    // Column already exists — ignore
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -241,6 +249,7 @@ export interface UserRow {
   default_model: string | null;
   subscription_id: string | null;
   deployment_tier: string;
+  poll_interval: number | null;
   last_event_at: string | null;
   hook_integrity_hash: string | null;
   killed_at: string | null;
@@ -441,6 +450,7 @@ export function updateUser(
       | 'default_model'
       | 'subscription_id'
       | 'deployment_tier'
+      | 'poll_interval'
       | 'last_event_at'
       | 'hook_integrity_hash'
       | 'killed_at'
@@ -448,7 +458,7 @@ export function updateUser(
   >,
 ): UserRow | undefined {
   const database = getDb();
-  const ALLOWED_UPDATE_COLUMNS = new Set(['name', 'email', 'status', 'default_model', 'subscription_id', 'deployment_tier', 'last_event_at', 'hook_integrity_hash', 'killed_at']);
+  const ALLOWED_UPDATE_COLUMNS = new Set(['name', 'email', 'status', 'default_model', 'subscription_id', 'deployment_tier', 'poll_interval', 'last_event_at', 'hook_integrity_hash', 'killed_at']);
   const setClauses: string[] = [];
   const values: unknown[] = [];
 
@@ -935,14 +945,12 @@ export function createSubscription(params: {
     .get(params.email) as SubscriptionRow | undefined;
 
   if (existing) {
-    // Update if subscription_type or plan_name changed
-    const newType = params.subscription_type ?? existing.subscription_type;
+    const newType = params.subscription_type || existing.subscription_type;
     const newPlan = params.plan_name ?? existing.plan_name;
-    if (newType !== existing.subscription_type || newPlan !== existing.plan_name) {
-      database.prepare(
-        `UPDATE subscriptions SET subscription_type = ?, plan_name = ? WHERE id = ?`,
-      ).run(newType, newPlan, existing.id);
-    }
+    // Always update — don't skip even if values seem the same
+    database.prepare(
+      `UPDATE subscriptions SET subscription_type = ?, plan_name = ? WHERE id = ?`,
+    ).run(newType, newPlan, existing.id);
     return { ...existing, subscription_type: newType, plan_name: newPlan };
   }
 

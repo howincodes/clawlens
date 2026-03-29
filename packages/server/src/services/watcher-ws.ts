@@ -116,7 +116,7 @@ function handleHeartbeat(user: UserRow, data: Record<string, unknown>, ws: WebSo
   const config = {
     type: 'heartbeat_ack',
     status: user.status,
-    poll_interval_ms: 30000,
+    poll_interval_ms: user.poll_interval || 30000,
     limits: limits.map((l) => ({
       type: l.type,
       model: l.model,
