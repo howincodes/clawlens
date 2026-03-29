@@ -54,6 +54,12 @@ function canonicalEventType(type: string): string {
       return 'tool_used'
     case 'SubagentStart':
       return 'tool_used'
+    case 'connected':
+      return 'connected'
+    case 'session_end':
+      return 'session_ended'
+    case 'hook_event':
+      return 'hook_event'
     default:
       return type
   }
@@ -133,6 +139,10 @@ function eventDescription(evt: { type: string; payload: Record<string, unknown> 
       return `was killed`
     case 'user_paused':
       return `was paused`
+    case 'connected':
+      return `system connected`
+    case 'hook_event':
+      return `hook event${p.event_type ? `: ${String(p.event_type).replace(/_/g, ' ')}` : ''}`
     default:
       return evt.type.replace(/_/g, ' ')
   }

@@ -74,20 +74,6 @@ export function Summaries() {
     }
   }
 
-  // Score progress bar helper
-  const scoreBar = (value: number | null | undefined, label: string, color: string) => {
-    const v = Number(value || 0)
-    return (
-      <div className="flex items-center gap-2 text-xs">
-        <span className="w-10 font-medium">{label}</span>
-        <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-          <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(v, 100)}%` }} />
-        </div>
-        <span className="w-8 text-right text-muted-foreground">{v}/100</span>
-      </div>
-    )
-  }
-
   if (loading && (data.data || data.summaries || []).length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -156,12 +142,16 @@ export function Summaries() {
       ) : (
         <div className="space-y-4">
           {(data.data || data.summaries || []).map((summary, idx) => {
-            // Parse categories — API returns JSON string, not object
-            let categories: Record<string, number> = {}
+            // Parse categories — DB stores as JSON array of strings
+            let categories: string[] = []
             try {
               const raw = summary.categories
-              if (typeof raw === 'string') categories = JSON.parse(raw)
-              else if (raw && typeof raw === 'object') categories = raw as Record<string, number>
+              if (typeof raw === 'string') {
+                const parsed = JSON.parse(raw)
+                categories = Array.isArray(parsed) ? parsed : Object.keys(parsed)
+              } else if (Array.isArray(raw)) {
+                categories = raw as string[]
+              }
             } catch { /* ignore parse errors */ }
 
             // Parse topics
@@ -179,7 +169,9 @@ export function Summaries() {
             const userMap = new Map(users.map(u => [String(u.id), String(u.name)]))
             const userName = summary.type === 'weekly_team'
               ? 'Team Report'
-              : (userMap.get(String(summary.user_id)) || 'Unknown User')
+              : summary.user_id
+                ? (userMap.get(String(summary.user_id)) || 'User')
+                : 'Team Summary'
 
             return (
               <Card key={String(summary.id || idx)} className="overflow-hidden hover:shadow-md transition-shadow">
@@ -202,45 +194,45 @@ export function Summaries() {
                     )}
                   </div>
                   <CardTitle className="text-lg">{String(userName)}</CardTitle>
+                  <span className="text-xs text-muted-foreground">
+                    {summary.created_at ? new Date(String(summary.created_at)).toLocaleString() : ''}
+                  </span>
                 </CardHeader>
 
                 <CardContent className="text-sm leading-relaxed text-muted-foreground pb-4 whitespace-pre-wrap">
-                  {String(summary.summary_text || '')}
+                  {String(summary.summary || summary.summary_text || 'No summary text')}
                 </CardContent>
 
                 {/* Categories + Topics */}
-                {(Object.keys(categories).length > 0 || topics.length > 0) && (
+                {(categories.length > 0 || topics.length > 0) ? (
                   <div className="px-6 pb-3 space-y-2">
-                    {Object.keys(categories).length > 0 && (
+                    {categories.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
-                        {Object.entries(categories)
-                          .filter(([, v]) => v > 0)
-                          .sort(([,a], [,b]) => b - a)
-                          .map(([cat, count]) => (
-                          <Badge key={cat} variant="outline" className={`text-xs capitalize ${CATEGORY_COLORS[cat] || 'bg-gray-500/10 text-gray-600'}`}>
-                            {cat.replace(/_/g, ' ')} ({count})
+                        {categories.map((cat) => (
+                          <Badge key={cat} variant="outline" className={`text-xs capitalize ${CATEGORY_COLORS[String(cat).toLowerCase()] || 'bg-gray-500/10 text-gray-600'}`}>
+                            {String(cat).replace(/_/g, ' ')}
                           </Badge>
                         ))}
                       </div>
-                    )}
-                    {topics.length > 0 && (
+                    ) : null}
+                    {topics.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
                         {topics.map((t, i) => (
                           <Badge key={i} variant="secondary" className="text-[10px]">{t}</Badge>
                         ))}
                       </div>
-                    )}
+                    ) : null}
                   </div>
-                )}
+                ) : null}
 
-                {/* Scores */}
-                <CardFooter className="bg-muted/30 pt-4 pb-4 border-t">
-                  <div className="w-full space-y-2">
-                    {scoreBar(summary.productivity_score as number | undefined, 'Prod', 'bg-green-500')}
-                    {scoreBar(summary.prompt_quality_score as number | undefined, 'Quality', 'bg-blue-500')}
-                    {scoreBar(summary.model_efficiency_score as number | undefined, 'Effic', 'bg-purple-500')}
-                  </div>
-                </CardFooter>
+                {/* Risk Level */}
+                {summary.risk_level ? (
+                  <CardFooter className="bg-muted/30 pt-4 pb-4 border-t">
+                    <Badge variant={summary.risk_level === 'high' ? 'destructive' : summary.risk_level === 'medium' ? 'warning' : 'secondary'}>
+                      Risk: {String(summary.risk_level)}
+                    </Badge>
+                  </CardFooter>
+                ) : null}
               </Card>
             )
           })}
