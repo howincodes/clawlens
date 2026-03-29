@@ -10,7 +10,7 @@
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir, hostname, platform, release } from 'os';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 
 // ── Debug logging ───────────────────────────────────
 const HOME = homedir();
@@ -340,6 +340,34 @@ function enrichSessionStart(data) {
 }
 
 // ══════════════════════════════════════════════════════
+// WATCHER BACKUP SPAWN
+// ══════════════════════════════════════════════════════
+
+function checkAndSpawnWatcher() {
+  const pidFile = join(HOOKS_DIR, '.clawlens-watcher.pid');
+  const watcherFile = join(HOOKS_DIR, 'clawlens-watcher.mjs');
+  try {
+    // Check if watcher file exists
+    try { readFileSync(watcherFile); } catch { debug('watcher file not found'); return; }
+
+    // Check if already running
+    const pidStr = readText(pidFile);
+    if (pidStr) {
+      try { process.kill(parseInt(pidStr, 10), 0); debug(`watcher alive (pid=${pidStr})`); return; }
+      catch { debug(`watcher dead (stale pid=${pidStr})`); }
+    }
+
+    // Spawn watcher detached
+    debug(`spawning watcher: node ${watcherFile}`);
+    const child = spawn('node', [watcherFile], { detached: true, stdio: 'ignore', env: { ...process.env } });
+    child.unref();
+    debug(`watcher spawned (pid=${child.pid})`);
+  } catch (e) {
+    debug(`watcher spawn failed: ${e.message}`);
+  }
+}
+
+// ══════════════════════════════════════════════════════
 // POST TO SERVER
 // ══════════════════════════════════════════════════════
 
@@ -411,6 +439,7 @@ async function main() {
   if (event === 'SessionStart') {
     debug(`main: enriching SessionStart...`);
     payload = enrichSessionStart(data);
+    checkAndSpawnWatcher();
   } else {
     debug(`main: using raw data (no enrichment for ${event})`);
     payload = data;
