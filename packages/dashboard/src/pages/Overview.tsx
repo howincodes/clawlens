@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { getUsers, getSubscriptions, getAnalytics, getLeaderboard, updateUser } from '@/lib/api'
+import { getUsers, getSubscriptions, getAnalytics, getLeaderboard, updateUser, getRecentEvents } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -23,8 +23,44 @@ import { ConfirmActionModal } from '@/components/ConfirmActionModal'
 import { formatDistanceToNow } from 'date-fns'
 
 // ── Helpers ───────────────────────────────────────────────
-function eventColor(type: string): string {
+
+/** Normalize event type names from different sources (WS broadcast, DB, polling) to canonical form. */
+function canonicalEventType(type: string): string {
   switch (type) {
+    // WS broadcast names
+    case 'session_start':
+    case 'SessionStart':
+    case 'session_started':
+      return 'session_started'
+    case 'prompt':
+    case 'UserPromptSubmit':
+    case 'prompt_submitted':
+      return 'prompt_submitted'
+    case 'tool_use':
+    case 'PreToolUse':
+    case 'tool_used':
+      return 'tool_used'
+    case 'stop':
+    case 'Stop':
+    case 'turn_completed':
+      return 'turn_completed'
+    case 'StopFailure':
+    case 'tool_failed':
+      return 'tool_failed'
+    case 'SessionEnd':
+    case 'session_ended':
+      return 'session_ended'
+    case 'PostToolUse':
+      return 'tool_used'
+    case 'SubagentStart':
+      return 'tool_used'
+    default:
+      return type
+  }
+}
+
+function eventColor(type: string): string {
+  switch (canonicalEventType(type)) {
     case 'prompt_submitted':
       return 'text-blue-500'
     case 'prompt_blocked':
@@ -50,7 +86,7 @@ function eventColor(type: string): string {
 }
 
 function eventBgClass(type: string): string {
-  switch (type) {
+  switch (canonicalEventType(type)) {
     case 'prompt_submitted':
       return 'border-l-blue-500'
     case 'prompt_blocked':
@@ -76,7 +112,7 @@ function eventBgClass(type: string): string {
 
 function eventDescription(evt: { type: string; payload: Record<string, unknown> }): string {
   const p = evt.payload
-  switch (evt.type) {
+  switch (canonicalEventType(evt.type)) {
     case 'prompt_submitted':
       return `submitted a prompt${p.model ? ` via ${normalizeModel(p.model as string)}` : ''}`
     case 'prompt_blocked':
@@ -84,7 +120,7 @@ function eventDescription(evt: { type: string; payload: Record<string, unknown> 
     case 'turn_completed':
       return `completed a turn${p.model ? ` on ${normalizeModel(p.model as string)}` : ''}`
     case 'session_started':
-      return `started a session${p.project_dir ? ` in ${p.project_dir}` : ''}`
+      return `started a session${p.project_dir || p.cwd ? ` in ${p.project_dir || p.cwd}` : ''}`
     case 'session_ended':
       return `ended a session`
     case 'tool_used':
@@ -146,6 +182,8 @@ export function Overview() {
   const events = useWSStore((s) => s.events)
   const wsStatus = useWSStore((s) => s.status)
 
+  const feedSeeded = useRef(false)
+
   const loadData = useCallback(async () => {
     try {
       setError(null)
@@ -163,6 +201,32 @@ export function Overview() {
         lMap.set(String(entry.user_id || entry.id), entry)
       }
       setLeaderMap(lMap)
+
+      // Seed Live Feed with recent events on first load
+      if (!feedSeeded.current) {
+        feedSeeded.current = true
+        try {
+          const since = new Date(Date.now() - 3600000).toISOString()
+          const eventsRes = await getRecentEvents(since)
+          if (Array.isArray(eventsRes?.data)) {
+            const wsStore = useWSStore.getState()
+            // Add oldest first so newest end up at top
+            for (const evt of eventsRes.data.reverse()) {
+              wsStore.addEvent({
+                type: evt.event_type || evt.type || 'hook_event',
+                payload: {
+                  ...evt,
+                  type: evt.event_type || evt.type,
+                  user_name: evt.user_name || 'Unknown',
+                },
+                timestamp: new Date(evt.created_at).getTime(),
+              })
+            }
+          }
+        } catch {
+          // Seeding is best-effort
+        }
+      }
     } catch (err) {
       console.error('Failed to load overview data', err)
       setError('Failed to load dashboard data. Please try again.')

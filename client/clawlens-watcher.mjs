@@ -217,24 +217,11 @@ function notify(title, message) {
         });
       } catch {}
     } else if (plat === 'win32') {
-      const psTitle = escapePowerShell(title);
-      const psMsg = escapePowerShell(message);
-      const script = `
-        Add-Type -AssemblyName System.Windows.Forms
-        $n = New-Object System.Windows.Forms.NotifyIcon
-        $n.Icon = [System.Drawing.SystemIcons]::Information
-        $n.BalloonTipTitle = '${psTitle}'
-        $n.BalloonTipText = '${psMsg}'
-        $n.Visible = $true
-        $n.ShowBalloonTip(5000)
-        [System.Media.SystemSounds]::Asterisk.Play()
-        Start-Sleep -Seconds 6
-        $n.Dispose()
-      `;
-      execSync(`powershell -NoProfile -Command "${escapeDoubleQuotes(script)}"`, {
-        timeout: 10000,
-        stdio: 'ignore',
-      });
+      // Windows balloon notification via PowerShell — single-line command to avoid quoting issues
+      const escapedTitle = escapePowerShell(title);
+      const escapedMsg = escapePowerShell(message);
+      const cmd = `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $n = New-Object System.Windows.Forms.NotifyIcon; $n.Icon = [System.Drawing.SystemIcons]::Information; $n.Visible = $true; $n.BalloonTipTitle = '${escapedTitle}'; $n.BalloonTipText = '${escapedMsg}'; $n.ShowBalloonTip(5000); [System.Media.SystemSounds]::Asterisk.Play(); Start-Sleep 6; $n.Dispose()"`;
+      execSync(cmd, { timeout: 15000, stdio: 'ignore', windowsHide: true });
     }
     log(`Notification sent: "${title}" — "${message}"`);
   } catch (e) {

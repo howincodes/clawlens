@@ -61,6 +61,13 @@ import { formatDistanceToNow, format } from 'date-fns'
 const COLORS = ['#3b82f6', '#a855f7', '#f97316', '#22c55e', '#ef4444', '#06b6d4']
 
 // ── Helpers ───────────────────────────────────────────────
+
+/** Parse a server date string, appending 'Z' if missing so it's treated as UTC. */
+function parseServerDate(dateStr: string): Date {
+  if (!dateStr) return new Date(0)
+  return new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z')
+}
+
 function normalizeModel(model: string): string {
   if (!model) return 'Unknown'
   const lower = model.toLowerCase()
@@ -567,7 +574,7 @@ export function UserDetail() {
               <>
                 <span className="text-muted-foreground">Last heartbeat:</span>
                 <span className="text-sm">
-                  {formatDistanceToNow(new Date(watcherStatus.last_event_at), { addSuffix: true })}
+                  {formatDistanceToNow(parseServerDate(watcherStatus.last_event_at), { addSuffix: true })}
                 </span>
               </>
             )}
@@ -790,7 +797,7 @@ export function UserDetail() {
                         </TableCell>
                         <TableCell className="text-right text-xs text-muted-foreground">
                           {dev.last_seen
-                            ? formatDistanceToNow(new Date(dev.last_seen), { addSuffix: true })
+                            ? formatDistanceToNow(parseServerDate(dev.last_seen), { addSuffix: true })
                             : '-'}
                         </TableCell>
                       </TableRow>
@@ -1033,7 +1040,7 @@ export function UserDetail() {
                       </div>
                       <div className="text-xs text-muted-foreground">
                         {session.started_at
-                          ? formatDistanceToNow(new Date(session.started_at), { addSuffix: true })
+                          ? formatDistanceToNow(parseServerDate(session.started_at), { addSuffix: true })
                           : 'Unknown time'}{' '}
                         &bull;{' '}
                         {formatDuration(session.duration_ms || session.duration || 0)}
@@ -1094,7 +1101,7 @@ export function UserDetail() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-[10px] text-muted-foreground">
                           {p.timestamp || p.created_at
-                            ? formatDistanceToNow(new Date(p.timestamp || p.created_at), {
+                            ? formatDistanceToNow(parseServerDate(p.timestamp || p.created_at), {
                                 addSuffix: true,
                               })
                             : 'Unknown'}

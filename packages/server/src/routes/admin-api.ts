@@ -275,8 +275,31 @@ adminRouter.get('/users/:id', (req: Request, res: Response) => {
       )
       .get(user.id) as { prompt_count: number; total_credits: number };
 
+    // Get unique devices from hook events (SessionStart sends hostname + platform)
+    const devices = db.prepare(
+      `SELECT DISTINCT
+        json_extract(payload, '$.hostname') as hostname,
+        json_extract(payload, '$.platform') as platform
+       FROM hook_events
+       WHERE user_id = ? AND event_type = 'SessionStart'
+       AND json_extract(payload, '$.hostname') IS NOT NULL`
+    ).all(user.id) as any[];
+
+    // Enrich devices with last_seen from the most recent SessionStart for each hostname
+    for (const device of devices) {
+      const latest = db.prepare(
+        `SELECT created_at FROM hook_events
+         WHERE user_id = ? AND event_type = 'SessionStart'
+         AND json_extract(payload, '$.hostname') = ?
+         ORDER BY created_at DESC LIMIT 1`
+      ).get(user.id, device.hostname) as { created_at: string } | undefined;
+      device.last_seen = latest?.created_at || null;
+      device.id = `${device.hostname}-${device.platform}`;
+    }
+
     res.json({
       ...user,
+      devices,
       limits,
       recent_prompts: prompts,
       sessions,
@@ -950,11 +973,15 @@ adminRouter.get('/users/:id/watcher/status', (req: Request, res: Response) => {
     const user = getUserById(req.params.id);
     if (!user) { res.status(404).json({ error: 'User not found' }); return; }
 
+    // Ensure timestamp has 'Z' suffix so the dashboard parses it as UTC
+    const lastEvent = user.last_event_at;
+    const formattedLastEvent = lastEvent && !lastEvent.endsWith('Z') ? lastEvent + 'Z' : lastEvent;
+
     res.json({
       connected: isWatcherConnected(user.id) || isWatcherRecentlyActive(user),
       ws_connected: isWatcherConnected(user.id),
       recently_active: isWatcherRecentlyActive(user),
-      last_event_at: user.last_event_at,
+      last_event_at: formattedLastEvent,
     });
   } catch (err) {
     console.error('[admin-api] watcher status error:', err);
