@@ -506,24 +506,27 @@ async function main() {
   }
 
   const response = await postToServer(apiPath, payload);
-  if (response) {
-    debug(`main: writing response to stdout: ${response.slice(0, 200)}`);
-    process.stdout.write(response);
 
-    // Notify on block decisions from the server
+  // Launch notifications BEFORE writing to stdout.
+  // Claude Code kills the hook process after receiving stdout output,
+  // so anything after stdout.write may never execute.
+  if (event === 'Stop' && data.stop_hook_active !== true && shouldNotify('stop')) {
+    notifyUser('ClawLens', 'Task completed');
+  }
+
+  if (response) {
+    // Check for block decisions before writing stdout
     try {
       const resp = JSON.parse(response);
       if (resp.decision === 'block' && shouldNotify('block')) {
         notifyUser('ClawLens', resp.reason || 'Prompt blocked');
       }
     } catch {}
+
+    debug(`main: writing response to stdout: ${response.slice(0, 200)}`);
+    process.stdout.write(response);
   } else {
     debug(`main: no response from server (empty) — allowing`);
-  }
-
-  // Notify on Stop (task completed) — only for real completions, not stop_hook_active
-  if (event === 'Stop' && data.stop_hook_active !== true && shouldNotify('stop')) {
-    notifyUser('ClawLens', 'Task completed');
   }
 
   debug(`──── ClawLens hook done ────`);
