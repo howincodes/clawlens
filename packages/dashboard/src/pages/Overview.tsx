@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { getUsers, getSubscriptions, getAnalytics, getLeaderboard, updateUser, getRecentEvents } from '@/lib/api'
+import { getUsers, getSubscriptions, getAnalytics, getLeaderboard, updateUser, getRecentEvents, getUserProfiles } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -182,6 +182,7 @@ export function Overview() {
   const [subscriptions, setSubscriptions] = useState<any[]>([])
   const [analytics, setAnalytics] = useState<any>(null)
   const [leaderMap, setLeaderMap] = useState<Map<string, any>>(new Map())
+  const [profileMap, setProfileMap] = useState<Map<string, any>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [confirmAction, setConfirmAction] = useState<{
@@ -211,6 +212,18 @@ export function Overview() {
         lMap.set(String(entry.user_id || entry.id), entry)
       }
       setLeaderMap(lMap)
+
+      // Fetch AI profiles
+      try {
+        const profilesRes = await getUserProfiles()
+        const pMap = new Map()
+        for (const p of profilesRes?.data || []) {
+          pMap.set(String(p.user_id), p.profile)
+        }
+        setProfileMap(pMap)
+      } catch {
+        // profiles are best-effort
+      }
 
       // Seed Live Feed with recent events on first load
       if (!feedSeeded.current) {
@@ -464,6 +477,7 @@ export function Overview() {
             <div className="grid gap-4 sm:grid-cols-2">
               {users.map((user: any) => {
                 const stats = leaderMap.get(String(user.id)) || {}
+                const userProfile = profileMap.get(String(user.id))
 
                 return (
                   <Card
@@ -493,6 +507,14 @@ export function Overview() {
                           {user.watcher_connected === false && user.last_active && (
                             <span className="w-2 h-2 rounded-full bg-red-500 inline-block" title="Watcher disconnected" />
                           )}
+                          {userProfile?.productivity?.score && (
+                            <span className={`text-xs font-bold ${
+                              userProfile.productivity.score >= 70 ? 'text-green-600' :
+                              userProfile.productivity.score >= 40 ? 'text-yellow-600' : 'text-red-600'
+                            }`}>
+                              {userProfile.productivity.score}
+                            </span>
+                          )}
                           <Badge
                             variant={
                               user.status === 'active'
@@ -510,6 +532,15 @@ export function Overview() {
                         {user.subscription_email || user.email || 'No subscription linked'}
                       </CardDescription>
                     </CardHeader>
+                    {/* AI Profile Summary */}
+                    {userProfile && (
+                      <div className="px-4 pb-2 space-y-1">
+                        <div className="text-xs text-muted-foreground">{userProfile.role_estimate}</div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          Focus: {userProfile.current_focus}
+                        </div>
+                      </div>
+                    )}
                     <Link to={`/users/${user.id}`} className="flex-1">
                       <CardContent className="p-4 pt-2">
                         <div className="grid grid-cols-2 gap-3">
