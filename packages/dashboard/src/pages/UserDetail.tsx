@@ -92,6 +92,15 @@ function formatDuration(ms: number): string {
   return `${hours}h ${remainingMinutes}m`
 }
 
+function extractProjectName(cwd: string): string {
+  if (!cwd) return 'unknown'
+  // Get last meaningful directory name from path
+  const parts = cwd.replace(/\\/g, '/').split('/').filter(Boolean)
+  // Skip generic names like "Users", "home", drive letters
+  const name = parts[parts.length - 1] || 'unknown'
+  return name
+}
+
 // ── Component ─────────────────────────────────────────────
 export function UserDetail() {
   const { id } = useParams()
@@ -206,13 +215,27 @@ export function UserDetail() {
     loadPrompts()
   }, [loadPrompts])
 
+  const loadWatcherStatus = useCallback(async () => {
+    if (!id) return
+    try {
+      const status = await getWatcherStatus(id)
+      setWatcherStatus(status)
+    } catch {
+      // watcher status is best-effort
+    }
+  }, [id])
+
   useEffect(() => {
     loadSessions()
     loadAllPromptsForCharts()
-    if (id) {
-      getWatcherStatus(id).then(setWatcherStatus).catch(() => {})
-    }
-  }, [loadSessions, loadAllPromptsForCharts, id])
+    loadWatcherStatus()
+  }, [loadSessions, loadAllPromptsForCharts, loadWatcherStatus])
+
+  // Auto-refresh watcher status every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(loadWatcherStatus, 30000)
+    return () => clearInterval(interval)
+  }, [loadWatcherStatus])
 
   // Cleanup log polling on unmount
   useEffect(() => {
@@ -274,7 +297,8 @@ export function UserDetail() {
   const topProjects = useMemo(() => {
     const map = new Map<string, { count: number; cost: number }>()
     for (const p of allPrompts) {
-      const dir = p.project_dir || 'unknown'
+      const session = data?.sessions?.find((s: any) => s.id === p.session_id)
+      const dir = session?.cwd ? extractProjectName(session.cwd) : 'unknown'
       const cur = map.get(dir) || { count: 0, cost: 0 }
       cur.count++
       cur.cost += Number(p.credit_cost || p.cost_usd || p.cost || 0)
@@ -284,7 +308,7 @@ export function UserDetail() {
       .map(([name, d]) => ({ name, prompt_count: d.count, cost: d.cost }))
       .sort((a, b) => b.prompt_count - a.prompt_count)
       .slice(0, 10)
-  }, [allPrompts])
+  }, [allPrompts, data?.sessions])
 
   const handleRequestLogs = useCallback(async () => {
     if (!id) return
@@ -387,14 +411,13 @@ export function UserDetail() {
   }
 
   const { user, devices, latest_summary: latestSummary } = data
-  const stats = data.stats || data.analytics || {}
   const limits = user?.limits || data.limits || []
 
-  const totalPrompts = stats.total_prompts ?? stats.allTime?.prompts ?? 0
-  const promptsToday = stats.prompts_today ?? stats.today?.prompts ?? 0
-  const totalCost = stats.total_cost ?? stats.allTime?.cost ?? 0
-  const totalSessions = stats.total_sessions ?? stats.allTime?.sessions ?? 0
-  const sessionsToday = stats.sessions_today ?? stats.today?.sessions ?? 0
+  const totalPrompts = data.prompt_count ?? 0
+  const promptsToday = data.prompts_today ?? 0
+  const totalCost = data.total_credits ?? 0
+  const totalSessions = data.session_count ?? data.sessions?.length ?? 0
+  const sessionsToday = data.sessions_today ?? 0
   const deviceCount = devices?.length ?? 0
 
   const promptTotalPages = Math.max(1, Math.ceil(promptsTotal / 10))
@@ -999,7 +1022,7 @@ export function UserDetail() {
                     <div className="min-w-0 flex-1">
                       <div className="font-medium text-sm flex gap-2 items-center flex-wrap">
                         <span className="truncate max-w-[160px]">
-                          {session.project_dir || 'Unknown project'}
+                          {extractProjectName(session.cwd) || 'Unknown project'}
                         </span>
                         <Badge
                           variant={modelBadgeVariant(session.model || '')}
@@ -1082,11 +1105,15 @@ export function UserDetail() {
                         >
                           {normalizeModel(p.model || '')}
                         </Badge>
-                        {p.project_dir && (
-                          <Badge variant="outline" className="text-[10px]">
-                            <Folder className="w-3 h-3 mr-1 inline" /> {p.project_dir}
-                          </Badge>
-                        )}
+                        {(() => {
+                          const pSession = data?.sessions?.find((s: any) => s.id === p.session_id)
+                          const projName = pSession?.cwd ? extractProjectName(pSession.cwd) : null
+                          return projName && projName !== 'unknown' ? (
+                            <Badge variant="outline" className="text-[10px]">
+                              <Folder className="w-3 h-3 mr-1 inline" /> {projName}
+                            </Badge>
+                          ) : null
+                        })()}
                       </div>
                       <div className="flex items-center gap-2">
                         {p.turn_duration_ms && (

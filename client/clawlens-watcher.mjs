@@ -339,6 +339,8 @@ function getSubscriptionInfo() {
   // Check cache (5 minute TTL)
   const cached = readJSON(CACHE_FILE);
   if (cached?.email && Date.now() - (cached._ts || 0) < 300000) {
+    // Re-normalize in case cache was written by older version
+    cached.subscriptionType = normalizeSubscriptionType(cached.subscriptionType);
     return cached;
   }
 
@@ -588,7 +590,9 @@ async function syncWithServer() {
   writeJSON(CONFIG_FILE, configData);
 
   // Process commands
-  if (Array.isArray(resp.commands)) {
+  let hadCommands = false;
+  if (Array.isArray(resp.commands) && resp.commands.length > 0) {
+    hadCommands = true;
     for (const cmd of resp.commands) {
       await handleCommand(cmd);
     }
@@ -596,6 +600,11 @@ async function syncWithServer() {
 
   // Check credit usage notifications
   checkCreditNotifications(resp);
+
+  // If we received commands, poll again soon for follow-ups
+  if (hadCommands) {
+    schedulePoll(10000); // 10 seconds
+  }
 }
 
 // ══════════════════════════════════════════════════════
@@ -782,15 +791,25 @@ ClawLens Status
 // 9. POLL LOOP
 // ══════════════════════════════════════════════════════
 
-function schedulePoll() {
-  setTimeout(async () => {
+let pollTimer = null;
+
+function schedulePoll(delayMs) {
+  // Cancel any existing scheduled poll
+  if (pollTimer) clearTimeout(pollTimer);
+  const delay = delayMs ?? pollIntervalMs;
+  pollTimer = setTimeout(async () => {
+    pollTimer = null;
     try {
       await syncWithServer();
     } catch (e) {
       log(`Sync error: ${e.message}`);
     }
-    schedulePoll();
-  }, pollIntervalMs);
+    // Only schedule next regular poll if syncWithServer didn't already
+    // schedule a short re-poll (from command processing)
+    if (!pollTimer) {
+      schedulePoll(pollIntervalMs);
+    }
+  }, delay);
 }
 
 // ══════════════════════════════════════════════════════

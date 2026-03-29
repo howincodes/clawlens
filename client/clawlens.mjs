@@ -268,6 +268,8 @@ function getSubscriptionInfo() {
   const cached = readJSON(CACHE_FILE);
   if (cached?.email && Date.now() - (cached._ts || 0) < 300000) {
     const age = Math.round((Date.now() - cached._ts) / 1000);
+    // Re-normalize in case cache was written by older version
+    cached.subscriptionType = normalizeSubscriptionType(cached.subscriptionType);
     debug(`getSubscriptionInfo: using cache (age=${age}s) — email=${cached.email}, type=${cached.subscriptionType}`);
     return cached;
   }
