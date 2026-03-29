@@ -45,7 +45,7 @@ Write-Host "  -> Removed hook files"
 Write-Host "  Removing cache and log files..."
 @(".clawlens-cache.json", ".clawlens-model.txt", ".clawlens-config.json",
   ".clawlens-watcher.pid", ".clawlens-debug.log", ".clawlens-watcher.log",
-  ".clawlens-watcher-stderr.log") | ForEach-Object {
+  ".clawlens-watcher-stderr.log", ".clawlens-notify.ps1") | ForEach-Object {
     $f = Join-Path $HooksDir $_
     if (Test-Path $f) { Remove-Item $f -Force }
 }
