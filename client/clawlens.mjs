@@ -353,8 +353,9 @@ $n.ShowBalloonTip(5000)
 [System.Media.SystemSounds]::Asterisk.Play()
 Start-Sleep 6
 $n.Dispose()`);
-      // spawn without detached/windowsHide — must be in user's desktop session for toast to show
-      const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmpPs1], { stdio: 'ignore' });
+      // detached: true so PowerShell survives after hook process exits
+      // windowsHide: false so it can access the desktop session for toast
+      const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmpPs1], { detached: true, stdio: 'ignore', windowsHide: false });
       child.unref();
     } else {
       // Linux: async, fire-and-forget
