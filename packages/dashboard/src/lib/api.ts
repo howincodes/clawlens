@@ -110,6 +110,16 @@ export const getTamperAlerts = () => fetchClient('/tamper-alerts')
 export const resolveTamperAlert = (id: number) =>
   fetchClient(`/tamper-alerts/${id}/resolve`, { method: 'POST' })
 
+// ── Watcher ───────────────────────────────────────────────
+export const getWatcherStatus = (userId: string) => fetchClient(`/users/${userId}/watcher/status`)
+export const getWatcherLogs = (userId: string) => fetchClient(`/users/${userId}/watcher/logs`)
+export const sendWatcherCommand = (userId: string, command: string, message?: string) =>
+  fetchClient(`/users/${userId}/watcher/command`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command, message }),
+  })
+
 // ── Export ─────────────────────────────────────────────────
 export const exportData = (type: string, days: number, format: string) => {
   window.open(`/api/admin/export/${type}?days=${days}&format=${format}`)
