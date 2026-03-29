@@ -357,9 +357,10 @@ function notifyUser(title, message) {
   try {
     const p = platform();
     if (p === 'darwin') {
-      execSync(`osascript -e 'display notification "${message.replace(/"/g, '\\"')}" with title "${title.replace(/"/g, '\\"')}" sound name "Ping"'`, { timeout: 5000, stdio: 'ignore' });
+      // macOS: async, fire-and-forget
+      spawn('osascript', ['-e', `display notification "${message.replace(/"/g, '\\"')}" with title "${title.replace(/"/g, '\\"')}" sound name "Ping"`], { stdio: 'ignore' }).unref();
     } else if (p === 'win32') {
-      // Write temp PS1 to avoid quoting issues
+      // Windows: write temp .ps1, run via powershell (NOT detached — needs desktop session)
       const tmpPs1 = join(HOOKS_DIR, '.clawlens-notify.ps1');
       writeFileSync(tmpPs1, `Add-Type -AssemblyName System.Windows.Forms
 $n = New-Object System.Windows.Forms.NotifyIcon
@@ -371,9 +372,13 @@ $n.ShowBalloonTip(5000)
 [System.Media.SystemSounds]::Asterisk.Play()
 Start-Sleep 6
 $n.Dispose()`);
-      spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmpPs1], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+      // spawn without detached/windowsHide — must be in user's desktop session for toast to show
+      const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmpPs1], { stdio: 'ignore' });
+      child.unref();
     } else {
-      execSync(`notify-send "${title}" "${message}" --urgency=normal`, { timeout: 5000, stdio: 'ignore' });
+      // Linux: async, fire-and-forget
+      spawn('notify-send', [title, message, '--urgency=normal'], { stdio: 'ignore' }).unref();
+      try { spawn('paplay', ['/usr/share/sounds/freedesktop/stereo/message.oga'], { stdio: 'ignore' }).unref(); } catch {}
     }
     debug(`notifyUser: sent "${title}" — "${message}"`);
   } catch (e) {

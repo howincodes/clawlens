@@ -29,7 +29,6 @@ import {
   RefreshCw,
   Monitor,
   Zap,
-  Bell,
   Skull,
   FileText,
   Copy,
@@ -470,17 +469,6 @@ export function UserDetail() {
     loadLogHistory()
   }, [loadLogHistory])
 
-  const handleSendNotification = useCallback(async () => {
-    if (!id) return
-    const message = window.prompt('Enter notification message:')
-    if (!message) return
-    try {
-      await sendWatcherCommand(id, 'notify', message)
-    } catch (_err) {
-      console.error('Failed to send notification')
-    }
-  }, [id])
-
   const handleKill = useCallback(async () => {
     if (!id) return
     const confirmed = window.confirm('Are you sure you want to kill this user\'s Claude Code session?')
@@ -728,10 +716,6 @@ export function UserDetail() {
                 <RefreshCw className="w-4 h-4 mr-2" />
               )}
               Refresh
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleSendNotification}>
-              <Bell className="w-4 h-4 mr-2" />
-              Send Notification
             </Button>
             <Button variant="destructive" size="sm" onClick={handleKill}>
               <Skull className="w-4 h-4 mr-2" />
