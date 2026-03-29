@@ -93,7 +93,12 @@ export const getAllPrompts = (params?: Record<string, string>) =>
 // ── Summaries ─────────────────────────────────────────────
 export const getSummaries = (params?: Record<string, string>) =>
   fetchClient(`/summaries${params ? '?' + new URLSearchParams(params).toString() : ''}`)
-export const generateSummary = () => fetchClient('/summaries/generate', { method: 'POST' })
+export const generateSummary = (userId?: string) =>
+  fetchClient('/summaries/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(userId ? { user_id: userId } : {}),
+  })
 
 // ── Audit ─────────────────────────────────────────────────
 export const getAuditLog = (params?: Record<string, string>) =>

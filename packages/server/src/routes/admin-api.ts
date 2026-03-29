@@ -795,7 +795,7 @@ adminRouter.get('/summaries', (_req: Request, res: Response) => {
 // POST /summaries/generate
 // ---------------------------------------------------------------------------
 
-adminRouter.post('/summaries/generate', async (_req: Request, res: Response) => {
+adminRouter.post('/summaries/generate', async (req: Request, res: Response) => {
   try {
     // Check if claude CLI is available
     const available = await isClaudeAvailable();
@@ -805,23 +805,37 @@ adminRouter.post('/summaries/generate', async (_req: Request, res: Response) => 
     }
 
     const team = getOrCreateTeam();
-    const users = getUsersByTeam(team.id);
-
-    // Get recent prompts (last 24h) for all users in the team
     const db = getDb();
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const targetUserId = req.body.user_id as string | undefined;
+
+    // If user_id provided, generate for that user only
+    let whereClause: string;
+    let queryParams: unknown[];
+    let summaryUserId: string | undefined;
+
+    if (targetUserId) {
+      const targetUser = getUserById(targetUserId);
+      if (!targetUser) { res.status(404).json({ error: 'User not found' }); return; }
+      whereClause = `p.user_id = ? AND p.created_at >= ?`;
+      queryParams = [targetUserId, since];
+      summaryUserId = targetUserId;
+    } else {
+      whereClause = `p.user_id IN (SELECT id FROM users WHERE team_id = ?) AND p.created_at >= ?`;
+      queryParams = [team.id, since];
+    }
+
     const recentPrompts = db
       .prepare(
         `SELECT p.prompt, p.model, p.created_at
          FROM prompts p
-         WHERE p.user_id IN (SELECT id FROM users WHERE team_id = ?)
-         AND p.created_at >= ?
+         WHERE ${whereClause}
          AND p.blocked = 0
          AND p.prompt IS NOT NULL
          ORDER BY p.created_at DESC
          LIMIT 200`,
       )
-      .all(team.id, since) as Array<{ prompt: string; model: string; created_at: string }>;
+      .all(...queryParams) as Array<{ prompt: string; model: string; created_at: string }>;
 
     if (recentPrompts.length === 0) {
       res.json({ status: 'no_data', message: 'No prompts in the last 24 hours to summarize' });
@@ -833,6 +847,7 @@ adminRouter.post('/summaries/generate', async (_req: Request, res: Response) => 
 
     // Save result to DB
     const summary = createSummary({
+      user_id: summaryUserId,
       period: 'daily',
       summary: result.summary,
       categories: JSON.stringify(result.categories),

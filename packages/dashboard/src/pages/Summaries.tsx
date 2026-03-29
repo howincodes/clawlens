@@ -61,8 +61,9 @@ export function Summaries() {
     setGenerating(true)
     setGenerateMessage(null)
     try {
-      await generateSummary()
-      setGenerateMessage({ type: 'success', text: 'Summary generation started. It will appear shortly.' })
+      await generateSummary(userId || undefined)
+      const forUser = userId ? users.find((u: any) => String(u.id) === userId) : null
+      setGenerateMessage({ type: 'success', text: `Summary${forUser ? ` for ${(forUser as any).name}` : ' (all users)'} generation started. It will appear shortly.` })
       // Also re-fetch after a delay in case WS doesn't fire
       setTimeout(() => {
         loadSummaries()

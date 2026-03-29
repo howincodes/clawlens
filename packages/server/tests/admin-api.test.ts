@@ -604,7 +604,7 @@ describe('POST /api/admin/summaries/generate', () => {
     const db = getDb();
     db.prepare('DELETE FROM prompts').run();
 
-    const res = await authPost('/api/admin/summaries/generate');
+    const res = await authPost('/api/admin/summaries/generate').send({});
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('no_data');
