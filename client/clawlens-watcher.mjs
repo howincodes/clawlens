@@ -310,8 +310,10 @@ function normalizeSubscriptionType(raw) {
 }
 
 function getPlanDefaultModel() {
-  const cache = readJSON(CACHE_FILE);
-  const subType = (cache?.subscriptionType || '').toLowerCase();
+  // Get fresh subscription info (uses cache with TTL) so we never
+  // read a stale cache file that hasn't been refreshed yet.
+  const sub = getSubscriptionInfo();
+  const subType = (sub?.subscriptionType || '').toLowerCase();
   if (subType.includes('max')) return 'opus';
   if (subType.includes('team_premium')) return 'opus';
   return 'sonnet';
@@ -572,7 +574,7 @@ async function syncWithServer() {
     }
   }
 
-  // Save config for offline status display
+  // Save config for offline status display + notification preferences
   const configData = {
     user: sub.email || 'unknown',
     model,
@@ -580,6 +582,7 @@ async function syncWithServer() {
     server: SERVER_URL,
     credit_usage: resp.credit_usage || null,
     limits: resp.limits || null,
+    notifications: resp.notifications || null,
     last_sync: Date.now(),
     hooks_intact: intactCount,
     hooks_total: HOOK_EVENTS.length,

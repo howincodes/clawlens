@@ -131,6 +131,13 @@ watcherRouter.post('/sync', (req: Request, res: Response) => {
         limit: creditLimit,
         percent: creditPercent,
       },
+      notifications: {
+        on_stop: true,
+        on_block: true,
+        on_credit_warning: true,
+        on_kill: true,
+        sound: true,
+      },
       commands,
     };
 

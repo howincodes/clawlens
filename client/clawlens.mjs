@@ -160,9 +160,11 @@ function normalizeModel(raw) {
 }
 
 function getPlanDefaultModel() {
-  debug(`getPlanDefaultModel: checking cache file...`);
-  const cache = readJSON(CACHE_FILE);
-  const subType = (cache?.subscriptionType || '').toLowerCase();
+  // Get fresh subscription info (uses cache with TTL) so we never
+  // read a stale cache file that hasn't been refreshed yet.
+  debug(`getPlanDefaultModel: getting fresh subscription info...`);
+  const sub = getSubscriptionInfo();
+  const subType = (sub?.subscriptionType || '').toLowerCase();
   debug(`getPlanDefaultModel: subscriptionType="${subType}"`);
   if (subType.includes('max')) { debug(`getPlanDefaultModel → opus (max plan)`); return 'opus'; }
   if (subType.includes('team_premium')) { debug(`getPlanDefaultModel → opus (team_premium)`); return 'opus'; }
@@ -331,6 +333,55 @@ function getSubscriptionInfo() {
 }
 
 // ══════════════════════════════════════════════════════
+// NOTIFICATIONS — Cross-Platform Desktop Notifications
+// ══════════════════════════════════════════════════════
+
+const CONFIG_FILE = join(HOOKS_DIR, '.clawlens-config.json');
+
+function shouldNotify(eventType) {
+  try {
+    const config = readJSON(CONFIG_FILE);
+    const prefs = config?.notifications;
+    if (!prefs) return false; // notifications disabled by default until config synced
+    switch (eventType) {
+      case 'stop': return prefs.on_stop === true;
+      case 'block': return prefs.on_block === true;
+      case 'credit_warning': return prefs.on_credit_warning === true;
+      case 'kill': return prefs.on_kill === true;
+      default: return false;
+    }
+  } catch { return false; }
+}
+
+function notifyUser(title, message) {
+  try {
+    const p = platform();
+    if (p === 'darwin') {
+      execSync(`osascript -e 'display notification "${message.replace(/"/g, '\\"')}" with title "${title.replace(/"/g, '\\"')}" sound name "Ping"'`, { timeout: 5000, stdio: 'ignore' });
+    } else if (p === 'win32') {
+      // Write temp PS1 to avoid quoting issues
+      const tmpPs1 = join(HOOKS_DIR, '.clawlens-notify.ps1');
+      writeFileSync(tmpPs1, `Add-Type -AssemblyName System.Windows.Forms
+$n = New-Object System.Windows.Forms.NotifyIcon
+$n.Icon = [System.Drawing.SystemIcons]::Information
+$n.Visible = $true
+$n.BalloonTipTitle = '${title.replace(/'/g, "''")}'
+$n.BalloonTipText = '${message.replace(/'/g, "''")}'
+$n.ShowBalloonTip(5000)
+[System.Media.SystemSounds]::Asterisk.Play()
+Start-Sleep 6
+$n.Dispose()`);
+      spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmpPs1], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    } else {
+      execSync(`notify-send "${title}" "${message}" --urgency=normal`, { timeout: 5000, stdio: 'ignore' });
+    }
+    debug(`notifyUser: sent "${title}" — "${message}"`);
+  } catch (e) {
+    debug(`notifyUser: failed — ${e.message}`);
+  }
+}
+
+// ══════════════════════════════════════════════════════
 // SESSION START ENRICHMENT
 // ══════════════════════════════════════════════════════
 
@@ -471,9 +522,23 @@ async function main() {
   if (response) {
     debug(`main: writing response to stdout: ${response.slice(0, 200)}`);
     process.stdout.write(response);
+
+    // Notify on block decisions from the server
+    try {
+      const resp = JSON.parse(response);
+      if (resp.decision === 'block' && shouldNotify('block')) {
+        notifyUser('ClawLens', resp.reason || 'Prompt blocked');
+      }
+    } catch {}
   } else {
     debug(`main: no response from server (empty) — allowing`);
   }
+
+  // Notify on Stop (task completed) — only for real completions, not stop_hook_active
+  if (event === 'Stop' && data.stop_hook_active !== true && shouldNotify('stop')) {
+    notifyUser('ClawLens', 'Task completed');
+  }
+
   debug(`──── ClawLens hook done ────`);
 }
 
