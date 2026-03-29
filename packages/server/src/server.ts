@@ -13,6 +13,7 @@ import { hookAuth } from './middleware/hook-auth.js';
 import { adminRouter } from './routes/admin-api.js';
 import { hookRouter } from './routes/hook-api.js';
 import { watcherRouter } from './routes/watcher-api.js';
+import { startAICrons } from './services/ai-jobs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -124,6 +125,7 @@ if (process.env.NODE_ENV !== 'test') {
   initWatcherWebSocket(server);
 
   let stopDeadman: (() => void) | undefined;
+  let stopAICrons: (() => void) | undefined;
 
   server.listen(port, () => {
     console.log(`[clawlens] Server running on port ${port}`);
@@ -141,6 +143,9 @@ if (process.env.NODE_ENV !== 'test') {
 
     stopDeadman = startDeadmanSwitch();
     console.log('[clawlens] Dead man\'s switch started');
+
+    stopAICrons = startAICrons();
+    console.log('[clawlens] AI intelligence crons started');
   });
 
   // Graceful shutdown
@@ -148,6 +153,9 @@ if (process.env.NODE_ENV !== 'test') {
     console.log('[clawlens] Shutting down...');
     if (stopDeadman) {
       stopDeadman();
+    }
+    if (stopAICrons) {
+      stopAICrons();
     }
     try {
       getDb().pragma('wal_checkpoint(FULL)');

@@ -44,6 +44,14 @@ import {
   markWatcherCommandDelivered,
   saveWatcherLogs,
   getLatestWatcherLogs,
+  getUserProfile,
+  upsertUserProfile,
+  getAllUserProfiles,
+  createTeamPulse,
+  getLatestTeamPulse,
+  getTeamPulseHistory,
+  updateSessionAI,
+  getUserPromptCount,
 } from '../src/services/db.js';
 
 // ---------------------------------------------------------------------------
@@ -82,8 +90,10 @@ describe('table creation', () => {
       'subscriptions',
       'summaries',
       'tamper_alerts',
+      'team_pulses',
       'teams',
       'tool_events',
+      'user_profiles',
       'users',
       'watcher_commands',
       'watcher_logs',
@@ -109,6 +119,8 @@ describe('table creation', () => {
     expect(indexNames).toContain('idx_tool_events_user');
     expect(indexNames).toContain('idx_tamper_alerts_user');
     expect(indexNames).toContain('idx_watcher_commands_user');
+    expect(indexNames).toContain('idx_user_profiles_user');
+    expect(indexNames).toContain('idx_team_pulses_team');
   });
 
   it('should set WAL journal mode (skipped for in-memory)', () => {
@@ -769,5 +781,194 @@ describe('watcher logs', () => {
   it('should return undefined when no logs exist', () => {
     const latest = getLatestWatcherLogs(userId);
     expect(latest).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// User Profiles
+// ---------------------------------------------------------------------------
+
+describe('user profiles', () => {
+  let userId: string;
+  let teamId: string;
+
+  beforeEach(() => {
+    const team = createTeam({ name: 'T', slug: 'up' });
+    teamId = team.id;
+    const user = createUser({ team_id: teamId, name: 'ProfileUser', auth_token: 'tok-up' });
+    userId = user.id;
+  });
+
+  it('should return undefined when no profile exists', () => {
+    const profile = getUserProfile(userId);
+    expect(profile).toBeUndefined();
+  });
+
+  it('should create a profile via upsert', () => {
+    const profile = upsertUserProfile({
+      user_id: userId,
+      profile: JSON.stringify({ role_estimate: 'Full-stack developer' }),
+      prompt_count_at_update: 10,
+    });
+    expect(profile.user_id).toBe(userId);
+    expect(profile.version).toBe(1);
+    expect(profile.prompt_count_at_update).toBe(10);
+    expect(JSON.parse(profile.profile).role_estimate).toBe('Full-stack developer');
+  });
+
+  it('should update an existing profile via upsert (increment version)', () => {
+    upsertUserProfile({
+      user_id: userId,
+      profile: JSON.stringify({ role_estimate: 'v1' }),
+      prompt_count_at_update: 5,
+    });
+    const updated = upsertUserProfile({
+      user_id: userId,
+      profile: JSON.stringify({ role_estimate: 'v2' }),
+      prompt_count_at_update: 15,
+    });
+    expect(updated.version).toBe(2);
+    expect(updated.prompt_count_at_update).toBe(15);
+    expect(JSON.parse(updated.profile).role_estimate).toBe('v2');
+  });
+
+  it('should get profile by user id', () => {
+    upsertUserProfile({
+      user_id: userId,
+      profile: JSON.stringify({ role_estimate: 'Backend dev' }),
+      prompt_count_at_update: 20,
+    });
+    const profile = getUserProfile(userId);
+    expect(profile).toBeDefined();
+    expect(profile!.user_id).toBe(userId);
+  });
+
+  it('should get all profiles for a team', () => {
+    const user2 = createUser({ team_id: teamId, name: 'User2', auth_token: 'tok-up2' });
+    upsertUserProfile({
+      user_id: userId,
+      profile: JSON.stringify({ role_estimate: 'dev1' }),
+      prompt_count_at_update: 10,
+    });
+    upsertUserProfile({
+      user_id: user2.id,
+      profile: JSON.stringify({ role_estimate: 'dev2' }),
+      prompt_count_at_update: 5,
+    });
+    const profiles = getAllUserProfiles(teamId);
+    expect(profiles).toHaveLength(2);
+    expect(profiles[0].user_name).toBeTruthy();
+    expect(profiles[1].user_name).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Team Pulses
+// ---------------------------------------------------------------------------
+
+describe('team pulses', () => {
+  let teamId: string;
+
+  beforeEach(() => {
+    const team = createTeam({ name: 'PulseTeam', slug: 'tp' });
+    teamId = team.id;
+  });
+
+  it('should create a team pulse', () => {
+    const pulse = createTeamPulse({
+      team_id: teamId,
+      pulse: JSON.stringify({ headline: 'All systems go' }),
+    });
+    expect(pulse.team_id).toBe(teamId);
+    expect(JSON.parse(pulse.pulse).headline).toBe('All systems go');
+    expect(pulse.generated_at).toBeTruthy();
+  });
+
+  it('should get latest team pulse', () => {
+    createTeamPulse({ team_id: teamId, pulse: JSON.stringify({ headline: 'Old' }) });
+    createTeamPulse({ team_id: teamId, pulse: JSON.stringify({ headline: 'New' }) });
+    const latest = getLatestTeamPulse(teamId);
+    expect(latest).toBeDefined();
+    expect(JSON.parse(latest!.pulse).headline).toBe('New');
+  });
+
+  it('should return undefined when no pulses exist', () => {
+    const pulse = getLatestTeamPulse(teamId);
+    expect(pulse).toBeUndefined();
+  });
+
+  it('should get pulse history with limit', () => {
+    for (let i = 0; i < 5; i++) {
+      createTeamPulse({ team_id: teamId, pulse: JSON.stringify({ headline: `Pulse ${i}` }) });
+    }
+    const history = getTeamPulseHistory(teamId, 3);
+    expect(history).toHaveLength(3);
+  });
+
+  it('should default to 10 items in pulse history', () => {
+    for (let i = 0; i < 15; i++) {
+      createTeamPulse({ team_id: teamId, pulse: JSON.stringify({ headline: `Pulse ${i}` }) });
+    }
+    const history = getTeamPulseHistory(teamId);
+    expect(history).toHaveLength(10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session AI
+// ---------------------------------------------------------------------------
+
+describe('session AI', () => {
+  let userId: string;
+
+  beforeEach(() => {
+    const team = createTeam({ name: 'T', slug: 'sai' });
+    const user = createUser({ team_id: team.id, name: 'U', auth_token: 'tok-sai' });
+    userId = user.id;
+  });
+
+  it('should update session with AI data', () => {
+    createSession({ id: 'sess-ai', user_id: userId, model: 'sonnet' });
+    updateSessionAI('sess-ai', {
+      ai_summary: 'Worked on auth system',
+      ai_categories: JSON.stringify(['debugging', 'feature-dev']),
+      ai_productivity_score: 85,
+      ai_key_actions: JSON.stringify(['Fixed login bug', 'Added tests']),
+      ai_tools_summary: 'Heavy use of Read and Edit tools',
+    });
+
+    const session = getSessionById('sess-ai');
+    expect(session).toBeDefined();
+    expect(session!.ai_summary).toBe('Worked on auth system');
+    expect(session!.ai_productivity_score).toBe(85);
+    expect(session!.ai_tools_summary).toBe('Heavy use of Read and Edit tools');
+    expect(session!.ai_analyzed_at).toBeTruthy();
+    expect(JSON.parse(session!.ai_categories!)).toEqual(['debugging', 'feature-dev']);
+    expect(JSON.parse(session!.ai_key_actions!)).toEqual(['Fixed login bug', 'Added tests']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// User prompt count
+// ---------------------------------------------------------------------------
+
+describe('user prompt count', () => {
+  let userId: string;
+
+  beforeEach(() => {
+    const team = createTeam({ name: 'T', slug: 'upc' });
+    const user = createUser({ team_id: team.id, name: 'U', auth_token: 'tok-upc' });
+    userId = user.id;
+  });
+
+  it('should return 0 when no prompts exist', () => {
+    expect(getUserPromptCount(userId)).toBe(0);
+  });
+
+  it('should count only non-blocked prompts', () => {
+    recordPrompt({ user_id: userId, prompt: 'A', credit_cost: 1 });
+    recordPrompt({ user_id: userId, prompt: 'B', credit_cost: 1 });
+    recordPrompt({ user_id: userId, prompt: 'C', credit_cost: 0, blocked: true, block_reason: 'limit' });
+    expect(getUserPromptCount(userId)).toBe(2);
   });
 });

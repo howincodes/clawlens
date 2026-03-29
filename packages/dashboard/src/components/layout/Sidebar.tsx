@@ -4,7 +4,7 @@ import {
   CreditCard,
   Users,
   BarChart3,
-  Sparkles,
+  Brain,
   Search,
   Settings,
   ShieldAlert,
@@ -18,7 +18,7 @@ const navItems = [
   { path: '/users', label: 'Users', icon: Users },
   { path: '/subscriptions', label: 'Subscriptions', icon: CreditCard },
   { path: '/analytics', label: 'Analytics', icon: BarChart3 },
-  { path: '/summaries', label: 'AI Summaries', icon: Sparkles },
+  { path: '/ai', label: 'AI Intelligence', icon: Brain },
   { path: '/prompts', label: 'Prompts Browser', icon: Search },
 ]
 

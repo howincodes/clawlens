@@ -8,6 +8,7 @@ import { UserDetail } from './pages/UserDetail'
 import { Subscriptions } from './pages/Subscriptions'
 import { Analytics } from './pages/Analytics'
 import { Summaries } from './pages/Summaries'
+import { AIIntelligence } from './pages/AIIntelligence'
 import { PromptsBrowser } from './pages/PromptsBrowser'
 import { Settings } from './pages/Settings'
 import { AuditLog } from './pages/AuditLog'
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/users/:id" element={<UserDetail />} />
         <Route path="/subscriptions" element={<Subscriptions />} />
         <Route path="/analytics" element={<Analytics />} />
+        <Route path="/ai" element={<AIIntelligence />} />
         <Route path="/summaries" element={<Summaries />} />
         <Route path="/prompts" element={<PromptsBrowser />} />
         <Route path="/settings" element={<Settings />} />

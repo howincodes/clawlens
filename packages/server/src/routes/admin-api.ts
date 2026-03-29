@@ -12,10 +12,15 @@ import {
   deleteUser,
   getPromptsByUser,
   getSessionsByUser,
+  getSessionById,
   getLimitsByUser,
   createLimit,
   deleteLimitsByUser,
   createSummary,
+  getUserProfile,
+  getAllUserProfiles,
+  getLatestTeamPulse,
+  getTeamPulseHistory,
   type TeamRow,
   type UserRow,
   getUnresolvedTamperAlerts,
@@ -28,6 +33,7 @@ import { sendToWatcher, isWatcherConnected } from '../services/watcher-ws.js';
 import { adminAuth, generateToken } from '../middleware/admin-auth.js';
 import { getUserTamperStatus, autoResolveInactiveAlerts } from '../services/tamper.js';
 import { generateSummary, isClaudeAvailable } from '../services/claude-ai.js';
+import { queueSessionAnalysis, updateUserProfile, generateTeamPulse } from '../services/ai-jobs.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1062,6 +1068,156 @@ adminRouter.get('/events/recent', (req: Request, res: Response) => {
     res.json({ data: events, timestamp: new Date().toISOString() });
   } catch (err) {
     console.error('[admin-api] events/recent error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /sessions/:id/analyze — manually trigger session analysis
+// ---------------------------------------------------------------------------
+
+adminRouter.post('/sessions/:id/analyze', async (req: Request, res: Response) => {
+  try {
+    const session = getSessionById(req.params.id);
+    if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+
+    // Clear existing analysis to force re-analysis
+    const db = getDb();
+    db.prepare('UPDATE sessions SET ai_analyzed_at = NULL WHERE id = ?').run(req.params.id);
+
+    queueSessionAnalysis(req.params.id, session.user_id);
+    res.json({ status: 'queued' });
+  } catch (err) {
+    console.error('[admin-api] session analyze error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /users/:id/profile — get user's AI profile
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/users/:id/profile', (req: Request, res: Response) => {
+  try {
+    const user = getUserById(req.params.id);
+    if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+    const profile = getUserProfile(user.id);
+    if (!profile) { res.json({ data: null }); return; }
+    res.json({ data: { ...profile, profile: JSON.parse(profile.profile) } });
+  } catch (err) {
+    console.error('[admin-api] user profile error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /users/:id/profile/update — force regenerate profile
+// ---------------------------------------------------------------------------
+
+adminRouter.post('/users/:id/profile/update', async (req: Request, res: Response) => {
+  try {
+    const user = getUserById(req.params.id);
+    if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+    await updateUserProfile(user.id);
+    const profile = getUserProfile(user.id);
+    res.json({ status: 'complete', data: profile ? { ...profile, profile: JSON.parse(profile.profile) } : null });
+  } catch (err) {
+    console.error('[admin-api] profile update error:', err);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /profiles — list all user profiles
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/profiles', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const profiles = getAllUserProfiles(team.id);
+    const data = profiles.map(p => ({ ...p, profile: JSON.parse(p.profile) }));
+    res.json({ data });
+  } catch (err) {
+    console.error('[admin-api] profiles list error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /pulse/generate — generate team pulse now
+// ---------------------------------------------------------------------------
+
+adminRouter.post('/pulse/generate', async (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    await generateTeamPulse(team.id);
+    const pulse = getLatestTeamPulse(team.id);
+    res.json({ status: 'complete', data: pulse ? { ...pulse, pulse: JSON.parse(pulse.pulse) } : null });
+  } catch (err) {
+    console.error('[admin-api] pulse generate error:', err);
+    res.status(500).json({ error: 'Failed to generate pulse' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /pulse — get latest pulse
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/pulse', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const pulse = getLatestTeamPulse(team.id);
+    res.json({ data: pulse ? { ...pulse, pulse: JSON.parse(pulse.pulse) } : null });
+  } catch (err) {
+    console.error('[admin-api] pulse error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /pulse/history — get previous pulses
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/pulse/history', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const limit = parseInt(req.query.limit as string) || 10;
+    const pulses = getTeamPulseHistory(team.id, limit);
+    const data = pulses.map(p => ({ ...p, pulse: JSON.parse(p.pulse) }));
+    res.json({ data });
+  } catch (err) {
+    console.error('[admin-api] pulse history error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /sessions/analyzed — list sessions with AI analysis data
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/sessions/analyzed', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const days = parseInt(req.query.days as string) || 7;
+    const userId = req.query.user_id as string | undefined;
+    const minScore = parseInt(req.query.min_score as string) || 0;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const since = new Date(Date.now() - days * 86400000).toISOString();
+
+    const db = getDb();
+    let where = `s.user_id IN (SELECT id FROM users WHERE team_id = ?) AND s.started_at >= ?`;
+    const params: unknown[] = [team.id, since];
+
+    if (userId) { where += ' AND s.user_id = ?'; params.push(userId); }
+    if (minScore > 0) { where += ' AND s.ai_productivity_score >= ?'; params.push(minScore); }
+
+    const sessions = db.prepare(
+      `SELECT s.*, u.name as user_name FROM sessions s LEFT JOIN users u ON s.user_id = u.id WHERE ${where} ORDER BY s.started_at DESC LIMIT ?`
+    ).all(...params, limit);
+
+    res.json({ data: sessions });
+  } catch (err) {
+    console.error('[admin-api] analyzed sessions error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions, getWatcherStatus, getWatcherLogs, getWatcherLogHistory, getWatcherLogEntry, sendWatcherCommand, updateUser } from '@/lib/api'
+import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions, getWatcherStatus, getWatcherLogs, getWatcherLogHistory, getWatcherLogEntry, sendWatcherCommand, updateUser, getUserProfile, updateUserProfile } from '@/lib/api'
 import {
   Card,
   CardContent,
@@ -35,6 +35,7 @@ import {
   Download,
   Clock,
   Info,
+  Brain,
 } from 'lucide-react'
 import {
   Table,
@@ -168,6 +169,10 @@ export function UserDetail() {
   const [pollIntervalInput, setPollIntervalInput] = useState<string>('30')
   const [pollSaving, setPollSaving] = useState(false)
 
+  // AI Profile state
+  const [aiProfile, setAiProfile] = useState<any>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
+
   // All prompts for charts (larger set)
   const [allPrompts, setAllPrompts] = useState<any[]>([])
 
@@ -281,7 +286,10 @@ export function UserDetail() {
     loadSessions()
     loadAllPromptsForCharts()
     loadWatcherStatus()
-  }, [loadSessions, loadAllPromptsForCharts, loadWatcherStatus])
+    if (id) {
+      getUserProfile(id).then(res => setAiProfile(res?.data || null)).catch(() => {})
+    }
+  }, [loadSessions, loadAllPromptsForCharts, loadWatcherStatus, id])
 
   // Auto-refresh watcher status every 30 seconds
   useEffect(() => {
@@ -550,6 +558,16 @@ export function UserDetail() {
     }
   }, [loadUser])
 
+  const handleUpdateProfile = useCallback(async () => {
+    if (!id) return
+    setProfileLoading(true)
+    try {
+      const res = await updateUserProfile(id)
+      setAiProfile(res?.data || null)
+    } catch {}
+    setProfileLoading(false)
+  }, [id])
+
   // ── Loading state ─────────────────────────────────────
   if (loading) {
     return (
@@ -703,6 +721,147 @@ export function UserDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* AI Developer Profile */}
+      {(() => {
+        const profile = aiProfile?.profile || {}
+        return (
+          <Card className="border-primary/20">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Brain className="w-5 h-5 text-primary" />
+                  Developer Profile
+                </CardTitle>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {aiProfile?.updated_at && (
+                    <span>Updated: {formatDistanceToNow(parseServerDate(aiProfile.updated_at), { addSuffix: true })}</span>
+                  )}
+                  <Button variant="ghost" size="sm" onClick={handleUpdateProfile} disabled={profileLoading}>
+                    {profileLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {!aiProfile?.profile ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Brain className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm mb-3">No AI profile yet.</p>
+                  <Button variant="outline" size="sm" onClick={handleUpdateProfile} disabled={profileLoading}>
+                    {profileLoading ? 'Generating...' : 'Generate Profile'}
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Role + Languages */}
+                  <div>
+                    <div className="text-lg font-semibold">{profile.role_estimate}</div>
+                    <div className="text-sm text-muted-foreground">{profile.primary_languages?.join(', ')}</div>
+                  </div>
+
+                  {/* Two columns: Focus + Productivity */}
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <div>
+                        <div className="text-xs font-medium text-muted-foreground uppercase">Current Focus</div>
+                        <div className="text-sm">{profile.current_focus}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium text-muted-foreground uppercase">This Week</div>
+                        <div className="text-sm">{profile.this_week}</div>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium text-muted-foreground uppercase">Productivity</div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl font-bold">{profile.productivity?.score || 0}</span>
+                        <span className="text-lg">/100</span>
+                        <span className={`text-sm font-medium ${
+                          profile.productivity?.trend === 'improving' ? 'text-green-600' :
+                          profile.productivity?.trend === 'declining' ? 'text-red-600' : 'text-yellow-600'
+                        }`}>
+                          {profile.productivity?.trend === 'improving' ? '\u2191' : profile.productivity?.trend === 'declining' ? '\u2193' : '\u2192'}
+                          {profile.productivity?.trend}
+                        </span>
+                      </div>
+                      <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${
+                          (profile.productivity?.score || 0) >= 70 ? 'bg-green-500' :
+                          (profile.productivity?.score || 0) >= 40 ? 'bg-yellow-500' : 'bg-red-500'
+                        }`} style={{ width: `${Math.min(profile.productivity?.score || 0, 100)}%` }} />
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {profile.productivity?.prompts_per_day_avg || 0} prompts/day avg &bull; {Math.round((profile.productivity?.tool_use_ratio || 0) * 100)}% tool use
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Strengths + Growth */}
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-xs font-medium text-muted-foreground uppercase mb-2">Strengths</div>
+                      <div className="flex flex-wrap gap-1">
+                        {profile.strengths?.map((s: string) => (
+                          <Badge key={s} variant="secondary" className="bg-green-500/10 text-green-700 text-xs">{s}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-medium text-muted-foreground uppercase mb-2">Growth Areas</div>
+                      <div className="flex flex-wrap gap-1">
+                        {profile.growth_areas?.map((g: string) => (
+                          <Badge key={g} variant="secondary" className="bg-blue-500/10 text-blue-700 text-xs">{g}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Work Patterns */}
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground uppercase mb-1">Work Patterns</div>
+                    <div className="text-xs text-muted-foreground flex flex-wrap gap-3">
+                      <span>Peak: {profile.work_patterns?.peak_hours}</span>
+                      <span>Avg session: {profile.work_patterns?.avg_session_length}</span>
+                      <span>{profile.work_patterns?.preferred_model}</span>
+                    </div>
+                  </div>
+
+                  {/* Behavioral Notes */}
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground uppercase mb-1">Behavioral Notes</div>
+                    <p className="text-sm italic text-muted-foreground">{profile.behavioral_notes}</p>
+                  </div>
+
+                  {/* Flags */}
+                  {profile.flags?.length > 0 && (
+                    <div>
+                      <div className="text-xs font-medium text-yellow-600 uppercase mb-1">Flags</div>
+                      <div className="space-y-1">
+                        {profile.flags.map((f: string, i: number) => (
+                          <div key={i} className="text-sm text-yellow-700 bg-yellow-50 dark:bg-yellow-500/10 px-2 py-1 rounded">{f}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Last Week */}
+                  {profile.last_week && (
+                    <div className="text-xs text-muted-foreground border-t pt-2">
+                      <span className="font-medium">Last week:</span> {profile.last_week}
+                    </div>
+                  )}
+
+                  {/* Footer */}
+                  <div className="text-[10px] text-muted-foreground border-t pt-2">
+                    Profile v{aiProfile.version} &bull; First seen: {new Date(aiProfile.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       {/* Watcher Status */}
       <Card>
@@ -1386,34 +1545,66 @@ export function UserDetail() {
                 {sessions.slice(0, 10).map((session: any) => (
                   <div
                     key={session.id}
-                    className="flex justify-between items-center border-b pb-3 last:border-0 last:pb-0"
+                    className="border-b pb-3 last:border-0 last:pb-0"
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium text-sm flex gap-2 items-center flex-wrap">
-                        <span className="truncate max-w-[160px]">
-                          {extractProjectName(session.cwd) || 'Unknown project'}
-                        </span>
-                        <Badge
-                          variant={modelBadgeVariant(session.model || '')}
-                          className="text-[10px] uppercase font-mono"
-                        >
-                          {normalizeModel(session.model || '')}
-                        </Badge>
+                    <div className="flex justify-between items-center">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-sm flex gap-2 items-center flex-wrap">
+                          <span className="truncate max-w-[160px]">
+                            {extractProjectName(session.cwd) || 'Unknown project'}
+                          </span>
+                          <Badge
+                            variant={modelBadgeVariant(session.model || '')}
+                            className="text-[10px] uppercase font-mono"
+                          >
+                            {normalizeModel(session.model || '')}
+                          </Badge>
+                          {session.ai_productivity_score != null && (
+                            <Badge variant="outline" className={`text-[10px] ${
+                              session.ai_productivity_score >= 70 ? 'border-green-500 text-green-600' :
+                              session.ai_productivity_score >= 40 ? 'border-yellow-500 text-yellow-600' : 'border-red-500 text-red-600'
+                            }`}>
+                              {session.ai_productivity_score}/100
+                            </Badge>
+                          )}
+                          {!session.ai_summary && session.ended_at && !session.ai_productivity_score && (
+                            <Badge variant="outline" className="text-[10px] text-muted-foreground animate-pulse">
+                              Analyzing...
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {session.started_at
+                            ? formatDistanceToNow(parseServerDate(session.started_at), { addSuffix: true })
+                            : 'Unknown time'}{' '}
+                          &bull;{' '}
+                          {formatDuration(session.duration_ms || session.duration || 0)}
+                        </div>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {session.started_at
-                          ? formatDistanceToNow(parseServerDate(session.started_at), { addSuffix: true })
-                          : 'Unknown time'}{' '}
-                        &bull;{' '}
-                        {formatDuration(session.duration_ms || session.duration || 0)}
+                      <div className="text-right text-sm ml-4">
+                        <div>{session.prompt_count || 0} prompts</div>
+                        <div className="text-xs text-muted-foreground">
+                          {Number(session.total_cost_usd || session.cost || 0)} credits
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right text-sm ml-4">
-                      <div>{session.prompt_count || 0} prompts</div>
-                      <div className="text-xs text-muted-foreground">
-                        {Number(session.total_cost_usd || session.cost || 0)} credits
-                      </div>
-                    </div>
+                    {session.ai_summary && (
+                      <div className="mt-1.5 text-xs text-muted-foreground italic pl-1">{session.ai_summary}</div>
+                    )}
+                    {session.ai_categories && (() => {
+                      let cats: string[] = []
+                      try {
+                        cats = typeof session.ai_categories === 'string' ? JSON.parse(session.ai_categories) : session.ai_categories
+                      } catch {}
+                      if (!Array.isArray(cats) || cats.length === 0) return null
+                      return (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {cats.map((cat: string) => (
+                            <Badge key={cat} variant="outline" className="text-[10px] capitalize">{cat.replace(/_/g, ' ')}</Badge>
+                          ))}
+                        </div>
+                      )
+                    })()}
                   </div>
                 ))}
               </div>

@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2, Save, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Loader2, Save, AlertTriangle, CheckCircle2, Brain } from 'lucide-react'
 
 interface TeamSettings {
   collection_level?: string
@@ -38,6 +38,13 @@ export function Settings() {
   // Local form state
   const [name, setName] = useState('')
   const [settings, setSettings] = useState<TeamSettings>({})
+  const [aiSettings, setAiSettings] = useState({
+    sessionIntelligence: true,
+    profileHours: 2,
+    pulseTime: '09:00',
+    model: 'sonnet',
+    profileDepth: 'full',
+  })
 
   useEffect(() => {
     async function load() {
@@ -317,6 +324,75 @@ export function Settings() {
           </Button>
         </div>
       </form>
+
+      {/* AI Intelligence Settings (display-only for now) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Brain className="w-5 h-5" />
+            AI Intelligence
+          </CardTitle>
+          <CardDescription>Configure automated AI analysis features.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">Session Intelligence</div>
+              <div className="text-xs text-muted-foreground">Auto-analyze completed sessions</div>
+            </div>
+            <button className={`w-10 h-5 rounded-full transition-colors ${aiSettings.sessionIntelligence ? 'bg-green-500' : 'bg-gray-300'}`}
+              onClick={() => setAiSettings(s => ({ ...s, sessionIntelligence: !s.sessionIntelligence }))}>
+              <span className={`block w-4 h-4 rounded-full bg-white shadow transition-transform ${aiSettings.sessionIntelligence ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">Developer Profile Updates</div>
+              <div className="text-xs text-muted-foreground">Rolling behavioral profiles</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Every</span>
+              <input type="number" className="w-16 h-8 rounded border px-2 text-sm"
+                value={aiSettings.profileHours} onChange={e => setAiSettings(s => ({ ...s, profileHours: parseInt(e.target.value) || 2 }))} />
+              <span className="text-sm text-muted-foreground">hours</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">Daily Team Pulse</div>
+              <div className="text-xs text-muted-foreground">Auto-generate executive briefing</div>
+            </div>
+            <input type="time" className="h-8 rounded border px-2 text-sm"
+              value={aiSettings.pulseTime} onChange={e => setAiSettings(s => ({ ...s, pulseTime: e.target.value }))} />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">AI Model</div>
+              <div className="text-xs text-muted-foreground">Used for all AI analysis</div>
+            </div>
+            <select className="h-8 rounded border px-2 text-sm"
+              value={aiSettings.model} onChange={e => setAiSettings(s => ({ ...s, model: e.target.value }))}>
+              <option value="sonnet">Sonnet (recommended)</option>
+              <option value="opus">Opus (higher quality, 3x cost)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">Profile Depth</div>
+              <div className="text-xs text-muted-foreground">How detailed behavioral analysis should be</div>
+            </div>
+            <select className="h-8 rounded border px-2 text-sm"
+              value={aiSettings.profileDepth} onChange={e => setAiSettings(s => ({ ...s, profileDepth: e.target.value }))}>
+              <option value="full">Full behavioral</option>
+              <option value="work_only">Work only</option>
+            </select>
+          </div>
+        </CardContent>
+      </Card>
 
     </div>
   )

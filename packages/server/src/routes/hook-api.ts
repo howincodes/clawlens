@@ -19,6 +19,7 @@ import {
   type LimitRow,
 } from '../services/db.js';
 import { broadcast } from '../services/websocket.js';
+import { queueSessionAnalysis } from '../services/ai-jobs.js';
 import {
   SessionStartEvent,
   UserPromptSubmitEvent,
@@ -584,6 +585,9 @@ hookRouter.post('/session-end', (req: Request, res: Response) => {
     // End session
     debug(`ending session: ${data.session_id}, reason=${data.reason ?? 'unknown'}`);
     endSession(data.session_id, data.reason ?? 'unknown');
+
+    // Queue AI analysis for the completed session
+    queueSessionAnalysis(data.session_id, user.id);
 
     // Update last_event_at
     touchUserLastEvent(user.id);
