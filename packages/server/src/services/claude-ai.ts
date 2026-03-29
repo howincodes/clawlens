@@ -128,18 +128,27 @@ export async function runClaude<T>(req: ClaudeRequest<T>): Promise<ClaudeRespons
     let parsed: unknown;
     try {
       const outer = JSON.parse(raw);
-      // claude -p --output-format json wraps in { result: "..." } or returns directly
+      // claude -p --output-format json wraps in { type: "result", result: "..." }
       if (outer && typeof outer === 'object' && 'result' in outer && typeof outer.result === 'string') {
+        let resultStr = outer.result;
+        // Strip markdown code fences: ```json\n{...}\n```
+        resultStr = resultStr.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
         try {
-          parsed = JSON.parse(outer.result);
+          parsed = JSON.parse(resultStr);
         } catch {
-          parsed = outer.result;
+          // Try extracting JSON object from the string
+          const match = resultStr.match(/\{[\s\S]*\}/);
+          if (match) {
+            parsed = JSON.parse(match[0]);
+          } else {
+            throw new Error(`Could not extract JSON from result: ${resultStr.slice(0, 200)}`);
+          }
         }
       } else {
         parsed = outer;
       }
-    } catch {
-      // If JSON parse fails, try to extract JSON from the text
+    } catch (e: any) {
+      // If outer JSON parse fails, try to extract JSON from raw text
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         parsed = JSON.parse(jsonMatch[0]);
