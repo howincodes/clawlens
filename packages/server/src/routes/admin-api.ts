@@ -1190,3 +1190,34 @@ adminRouter.get('/pulse/history', (req: Request, res: Response) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// ---------------------------------------------------------------------------
+// GET /sessions/analyzed — list sessions with AI analysis data
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/sessions/analyzed', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const days = parseInt(req.query.days as string) || 7;
+    const userId = req.query.user_id as string | undefined;
+    const minScore = parseInt(req.query.min_score as string) || 0;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const since = new Date(Date.now() - days * 86400000).toISOString();
+
+    const db = getDb();
+    let where = `s.user_id IN (SELECT id FROM users WHERE team_id = ?) AND s.started_at >= ?`;
+    const params: unknown[] = [team.id, since];
+
+    if (userId) { where += ' AND s.user_id = ?'; params.push(userId); }
+    if (minScore > 0) { where += ' AND s.ai_productivity_score >= ?'; params.push(minScore); }
+
+    const sessions = db.prepare(
+      `SELECT s.*, u.name as user_name FROM sessions s LEFT JOIN users u ON s.user_id = u.id WHERE ${where} ORDER BY s.started_at DESC LIMIT ?`
+    ).all(...params, limit);
+
+    res.json({ data: sessions });
+  } catch (err) {
+    console.error('[admin-api] analyzed sessions error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});

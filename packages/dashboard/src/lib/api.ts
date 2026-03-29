@@ -100,6 +100,17 @@ export const generateSummary = (userId?: string) =>
     body: JSON.stringify(userId ? { user_id: userId } : {}),
   })
 
+// ── AI Intelligence ───────────────────────────────────────
+export const getLatestPulse = () => fetchClient('/pulse')
+export const getPulseHistory = (limit?: number) => fetchClient(`/pulse/history${limit ? `?limit=${limit}` : ''}`)
+export const generatePulse = () => fetchClient('/pulse/generate', { method: 'POST' })
+export const getUserProfiles = () => fetchClient('/profiles')
+export const getUserProfile = (userId: string) => fetchClient(`/users/${userId}/profile`)
+export const updateUserProfile = (userId: string) => fetchClient(`/users/${userId}/profile/update`, { method: 'POST' })
+export const analyzeSession = (sessionId: string) => fetchClient(`/sessions/${sessionId}/analyze`, { method: 'POST' })
+export const getAnalyzedSessions = (params?: Record<string, string>) =>
+  fetchClient(`/sessions/analyzed${params ? '?' + new URLSearchParams(params).toString() : ''}`)
+
 // ── Audit ─────────────────────────────────────────────────
 export const getAuditLog = (params?: Record<string, string>) =>
   fetchClient(`/audit-log${params ? '?' + new URLSearchParams(params).toString() : ''}`)
