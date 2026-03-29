@@ -244,6 +244,26 @@ function detectModel(hookData) {
 }
 
 // ══════════════════════════════════════════════════════
+// SUBSCRIPTION TYPE NORMALIZATION
+//
+// Raw values from various sources (claude auth status, ~/.claude.json)
+// can be human-unfriendly strings like "STRIPE_SUBSCRIPTION".
+// Normalize them to clean plan names for display and storage.
+// ══════════════════════════════════════════════════════
+
+function normalizeSubscriptionType(raw) {
+  const lower = String(raw || '').toLowerCase();
+  if (lower.includes('max')) return 'max';
+  if (lower.includes('pro')) return 'pro';
+  if (lower.includes('team')) return 'team';
+  if (lower.includes('enterprise')) return 'enterprise';
+  if (lower.includes('free')) return 'free';
+  // STRIPE_SUBSCRIPTION, stripe_subscription, etc. → Stripe billing = Pro plan
+  if (lower.includes('stripe')) return 'pro';
+  return raw || 'unknown';
+}
+
+// ══════════════════════════════════════════════════════
 // SUBSCRIPTION INFO (cached — expensive to fetch)
 // ══════════════════════════════════════════════════════
 
@@ -275,7 +295,7 @@ function getSubscriptionInfo() {
     debug(`getSubscriptionInfo: [method 1] parsed keys: ${Object.keys(auth).join(', ')}`);
     const info = {
       email: auth.email || auth.emailAddress || '',
-      subscriptionType: auth.subscriptionType || auth.planType || '',
+      subscriptionType: normalizeSubscriptionType(auth.subscriptionType || auth.planType || ''),
       orgName: auth.orgName || auth.organizationName || '',
     };
     debug(`getSubscriptionInfo: [method 1] result: email=${info.email}, type=${info.subscriptionType}, org=${info.orgName}`);
@@ -295,7 +315,7 @@ function getSubscriptionInfo() {
       debug(`getSubscriptionInfo: [method 2] oauthAccount keys: ${Object.keys(acct).join(', ')}`);
       const info = {
         email: acct.emailAddress || acct.email || '',
-        subscriptionType: acct.planType || acct.billingType || '',
+        subscriptionType: normalizeSubscriptionType(acct.planType || acct.billingType || ''),
         orgName: acct.organizationName || acct.displayName || '',
       };
       debug(`getSubscriptionInfo: [method 2] result: email=${info.email}, type=${info.subscriptionType}, org=${info.orgName}`);
@@ -441,8 +461,11 @@ async function main() {
     payload = enrichSessionStart(data);
     checkAndSpawnWatcher();
   } else {
-    debug(`main: using raw data (no enrichment for ${event})`);
-    payload = data;
+    // For all non-SessionStart events, detect and include the current model
+    // so the server can track model changes mid-session (e.g. /model command)
+    const currentModel = detectModel(data);
+    debug(`main: detected model for ${event}: "${currentModel}"`);
+    payload = { ...data, model: currentModel };
   }
 
   const response = await postToServer(apiPath, payload);

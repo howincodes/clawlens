@@ -106,21 +106,26 @@ export function useWebSocket() {
             timestamp: Date.now(),
           })
         } catch (e) {
-          console.error('WS Parse error', e)
+          // Binary ping frames are handled automatically by the browser;
+          // non-JSON text frames (rare) can be safely ignored.
         }
       }
 
-      socket.onclose = () => {
+      socket.onclose = (ev) => {
+        // 4001 = auth failure — don't reconnect with a bad token
+        if (ev.code === 4001) {
+          setStatus('disconnected')
+          return
+        }
         setStatus('reconnecting')
-        // Exponential backoff
+        // Exponential backoff: 1s, 2s, 4s, 8s, … capped at 30s
         const timeout = Math.min(1000 * Math.pow(2, attempt), 30000)
         attempt++
         reconnectTimer = setTimeout(connect, timeout)
       }
 
       socket.onerror = () => {
-        setStatus('disconnected')
-        socket.close()
+        // onerror always fires before onclose; let onclose handle reconnection
       }
     }
 

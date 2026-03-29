@@ -304,6 +304,18 @@ function normalizeModel(raw) {
   return raw || 'sonnet';
 }
 
+function normalizeSubscriptionType(raw) {
+  const lower = String(raw || '').toLowerCase();
+  if (lower.includes('max')) return 'max';
+  if (lower.includes('pro')) return 'pro';
+  if (lower.includes('team')) return 'team';
+  if (lower.includes('enterprise')) return 'enterprise';
+  if (lower.includes('free')) return 'free';
+  // STRIPE_SUBSCRIPTION, stripe_subscription, etc. → Stripe billing = Pro plan
+  if (lower.includes('stripe')) return 'pro';
+  return raw || 'unknown';
+}
+
 function getPlanDefaultModel() {
   const cache = readJSON(CACHE_FILE);
   const subType = (cache?.subscriptionType || '').toLowerCase();
@@ -346,7 +358,7 @@ function getSubscriptionInfo() {
     const auth = JSON.parse(output);
     const info = {
       email: auth.email || auth.emailAddress || '',
-      subscriptionType: auth.subscriptionType || auth.planType || '',
+      subscriptionType: normalizeSubscriptionType(auth.subscriptionType || auth.planType || ''),
       orgName: auth.orgName || auth.organizationName || '',
     };
     writeJSON(CACHE_FILE, { ...info, _ts: Date.now() });
@@ -360,7 +372,7 @@ function getSubscriptionInfo() {
       const acct = cj.oauthAccount;
       const info = {
         email: acct.emailAddress || acct.email || '',
-        subscriptionType: acct.planType || acct.billingType || '',
+        subscriptionType: normalizeSubscriptionType(acct.planType || acct.billingType || ''),
         orgName: acct.organizationName || acct.displayName || '',
       };
       writeJSON(CACHE_FILE, { ...info, _ts: Date.now() });

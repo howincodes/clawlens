@@ -56,6 +56,22 @@ function getCreditCost(model: string | undefined): number {
 }
 
 /**
+ * Normalize raw subscription type strings (e.g. "STRIPE_SUBSCRIPTION")
+ * into clean plan names for display and storage.
+ */
+function normalizeSubscriptionType(raw: string | undefined): string {
+  const lower = String(raw || '').toLowerCase();
+  if (lower.includes('max')) return 'max';
+  if (lower.includes('pro')) return 'pro';
+  if (lower.includes('team')) return 'team';
+  if (lower.includes('enterprise')) return 'enterprise';
+  if (lower.includes('free')) return 'free';
+  // STRIPE_SUBSCRIPTION → Stripe billing = Pro plan
+  if (lower.includes('stripe')) return 'pro';
+  return raw || 'unknown';
+}
+
+/**
  * Ensure session exists — auto-create if SessionStart was missed or failed.
  * This prevents FK constraint errors on prompts/tools referencing unknown sessions.
  */
@@ -162,11 +178,12 @@ hookRouter.post('/session-start', (req: Request, res: Response) => {
 
     // Handle subscription record
     if (body.subscription_email || body.subscription_type) {
-      debug(`creating/updating subscription: email=${body.subscription_email || user.email}, type=${body.subscription_type}, org=${body.org_name}`);
+      const subType = normalizeSubscriptionType(body.subscription_type);
+      debug(`creating/updating subscription: email=${body.subscription_email || user.email}, type=${subType} (raw: ${body.subscription_type}), org=${body.org_name}`);
       try {
         const sub = createSubscription({
           email: body.subscription_email || user.email || '',
-          subscription_type: body.subscription_type || 'unknown',
+          subscription_type: subType,
           plan_name: body.org_name || undefined,
         });
         debug(`subscription result: ${sub ? `id=${sub.id}` : '(null)'}`);
@@ -262,8 +279,16 @@ hookRouter.post('/prompt', (req: Request, res: Response) => {
     ensureSession(data.session_id, user.id, user.default_model, data.cwd);
     const session = getSessionById(data.session_id);
     debug(`session lookup: ${session ? `found (model=${session.model})` : 'NOT FOUND (even after ensureSession!)'}`);
-    const model = session?.model ?? user.default_model ?? 'sonnet';
-    debug(`resolved model: "${model}"`);
+    // Prefer body.model (fresh from client) > session.model > user.default_model
+    const model = body.model || session?.model || user.default_model || 'sonnet';
+    debug(`resolved model: "${model}" (body.model=${body.model || '(none)'}, session.model=${session?.model || '(none)'})`);
+
+    // Update session model if the client reports a different one (user ran /model)
+    if (body.model && session && body.model !== session.model) {
+      debug(`model changed mid-session: "${session.model}" → "${body.model}" — updating session`);
+      const db = getDb();
+      db.prepare('UPDATE sessions SET model = ? WHERE id = ?').run(body.model, data.session_id);
+    }
 
     // Compute credit cost
     const creditCost = getCreditCost(model);
