@@ -12,10 +12,10 @@ $SettingsPath = Join-Path $env:USERPROFILE ".claude\settings.json"
 Write-Host "  Stopping watcher..."
 $PidFile = Join-Path $HooksDir ".clawlens-watcher.pid"
 if (Test-Path $PidFile) {
-    $Pid = Get-Content $PidFile -ErrorAction SilentlyContinue
-    if ($Pid) {
-        try { Stop-Process -Id ([int]$Pid) -Force -ErrorAction SilentlyContinue } catch {}
-        Write-Host "  -> Stopped watcher (pid $Pid)"
+    $WatcherPid = Get-Content $PidFile -ErrorAction SilentlyContinue
+    if ($WatcherPid) {
+        try { Stop-Process -Id ([int]$WatcherPid) -Force -ErrorAction SilentlyContinue } catch {}
+        Write-Host "  -> Stopped watcher (pid $WatcherPid)"
     }
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
 }
