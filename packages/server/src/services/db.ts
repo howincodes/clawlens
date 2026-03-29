@@ -907,6 +907,24 @@ export function createSubscription(params: {
   plan_name?: string;
 }): SubscriptionRow {
   const database = getDb();
+
+  // Upsert: if subscription with this email exists, update it; otherwise create
+  const existing = database
+    .prepare(`SELECT * FROM subscriptions WHERE email = ? LIMIT 1`)
+    .get(params.email) as SubscriptionRow | undefined;
+
+  if (existing) {
+    // Update if subscription_type or plan_name changed
+    const newType = params.subscription_type ?? existing.subscription_type;
+    const newPlan = params.plan_name ?? existing.plan_name;
+    if (newType !== existing.subscription_type || newPlan !== existing.plan_name) {
+      database.prepare(
+        `UPDATE subscriptions SET subscription_type = ?, plan_name = ? WHERE id = ?`,
+      ).run(newType, newPlan, existing.id);
+    }
+    return { ...existing, subscription_type: newType, plan_name: newPlan };
+  }
+
   const stmt = database.prepare(
     `INSERT INTO subscriptions (email, subscription_type, plan_name)
      VALUES (?, ?, ?)

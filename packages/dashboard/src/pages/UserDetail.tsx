@@ -1033,15 +1033,15 @@ export function UserDetail() {
                     <div
                       className={`font-mono text-xs bg-muted/30 p-2 rounded mb-2 whitespace-pre-wrap ${isExpanded ? '' : 'max-h-16 overflow-hidden'}`}
                     >
-                      {p.prompt_text || (
+                      {p.prompt || p.prompt_text || (
                         <span className="italic text-muted-foreground">
                           Prompt text not collected
                         </span>
                       )}
                     </div>
-                    {isExpanded && p.response_text && (
+                    {isExpanded && (p.response || p.response_text) && (
                       <div className="text-xs border-l-2 border-primary pl-2 text-muted-foreground whitespace-pre-wrap max-h-64 overflow-y-auto">
-                        {p.response_text}
+                        {p.response || p.response_text}
                       </div>
                     )}
                     {isExpanded && p.tools_used && p.tools_used.length > 0 && (

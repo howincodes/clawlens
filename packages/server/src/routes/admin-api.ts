@@ -154,15 +154,22 @@ adminRouter.get('/users', (_req: Request, res: Response) => {
         .prepare(`SELECT COUNT(*) as session_count FROM sessions WHERE user_id = ?`)
         .get(user.id) as { session_count: number };
 
-      const tamperStatus = getUserTamperStatus(user.id);
+      // Get most-used model
+      const topModelResult = db
+        .prepare(
+          `SELECT model, COUNT(*) as cnt FROM prompts
+           WHERE user_id = ? AND blocked = 0 AND model IS NOT NULL
+           GROUP BY model ORDER BY cnt DESC LIMIT 1`,
+        )
+        .get(user.id) as { model: string; cnt: number } | undefined;
 
       return {
         ...user,
         prompt_count: stats.prompt_count,
         total_credits: stats.total_credits,
         session_count: sessionStats.session_count,
+        top_model: topModelResult?.model || user.default_model || null,
         last_active: user.last_event_at,
-        tamper_status: tamperStatus,
       };
     });
 

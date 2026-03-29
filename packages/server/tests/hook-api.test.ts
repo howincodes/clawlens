@@ -478,10 +478,7 @@ describe('POST /config-change', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({});
 
-    const alerts = getUnresolvedTamperAlerts(activeUser.id);
-    expect(alerts.length).toBeGreaterThanOrEqual(1);
-    const configAlert = alerts.find((a) => a.alert_type === 'config_changed');
-    expect(configAlert).toBeDefined();
+    // Tamper alerts removed — config changes are informational only
   });
 
   it('should not create tamper alert when source does not contain settings', async () => {
@@ -496,10 +493,6 @@ describe('POST /config-change', () => {
       );
 
     expect(res.status).toBe(200);
-
-    const alerts = getUnresolvedTamperAlerts(activeUser.id);
-    const configAlert = alerts.find((a) => a.alert_type === 'config_changed');
-    expect(configAlert).toBeUndefined();
   });
 });
 
@@ -508,7 +501,7 @@ describe('POST /config-change', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /file-changed', () => {
-  it('should create tamper alert', async () => {
+  it('should record file change event without tamper alert', async () => {
     const res = await request(app)
       .post('/api/v1/hook/file-changed')
       .set('Authorization', `Bearer ${ACTIVE_TOKEN}`)
@@ -521,11 +514,6 @@ describe('POST /file-changed', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({});
-
-    const alerts = getUnresolvedTamperAlerts(activeUser.id);
-    expect(alerts.length).toBeGreaterThanOrEqual(1);
-    const fileAlert = alerts.find((a) => a.alert_type === 'file_changed');
-    expect(fileAlert).toBeDefined();
-    expect(fileAlert!.details).toContain('hooks.json');
+    // Tamper alerts removed — file changes are informational only
   });
 });

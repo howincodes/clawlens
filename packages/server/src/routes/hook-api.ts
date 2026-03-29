@@ -7,7 +7,6 @@ import {
   recordToolEvent,
   recordSubagentEvent,
   touchUserLastEvent,
-  createTamperAlert,
   getUserCreditUsage,
   getUserModelCreditUsage,
   getSessionById,
@@ -770,18 +769,9 @@ hookRouter.post('/config-change', (req: Request, res: Response) => {
       payload: JSON.stringify(body),
     });
 
-    // If source contains 'settings' -> create tamper alert
-    if (data.source && String(data.source).includes('settings')) {
-      debug(`creating tamper alert: config_changed (source=${data.source})`);
-      createTamperAlert({
-        user_id: user.id,
-        alert_type: 'config_changed',
-        details: JSON.stringify({
-          source: data.source,
-          file_path: data.file_path,
-        }),
-      });
-    }
+    // ConfigChange is informational only — no tamper alert
+    debug(`config change recorded (source=${data.source}, file=${data.file_path})`);
+
 
     // Update last_event_at
     touchUserLastEvent(user.id);
@@ -821,16 +811,9 @@ hookRouter.post('/file-changed', (req: Request, res: Response) => {
       payload: JSON.stringify(body),
     });
 
-    // Create tamper alert
-    debug(`creating tamper alert: file_changed`);
-    createTamperAlert({
-      user_id: user.id,
-      alert_type: 'file_changed',
-      details: JSON.stringify({
-        file_path: data.file_path,
-        event: data.event,
-      }),
-    });
+    // FileChanged is informational only — no tamper alert
+    debug(`file change recorded (file=${data.file_path}, event=${data.event})`);
+
 
     // Update last_event_at
     touchUserLastEvent(user.id);

@@ -213,14 +213,14 @@ export function PromptsBrowser() {
                 const id = String(p.id || '')
                 const modelShort = getModelShortName(String(p.model || ''))
                 const modelColorClass = MODEL_BADGE_COLORS[modelShort] || 'bg-gray-500/10 text-gray-600'
-                const promptText = String(p.prompt_text || '')
-                const responseText = String(p.response_text || '')
+                const promptText = String(p.prompt || p.prompt_text || '')
+                const responseText = String(p.response || p.response_text || '')
                 const isPromptExpanded = expandedPrompts.has(id)
                 const isResponseExpanded = expandedResponses.has(id)
                 const tools = (p.tools_used || p.tools) as string[] | undefined
                 const isBlocked = Boolean(p.blocked || p.was_blocked)
                 const userName = p.user_id ? (userMap.get(String(p.user_id)) || `User ${p.user_id}`) : 'Unknown'
-                const timestamp = p.timestamp ? new Date(String(p.timestamp)) : null
+                const timestamp = (p.created_at || p.timestamp) ? new Date(String(p.created_at || p.timestamp)) : null
 
                 return (
                   <Card key={id} className="overflow-hidden transition-shadow hover:shadow-md">

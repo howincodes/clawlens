@@ -187,8 +187,7 @@ describe('GET /api/admin/users', () => {
     expect(alice.prompt_count).toBe(2);
     expect(alice.total_credits).toBe(6);
     expect(alice.session_count).toBe(1);
-    expect(alice.tamper_status).toBeDefined();
-    expect(alice.tamper_status.status).toBe('ok');
+    expect(alice.top_model).toBeDefined();
   });
 });
 
