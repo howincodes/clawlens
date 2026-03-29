@@ -397,6 +397,13 @@ export function Overview() {
                           </Link>
                         </div>
                         <div className="flex items-center gap-1.5">
+                          {/* Watcher connection indicator */}
+                          {user.watcher_connected === true && (
+                            <span className="w-2 h-2 rounded-full bg-green-500 inline-block" title="Watcher connected" />
+                          )}
+                          {user.watcher_connected === false && user.last_active && (
+                            <span className="w-2 h-2 rounded-full bg-red-500 inline-block" title="Watcher disconnected" />
+                          )}
                           <Badge
                             variant={
                               user.status === 'active'
