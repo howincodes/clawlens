@@ -66,6 +66,7 @@ function runMigrations(database: Database.Database): void {
       subscription_id TEXT,
       deployment_tier TEXT DEFAULT 'standard',
       poll_interval INTEGER DEFAULT 30000,
+      notification_config TEXT,
       last_event_at TEXT,
       hook_integrity_hash TEXT,
       killed_at TEXT,
@@ -226,6 +227,11 @@ function runMigrations(database: Database.Database): void {
   } catch {
     // Column already exists — ignore
   }
+  try {
+    database.exec(`ALTER TABLE users ADD COLUMN notification_config TEXT`);
+  } catch {
+    // Column already exists — ignore
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +256,7 @@ export interface UserRow {
   subscription_id: string | null;
   deployment_tier: string;
   poll_interval: number | null;
+  notification_config: string | null;
   last_event_at: string | null;
   hook_integrity_hash: string | null;
   killed_at: string | null;
@@ -451,6 +458,7 @@ export function updateUser(
       | 'subscription_id'
       | 'deployment_tier'
       | 'poll_interval'
+      | 'notification_config'
       | 'last_event_at'
       | 'hook_integrity_hash'
       | 'killed_at'
@@ -458,7 +466,7 @@ export function updateUser(
   >,
 ): UserRow | undefined {
   const database = getDb();
-  const ALLOWED_UPDATE_COLUMNS = new Set(['name', 'email', 'status', 'default_model', 'subscription_id', 'deployment_tier', 'poll_interval', 'last_event_at', 'hook_integrity_hash', 'killed_at']);
+  const ALLOWED_UPDATE_COLUMNS = new Set(['name', 'email', 'status', 'default_model', 'subscription_id', 'deployment_tier', 'poll_interval', 'notification_config', 'last_event_at', 'hook_integrity_hash', 'killed_at']);
   const setClauses: string[] = [];
   const values: unknown[] = [];
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions, getWatcherStatus, getWatcherLogs, getWatcherLogHistory, getWatcherLogEntry, sendWatcherCommand } from '@/lib/api'
+import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions, getWatcherStatus, getWatcherLogs, getWatcherLogHistory, getWatcherLogEntry, sendWatcherCommand, updateUser } from '@/lib/api'
 import {
   Card,
   CardContent,
@@ -157,6 +157,17 @@ export function UserDetail() {
   const [confirmAction, setConfirmAction] = useState<'killed' | 'paused' | 'active' | null>(null)
   const [generatingSummary, setGeneratingSummary] = useState(false)
 
+  // Notification config state
+  const [notifConfig, setNotifConfig] = useState<Record<string, boolean>>({
+    on_stop: true,
+    on_block: true,
+    on_credit_warning: true,
+    on_kill: true,
+    sound: true,
+  })
+  const [pollIntervalInput, setPollIntervalInput] = useState<string>('30')
+  const [pollSaving, setPollSaving] = useState(false)
+
   // All prompts for charts (larger set)
   const [allPrompts, setAllPrompts] = useState<any[]>([])
 
@@ -234,6 +245,23 @@ export function UserDetail() {
   useEffect(() => {
     loadUser()
   }, [loadUser])
+
+  // Sync notification config + poll interval from user data
+  useEffect(() => {
+    if (data?.user) {
+      const defaults = { on_stop: true, on_block: true, on_credit_warning: true, on_kill: true, sound: true }
+      if (data.user.notification_config) {
+        try {
+          setNotifConfig({ ...defaults, ...JSON.parse(data.user.notification_config) })
+        } catch {
+          setNotifConfig(defaults)
+        }
+      } else {
+        setNotifConfig(defaults)
+      }
+      setPollIntervalInput(String(Math.round((data.user.poll_interval || 30000) / 1000)))
+    }
+  }, [data?.user])
 
   useEffect(() => {
     loadPrompts()
@@ -468,6 +496,36 @@ export function UserDetail() {
   useEffect(() => {
     loadLogHistory()
   }, [loadLogHistory])
+
+  const toggleNotification = useCallback(async (key: string) => {
+    if (!id) return
+    const prev = { ...notifConfig }
+    const updated = { ...notifConfig, [key]: !notifConfig[key] }
+    setNotifConfig(updated)
+    try {
+      await updateUser(id, { notification_config: JSON.stringify(updated) })
+    } catch {
+      setNotifConfig(prev) // revert on failure
+    }
+  }, [id, notifConfig])
+
+  const handleSavePollInterval = useCallback(async () => {
+    if (!id) return
+    const seconds = parseInt(pollIntervalInput, 10)
+    if (isNaN(seconds) || seconds < 1) return
+    setPollSaving(true)
+    try {
+      await updateUser(id, { poll_interval: seconds * 1000 })
+      await loadUser()
+    } catch {
+      // revert display
+      if (data?.user) {
+        setPollIntervalInput(String(Math.round((data.user.poll_interval || 30000) / 1000)))
+      }
+    } finally {
+      setPollSaving(false)
+    }
+  }, [id, pollIntervalInput, loadUser, data?.user])
 
   const handleKill = useCallback(async () => {
     if (!id) return
@@ -884,6 +942,72 @@ export function UserDetail() {
           </CardContent>
         </Card>
       )}
+
+      {/* User Configuration */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2">
+            <Settings2 className="w-5 h-5 text-primary" />
+            User Configuration
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Notifications */}
+            <div>
+              <h4 className="text-sm font-medium mb-3">Notifications</h4>
+              <div className="space-y-3">
+                {([
+                  ['on_stop', 'Task Completed'],
+                  ['on_block', 'Prompt Blocked'],
+                  ['on_credit_warning', 'Credit Warnings'],
+                  ['on_kill', 'Kill/Pause Alerts'],
+                  ['sound', 'Sound'],
+                ] as const).map(([key, label]) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">{label}</span>
+                    <button
+                      className={`w-10 h-5 rounded-full transition-colors relative ${notifConfig[key] ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                      onClick={() => toggleNotification(key)}
+                    >
+                      <span className={`block w-4 h-4 rounded-full bg-white shadow transition-transform absolute top-0.5 ${notifConfig[key] ? 'left-5' : 'left-0.5'}`} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Watcher Settings */}
+            <div>
+              <h4 className="text-sm font-medium mb-3">Watcher</h4>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">Poll Interval</label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      className="w-24 h-8 text-sm"
+                      value={pollIntervalInput}
+                      onChange={(e) => setPollIntervalInput(e.target.value)}
+                    />
+                    <span className="text-sm text-muted-foreground">seconds</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8"
+                      onClick={handleSavePollInterval}
+                      disabled={pollSaving}
+                    >
+                      {pollSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* AI Summary + Devices / Limits */}
       <div className="grid gap-6 md:grid-cols-2">

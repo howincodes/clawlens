@@ -113,6 +113,12 @@ function handleHeartbeat(user: UserRow, data: Record<string, unknown>, ws: WebSo
     monthly: getUserCreditUsage(user.id, 'monthly'),
   };
 
+  // Parse user's notification preferences (default all ON)
+  let notifications = { on_stop: true, on_block: true, on_credit_warning: true, on_kill: true, sound: true };
+  if (user.notification_config) {
+    try { notifications = { ...notifications, ...JSON.parse(user.notification_config) }; } catch {}
+  }
+
   const config = {
     type: 'heartbeat_ack',
     status: user.status,
@@ -124,6 +130,7 @@ function handleHeartbeat(user: UserRow, data: Record<string, unknown>, ws: WebSo
       window: l.window,
     })),
     credit_usage: creditUsage,
+    notifications,
     timestamp: new Date().toISOString(),
   };
 

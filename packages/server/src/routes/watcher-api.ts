@@ -135,7 +135,13 @@ watcherRouter.post('/sync', (req: Request, res: Response) => {
       };
     });
 
-    // 6. Build response
+    // 6. Parse user's notification preferences (default all ON)
+    let notifications = { on_stop: true, on_block: true, on_credit_warning: true, on_kill: true, sound: true };
+    if (user.notification_config) {
+      try { notifications = { ...notifications, ...JSON.parse(user.notification_config) }; } catch {}
+    }
+
+    // 7. Build response
     const response = {
       status: user.status === 'active' ? 'active' : user.status,
       poll_interval_ms: user.poll_interval || 30000,
@@ -151,13 +157,7 @@ watcherRouter.post('/sync', (req: Request, res: Response) => {
         limit: creditLimit,
         percent: creditPercent,
       },
-      notifications: {
-        on_stop: true,
-        on_block: true,
-        on_credit_warning: true,
-        on_kill: true,
-        sound: true,
-      },
+      notifications,
       commands,
     };
 
