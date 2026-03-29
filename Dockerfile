@@ -26,11 +26,17 @@ FROM node:22-slim
 
 WORKDIR /app
 
+# Install Claude Code CLI for AI summary generation
+RUN npm install -g @anthropic-ai/claude-code 2>/dev/null || true
+
 # Copy bundled server + dashboard + native deps from builder
 COPY --from=builder /app/release/server.mjs ./server.mjs
 COPY --from=builder /app/release/node_modules ./node_modules
 COPY --from=builder /app/release/package.json ./package.json
 COPY --from=builder /app/packages/dashboard/dist ./dashboard
+
+# Persist Claude auth across container restarts
+VOLUME ["/root/.claude"]
 
 EXPOSE 3000
 ENV NODE_ENV=production
