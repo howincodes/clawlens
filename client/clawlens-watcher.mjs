@@ -307,13 +307,7 @@ function normalizeModel(raw) {
 function normalizeSubscriptionType(raw) {
   const lower = String(raw || '').toLowerCase();
   if (lower.includes('max')) return 'max';
-  if (lower.includes('pro')) return 'pro';
-  if (lower.includes('team')) return 'team';
-  if (lower.includes('enterprise')) return 'enterprise';
-  if (lower.includes('free')) return 'free';
-  // STRIPE_SUBSCRIPTION, stripe_subscription, etc. → Stripe billing = Pro plan
-  if (lower.includes('stripe')) return 'pro';
-  return raw || 'unknown';
+  return 'pro';
 }
 
 function getPlanDefaultModel() {
