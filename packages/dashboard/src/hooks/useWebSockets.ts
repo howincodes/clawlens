@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useAuthStore } from '../store/authStore'
 
 export type WSEvent = {
@@ -74,14 +74,52 @@ export function useWSEvent(eventType: string, callback: () => void) {
 
 export function useWebSocket() {
   const ws = useRef<WebSocket | null>(null)
+  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastPollTime = useRef<string>(new Date().toISOString())
   const setStatus = useWSStore((s) => s.setStatus)
   const addEvent = useWSStore((s) => s.addEvent)
   const token = useAuthStore((s) => s.token)
+
+  // Polling fallback
+  const startPolling = useCallback(() => {
+    if (pollTimer.current) return // already polling
+    pollTimer.current = setInterval(async () => {
+      try {
+        const resp = await fetch(`/api/admin/events/recent?since=${encodeURIComponent(lastPollTime.current)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!resp.ok) return
+        const { data, timestamp } = await resp.json()
+        lastPollTime.current = timestamp
+        // Add events in chronological order (oldest first)
+        if (Array.isArray(data)) {
+          for (const evt of data.reverse()) {
+            addEvent({
+              type: evt.event_type || evt.type || 'unknown',
+              payload: { ...evt, user_name: evt.user_name },
+              timestamp: new Date(evt.created_at).getTime(),
+            })
+          }
+        }
+      } catch {
+        // Polling errors are silently ignored — next interval will retry
+      }
+    }, 10000) // poll every 10 seconds
+    setStatus('connected') // polling counts as connected
+  }, [token, addEvent, setStatus])
+
+  const stopPolling = useCallback(() => {
+    if (pollTimer.current) {
+      clearInterval(pollTimer.current)
+      pollTimer.current = null
+    }
+  }, [])
 
   useEffect(() => {
     if (!token) return
 
     let reconnectTimer: ReturnType<typeof setTimeout>
+    let wsConnectTimeout: ReturnType<typeof setTimeout>
     let attempt = 0
 
     function connect() {
@@ -92,9 +130,18 @@ export function useWebSocket() {
       const socket = new WebSocket(`${protocol}//${host}/ws?token=${token}`)
       ws.current = socket
 
+      // If WS doesn't connect within 5 seconds, start polling
+      wsConnectTimeout = setTimeout(() => {
+        if (socket.readyState !== WebSocket.OPEN) {
+          startPolling()
+        }
+      }, 5000)
+
       socket.onopen = () => {
+        clearTimeout(wsConnectTimeout)
         setStatus('connected')
         attempt = 0
+        stopPolling() // WS connected, stop polling
       }
 
       socket.onmessage = (event) => {
@@ -105,20 +152,22 @@ export function useWebSocket() {
             payload: data,
             timestamp: Date.now(),
           })
-        } catch (e) {
+        } catch {
           // Binary ping frames are handled automatically by the browser;
           // non-JSON text frames (rare) can be safely ignored.
         }
       }
 
       socket.onclose = (ev) => {
+        clearTimeout(wsConnectTimeout)
         // 4001 = auth failure — don't reconnect with a bad token
         if (ev.code === 4001) {
           setStatus('disconnected')
           return
         }
-        setStatus('reconnecting')
-        // Exponential backoff: 1s, 2s, 4s, 8s, … capped at 30s
+        // Start polling fallback immediately on close
+        startPolling()
+        // Still try to reconnect WS in background
         const timeout = Math.min(1000 * Math.pow(2, attempt), 30000)
         attempt++
         reconnectTimer = setTimeout(connect, timeout)
@@ -133,13 +182,15 @@ export function useWebSocket() {
 
     return () => {
       clearTimeout(reconnectTimer)
+      clearTimeout(wsConnectTimeout)
+      stopPolling()
       if (ws.current) {
         // Prevent reconnect logic from firing on unmount
         ws.current.onclose = null
         ws.current.close()
       }
     }
-  }, [token, setStatus, addEvent])
+  }, [token, setStatus, addEvent, startPolling, stopPolling])
 
   return useWSStore()
 }

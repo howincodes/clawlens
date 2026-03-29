@@ -48,6 +48,35 @@ The installer:
 4. Sets up watcher auto-start on login (launchd / autostart / Startup folder)
 5. Starts the watcher immediately
 
+### Deployment Options
+
+#### Option A: Behind existing proxy (nginx, hosting panel)
+
+The default `docker-compose.yml` exposes port 3000. Point your proxy to it.
+
+For WebSocket support, add to your nginx config:
+```nginx
+location /ws {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 86400;
+}
+```
+
+Note: WebSocket is optional. The dashboard automatically falls back to polling if WebSocket is unavailable.
+
+#### Option B: Caddy (auto-HTTPS + WebSocket, recommended for standalone)
+
+```bash
+cp .env.example .env
+nano .env    # set ADMIN_PASSWORD and DOMAIN
+docker compose -f docker-compose.caddy.yml up -d
+```
+
+Caddy automatically handles HTTPS certificates and WebSocket proxying.
+
 ### 4. Verify
 
 Close all terminals, open a fresh one, and run `claude`. The dashboard should show the session appear in real-time.

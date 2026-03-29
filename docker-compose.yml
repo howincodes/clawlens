@@ -1,16 +1,21 @@
-# NOTE: If you use a reverse proxy (e.g. nginx) in front of ClawLens,
-# you MUST forward WebSocket upgrade headers for the watcher real-time
-# connection to work. Add these directives to your nginx location block:
+# Standard docker-compose — exposes port 3000 directly.
+# Use this when you have an existing reverse proxy (nginx, Traefik, etc.)
+# or for local development.
 #
-#   location / {
+# For auto-HTTPS with Caddy (recommended for standalone deployments), use:
+#   docker compose -f docker-compose.caddy.yml up -d
+#
+# NOTE: If you use a reverse proxy in front of ClawLens, forward WebSocket
+# upgrade headers for real-time features. The dashboard will automatically
+# fall back to HTTP polling if WebSocket is unavailable.
+#
+# Example nginx config for the /ws path:
+#
+#   location /ws {
 #       proxy_pass http://127.0.0.1:3000;
 #       proxy_http_version 1.1;
 #       proxy_set_header Upgrade $http_upgrade;
 #       proxy_set_header Connection "upgrade";
-#       proxy_set_header Host $host;
-#       proxy_set_header X-Real-IP $remote_addr;
-#       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-#       proxy_set_header X-Forwarded-Proto $scheme;
 #       proxy_read_timeout 86400;
 #   }
 

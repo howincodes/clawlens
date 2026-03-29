@@ -1,0 +1,37 @@
+# docker-compose.caddy.yml
+# Usage: docker compose -f docker-compose.caddy.yml up -d
+# Caddy handles HTTPS (auto Let's Encrypt) + WebSocket proxy automatically.
+# Set DOMAIN in .env to your domain (e.g., clawlens.example.com)
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - clawlens
+
+  clawlens:
+    build: .
+    container_name: clawlens
+    restart: always
+    expose:
+      - "3000"
+    volumes:
+      - clawlens-data:/app/data
+    environment:
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - PORT=3000
+      - DB_PATH=/app/data/clawlens.db
+      - CLAWLENS_DEBUG=${CLAWLENS_DEBUG:-0}
+
+volumes:
+  clawlens-data:
+  caddy-data:
+  caddy-config:

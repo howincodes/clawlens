@@ -99,6 +99,9 @@ export const generateSummary = () => fetchClient('/summaries/generate', { method
 export const getAuditLog = (params?: Record<string, string>) =>
   fetchClient(`/audit-log${params ? '?' + new URLSearchParams(params).toString() : ''}`)
 
+// ── Events ───────────────────────────────────────────────
+export const getRecentEvents = (since: string) => fetchClient(`/events/recent?since=${encodeURIComponent(since)}`)
+
 // ── Watcher ───────────────────────────────────────────────
 export const getWatcherStatus = (userId: string) => fetchClient(`/users/${userId}/watcher/status`)
 export const getWatcherLogs = (userId: string) => fetchClient(`/users/${userId}/watcher/logs`)

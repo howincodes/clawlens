@@ -961,3 +961,29 @@ adminRouter.get('/users/:id/watcher/status', (req: Request, res: Response) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// ---------------------------------------------------------------------------
+// GET /events/recent — Polling fallback for Live Feed when WebSocket unavailable
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/events/recent', (req: Request, res: Response) => {
+  try {
+    const team = getOrCreateTeam();
+    const since = req.query.since as string || new Date(Date.now() - 30000).toISOString(); // default: last 30s
+    const db = getDb();
+
+    const events = db.prepare(
+      `SELECT he.*, u.name as user_name
+       FROM hook_events he
+       LEFT JOIN users u ON he.user_id = u.id
+       WHERE u.team_id = ? AND he.created_at > ?
+       ORDER BY he.created_at DESC
+       LIMIT 20`
+    ).all(team.id, since);
+
+    res.json({ data: events, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('[admin-api] events/recent error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
