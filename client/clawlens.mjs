@@ -353,10 +353,10 @@ $n.ShowBalloonTip(5000)
 [System.Media.SystemSounds]::Asterisk.Play()
 Start-Sleep 6
 $n.Dispose()`);
-      // detached: true so PowerShell survives after hook process exits
-      // windowsHide: false so it can access the desktop session for toast
-      const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmpPs1], { detached: true, stdio: 'ignore', windowsHide: false });
-      child.unref();
+      // Use Start-Process launcher — only way to keep GUI session context on Windows
+      const launcherPs1 = join(HOOKS_DIR, '.clawlens-notify-launcher.ps1');
+      writeFileSync(launcherPs1, `Start-Process powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','${tmpPs1.replace(/'/g, "''")}') -WindowStyle Hidden`);
+      execSync(`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${launcherPs1}"`, { timeout: 10000, stdio: 'ignore' });
     } else {
       // Linux: async, fire-and-forget
       spawn('notify-send', [title, message, '--urgency=normal'], { stdio: 'ignore' }).unref();
