@@ -338,8 +338,10 @@ function notifyUser(title, message) {
   try {
     const p = platform();
     if (p === 'darwin') {
-      // macOS: async, fire-and-forget
-      spawn('osascript', ['-e', `display notification "${message.replace(/"/g, '\\"')}" with title "${title.replace(/"/g, '\\"')}" sound name "Ping"`], { stdio: 'ignore' }).unref();
+      // macOS: afplay for sound + osascript for notification, backgrounded with &
+      const safeMsg = message.replace(/"/g, '\\"').replace(/'/g, "'");
+      const safeTitle = title.replace(/"/g, '\\"').replace(/'/g, "'");
+      execSync(`afplay /System/Library/Sounds/Ping.aiff 2>/dev/null & osascript -e 'display notification "${safeMsg}" with title "${safeTitle}"' 2>/dev/null &`, { timeout: 3000, stdio: 'ignore', shell: '/bin/bash' });
     } else if (p === 'win32') {
       // Windows: write .ps1, launch via cmd.exe /c start "" /b
       // This keeps the desktop session context (so GUI works) and returns immediately
