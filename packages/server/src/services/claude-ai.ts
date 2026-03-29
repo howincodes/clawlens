@@ -107,7 +107,7 @@ export async function runClaude<T>(req: ClaudeRequest<T>): Promise<ClaudeRespons
     const start = Date.now();
     const bin = getClaudeBin();
 
-    const args = ['-p', '--output-format', 'json', '--max-turns', '1'];
+    const args = ['-p', '--bare', '--output-format', 'json', '--max-turns', '1'];
 
     if (req.systemPrompt) {
       args.push('--system-prompt', req.systemPrompt);
@@ -150,6 +150,11 @@ export async function runClaude<T>(req: ClaudeRequest<T>): Promise<ClaudeRespons
     try {
       const outer = JSON.parse(raw);
       debug(`outer JSON parsed OK, type=${outer?.type}, has result=${!!outer?.result}`);
+
+      // Check for error responses
+      if (outer?.subtype === 'error_max_turns' || outer?.is_error === true) {
+        throw new Error(`Claude CLI error: ${outer.subtype || 'unknown'} (stop_reason: ${outer.stop_reason})`);
+      }
 
       // claude -p --output-format json wraps in { type: "result", result: "..." }
       if (outer && typeof outer === 'object' && 'result' in outer && typeof outer.result === 'string') {
