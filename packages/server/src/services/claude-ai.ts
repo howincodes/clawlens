@@ -5,13 +5,17 @@ import zodToJsonSchema from 'zod-to-json-schema';
 
 const execFileAsync = promisify(execFile);
 
+function debug(msg: string): void {
+  console.log(`[claude-ai] ${msg}`);
+}
+
 // Find claude CLI — may be in non-standard PATH inside Docker
-// Resolved lazily on first use to avoid import-time issues with bundlers
 let _claudeBin: string | null = null;
 
 function getClaudeBin(): string {
   if (_claudeBin) return _claudeBin;
 
+  debug('searching for claude CLI...');
   const { execFileSync } = require('node:child_process');
   const candidates = [
     'claude',
@@ -23,17 +27,21 @@ function getClaudeBin(): string {
   // Also check PATH expansions
   try {
     const which = execFileSync('which', ['claude'], { encoding: 'utf-8', timeout: 3000 }).trim();
-    if (which) candidates.unshift(which);
-  } catch {}
+    if (which) { debug(`'which claude' found: ${which}`); candidates.unshift(which); }
+  } catch { debug(`'which claude' failed`); }
 
   for (const p of candidates) {
     try {
       execFileSync(p, ['--version'], { stdio: 'ignore', timeout: 5000 });
+      debug(`found claude at: ${p}`);
       _claudeBin = p;
       return p;
-    } catch {}
+    } catch {
+      debug(`tried ${p} — not found`);
+    }
   }
 
+  debug('WARNING: claude CLI not found in any location');
   _claudeBin = 'claude'; // fallback
   return _claudeBin;
 }
@@ -97,6 +105,7 @@ function processQueue(): void {
 export async function runClaude<T>(req: ClaudeRequest<T>): Promise<ClaudeResponse<T>> {
   return enqueue(async () => {
     const start = Date.now();
+    const bin = getClaudeBin();
 
     const args = ['-p', '--output-format', 'json', '--max-turns', '1'];
 
@@ -108,59 +117,93 @@ export async function runClaude<T>(req: ClaudeRequest<T>): Promise<ClaudeRespons
     try {
       const jsonSchema = zodToJsonSchema(req.schema, { target: 'openApi3' });
       args.push('--json-schema', JSON.stringify(jsonSchema));
-    } catch {
-      // Fall back to asking for JSON in the prompt
-      // (older Claude Code versions without --json-schema)
+      debug('added --json-schema flag');
+    } catch (e: any) {
+      debug(`--json-schema failed: ${e.message}`);
     }
 
     args.push(req.prompt);
 
     const timeout = req.timeout ?? 30000;
+    debug(`executing: ${bin} ${args.slice(0, 5).join(' ')}... (timeout=${timeout}ms)`);
 
-    const { stdout } = await execFileAsync(getClaudeBin(), args, {
-      timeout,
-      maxBuffer: 1024 * 1024, // 1MB
-    });
+    let stdout: string;
+    try {
+      const result = await execFileAsync(bin, args, {
+        timeout,
+        maxBuffer: 1024 * 1024,
+      });
+      stdout = result.stdout;
+    } catch (e: any) {
+      debug(`execFile FAILED: ${e.message}`);
+      if (e.stderr) debug(`stderr: ${String(e.stderr).slice(0, 500)}`);
+      if (e.stdout) debug(`stdout (partial): ${String(e.stdout).slice(0, 500)}`);
+      throw e;
+    }
 
     const raw = stdout.trim();
+    debug(`raw output length: ${raw.length} chars`);
+    debug(`raw output (first 500): ${raw.slice(0, 500)}`);
 
     // Parse JSON — handle potential wrapper from --output-format json
     let parsed: unknown;
     try {
       const outer = JSON.parse(raw);
+      debug(`outer JSON parsed OK, type=${outer?.type}, has result=${!!outer?.result}`);
+
       // claude -p --output-format json wraps in { type: "result", result: "..." }
       if (outer && typeof outer === 'object' && 'result' in outer && typeof outer.result === 'string') {
         let resultStr = outer.result;
+        debug(`result field (first 300): ${resultStr.slice(0, 300)}`);
+
         // Strip markdown code fences: ```json\n{...}\n```
         resultStr = resultStr.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+        debug(`after stripping fences (first 300): ${resultStr.slice(0, 300)}`);
+
         try {
           parsed = JSON.parse(resultStr);
-        } catch {
+          debug(`result JSON parsed OK`);
+        } catch (parseErr: any) {
+          debug(`result JSON parse failed: ${parseErr.message}`);
           // Try extracting JSON object from the string
           const match = resultStr.match(/\{[\s\S]*\}/);
           if (match) {
+            debug(`regex extracted JSON (${match[0].length} chars)`);
             parsed = JSON.parse(match[0]);
+            debug(`regex JSON parsed OK`);
           } else {
+            debug(`no JSON found in result string`);
             throw new Error(`Could not extract JSON from result: ${resultStr.slice(0, 200)}`);
           }
         }
       } else {
+        debug(`outer is not a wrapper — using directly`);
         parsed = outer;
       }
     } catch (e: any) {
+      debug(`outer JSON parse failed: ${e.message}`);
       // If outer JSON parse fails, try to extract JSON from raw text
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
+        debug(`fallback regex extracted JSON (${jsonMatch[0].length} chars)`);
         parsed = JSON.parse(jsonMatch[0]);
       } else {
         throw new Error(`Failed to parse AI response as JSON: ${raw.slice(0, 200)}`);
       }
     }
 
-    // Validate against schema
-    const data = req.schema.parse(parsed);
+    debug(`parsed result: ${JSON.stringify(parsed).slice(0, 300)}`);
 
-    return { data, raw, durationMs: Date.now() - start };
+    // Validate against schema
+    try {
+      const data = req.schema.parse(parsed);
+      debug(`zod validation passed`);
+      return { data, raw, durationMs: Date.now() - start };
+    } catch (zodErr: any) {
+      debug(`zod validation FAILED: ${JSON.stringify(zodErr.issues)}`);
+      debug(`parsed was: ${JSON.stringify(parsed).slice(0, 500)}`);
+      throw zodErr;
+    }
   });
 }
 
@@ -168,10 +211,13 @@ export async function runClaude<T>(req: ClaudeRequest<T>): Promise<ClaudeRespons
  * Check if claude CLI is available.
  */
 export async function isClaudeAvailable(): Promise<boolean> {
+  const bin = getClaudeBin();
   try {
-    await execFileAsync(getClaudeBin(), ['--version'], { timeout: 5000 });
+    const { stdout } = await execFileAsync(bin, ['--version'], { timeout: 5000 });
+    debug(`isClaudeAvailable: YES — ${bin} → ${stdout.trim()}`);
     return true;
-  } catch {
+  } catch (e: any) {
+    debug(`isClaudeAvailable: NO — ${bin} failed: ${e.message}`);
     return false;
   }
 }
