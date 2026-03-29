@@ -198,9 +198,20 @@ export async function generateSummary(
     .join('\n');
 
   const { data } = await runClaude({
-    prompt: `Analyze these ${prompts.length} Claude Code prompts and provide a summary:\n\n${promptList}`,
+    prompt: `Analyze these ${prompts.length} Claude Code prompts and provide a summary.
+
+${promptList}
+
+Respond with ONLY a JSON object (no markdown, no code fences, no explanation), with exactly these keys:
+- "summary": string (1-3 sentence summary of the work done)
+- "categories": string[] (e.g. ["coding", "debugging", "documentation"])
+- "topics": string[] (specific topics discussed)
+- "risk_level": "low" | "medium" | "high" (based on sensitivity of content)
+
+Example response format:
+{"summary":"Developer worked on...", "categories":["coding"], "topics":["auth system"], "risk_level":"low"}`,
     systemPrompt:
-      'You are analyzing AI usage patterns for a team analytics dashboard. Be concise. Focus on what work was done, key topics, and any concerning patterns.',
+      'You are a JSON API. You analyze AI usage patterns. Respond with ONLY valid JSON, no markdown formatting, no explanation text. Just the raw JSON object.',
     schema: SummarySchema,
     timeout: 60000,
   });
