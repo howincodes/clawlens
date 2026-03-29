@@ -208,6 +208,25 @@ function runMigrations(database: Database.Database): void {
       uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- User AI profiles (rolling behavioral analysis)
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL UNIQUE REFERENCES users(id),
+      profile TEXT NOT NULL,
+      version INTEGER DEFAULT 1,
+      prompt_count_at_update INTEGER DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Team pulse (executive briefings)
+    CREATE TABLE IF NOT EXISTS team_pulses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      team_id TEXT NOT NULL,
+      pulse TEXT NOT NULL,
+      generated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_users_token ON users(auth_token);
     CREATE INDEX IF NOT EXISTS idx_users_team ON users(team_id);
@@ -219,6 +238,8 @@ function runMigrations(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tool_events_user ON tool_events(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_tamper_alerts_user ON tamper_alerts(user_id);
     CREATE INDEX IF NOT EXISTS idx_watcher_commands_user ON watcher_commands(user_id, status);
+    CREATE INDEX IF NOT EXISTS idx_user_profiles_user ON user_profiles(user_id);
+    CREATE INDEX IF NOT EXISTS idx_team_pulses_team ON team_pulses(team_id, generated_at);
   `);
 
   // Incremental migrations for existing databases
@@ -231,6 +252,23 @@ function runMigrations(database: Database.Database): void {
     database.exec(`ALTER TABLE users ADD COLUMN notification_config TEXT`);
   } catch {
     // Column already exists — ignore
+  }
+
+  // Session AI columns
+  const sessionAiColumns = [
+    'ai_summary TEXT',
+    'ai_categories TEXT',
+    'ai_productivity_score INTEGER',
+    'ai_key_actions TEXT',
+    'ai_tools_summary TEXT',
+    'ai_analyzed_at TEXT',
+  ];
+  for (const col of sessionAiColumns) {
+    try {
+      database.exec(`ALTER TABLE sessions ADD COLUMN ${col}`);
+    } catch {
+      // Column already exists — ignore
+    }
   }
 }
 
@@ -273,6 +311,12 @@ export interface SessionRow {
   end_reason: string | null;
   prompt_count: number;
   total_credits: number;
+  ai_summary: string | null;
+  ai_categories: string | null;
+  ai_productivity_score: number | null;
+  ai_key_actions: string | null;
+  ai_tools_summary: string | null;
+  ai_analyzed_at: string | null;
 }
 
 export interface PromptRow {
@@ -358,6 +402,23 @@ export interface SummaryRow {
   topics: string | null;
   risk_level: string | null;
   created_at: string;
+}
+
+export interface UserProfileRow {
+  id: number;
+  user_id: string;
+  profile: string;
+  version: number;
+  prompt_count_at_update: number;
+  updated_at: string;
+  created_at: string;
+}
+
+export interface TeamPulseRow {
+  id: number;
+  team_id: string;
+  pulse: string;
+  generated_at: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1041,4 +1102,105 @@ export function getLatestWatcherLogs(userId: string): WatcherLogRow | undefined 
   return database.prepare(
     `SELECT * FROM watcher_logs WHERE user_id = ? ORDER BY id DESC LIMIT 1`,
   ).get(userId) as WatcherLogRow | undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Prepared-statement helpers — User Profiles
+// ---------------------------------------------------------------------------
+
+export function getUserProfile(userId: string): UserProfileRow | undefined {
+  const database = getDb();
+  return database.prepare(
+    `SELECT * FROM user_profiles WHERE user_id = ?`,
+  ).get(userId) as UserProfileRow | undefined;
+}
+
+export function upsertUserProfile(params: {
+  user_id: string;
+  profile: string;
+  prompt_count_at_update: number;
+}): UserProfileRow {
+  const database = getDb();
+  const existing = getUserProfile(params.user_id);
+
+  if (existing) {
+    return database.prepare(
+      `UPDATE user_profiles SET profile = ?, version = version + 1, prompt_count_at_update = ?, updated_at = datetime('now') WHERE user_id = ? RETURNING *`,
+    ).get(params.profile, params.prompt_count_at_update, params.user_id) as UserProfileRow;
+  }
+
+  return database.prepare(
+    `INSERT INTO user_profiles (user_id, profile, prompt_count_at_update) VALUES (?, ?, ?) RETURNING *`,
+  ).get(params.user_id, params.profile, params.prompt_count_at_update) as UserProfileRow;
+}
+
+export function getAllUserProfiles(teamId: string): Array<UserProfileRow & { user_name: string }> {
+  const database = getDb();
+  return database.prepare(
+    `SELECT up.*, u.name as user_name FROM user_profiles up JOIN users u ON u.id = up.user_id WHERE u.team_id = ? ORDER BY up.updated_at DESC`,
+  ).all(teamId) as Array<UserProfileRow & { user_name: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// Prepared-statement helpers — Team Pulses
+// ---------------------------------------------------------------------------
+
+export function createTeamPulse(params: {
+  team_id: string;
+  pulse: string;
+}): TeamPulseRow {
+  const database = getDb();
+  return database.prepare(
+    `INSERT INTO team_pulses (team_id, pulse) VALUES (?, ?) RETURNING *`,
+  ).get(params.team_id, params.pulse) as TeamPulseRow;
+}
+
+export function getLatestTeamPulse(teamId: string): TeamPulseRow | undefined {
+  const database = getDb();
+  return database.prepare(
+    `SELECT * FROM team_pulses WHERE team_id = ? ORDER BY generated_at DESC LIMIT 1`,
+  ).get(teamId) as TeamPulseRow | undefined;
+}
+
+export function getTeamPulseHistory(teamId: string, limit: number = 10): TeamPulseRow[] {
+  const database = getDb();
+  return database.prepare(
+    `SELECT * FROM team_pulses WHERE team_id = ? ORDER BY generated_at DESC LIMIT ?`,
+  ).all(teamId, limit) as TeamPulseRow[];
+}
+
+// ---------------------------------------------------------------------------
+// Prepared-statement helpers — Session AI
+// ---------------------------------------------------------------------------
+
+export function updateSessionAI(sessionId: string, data: {
+  ai_summary: string;
+  ai_categories: string;
+  ai_productivity_score: number;
+  ai_key_actions: string;
+  ai_tools_summary: string;
+}): void {
+  const database = getDb();
+  database.prepare(
+    `UPDATE sessions SET ai_summary = ?, ai_categories = ?, ai_productivity_score = ?, ai_key_actions = ?, ai_tools_summary = ?, ai_analyzed_at = datetime('now') WHERE id = ?`,
+  ).run(
+    data.ai_summary,
+    data.ai_categories,
+    data.ai_productivity_score,
+    data.ai_key_actions,
+    data.ai_tools_summary,
+    sessionId,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Aggregation helpers — User prompt count
+// ---------------------------------------------------------------------------
+
+export function getUserPromptCount(userId: string): number {
+  const database = getDb();
+  const row = database.prepare(
+    `SELECT COUNT(*) as count FROM prompts WHERE user_id = ? AND blocked = 0`,
+  ).get(userId) as { count: number };
+  return row.count;
 }
