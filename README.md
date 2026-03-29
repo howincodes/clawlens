@@ -8,15 +8,72 @@ Admin deploys a server. Developers install a client. The client hooks into Claud
 
 ### 1. Deploy Server
 
+Two deployment options:
+
+#### Option A: Caddy (recommended — auto-HTTPS + WebSocket, zero config)
+
 ```bash
 git clone https://github.com/howincodes/clawlens.git
 cd clawlens
 cp .env.example .env
-nano .env                  # set ADMIN_PASSWORD
+nano .env    # set ADMIN_PASSWORD and DOMAIN
+docker compose -f docker-compose.caddy.yml up -d
+```
+
+Caddy automatically handles HTTPS certificates and WebSocket proxying. Point your DNS A record to the server and you're done.
+
+#### Option B: Behind existing reverse proxy (nginx, HestiaCP, etc.)
+
+```bash
+git clone https://github.com/howincodes/clawlens.git
+cd clawlens
+cp .env.example .env
+nano .env    # set ADMIN_PASSWORD
 docker compose up -d
 ```
 
-Dashboard: `http://your-server:3000`
+This exposes port 3000. Point your reverse proxy to it.
+
+**Important:** If you use nginx (including hosting panels like HestiaCP, CyberPanel, etc.), you must enable WebSocket proxying for the `/ws` path. Without this, the dashboard Live Feed falls back to polling (works but not real-time).
+
+<details>
+<summary>nginx WebSocket config (click to expand)</summary>
+
+Add this to your nginx server block for the ClawLens domain:
+
+```nginx
+location /ws {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 86400;
+}
+```
+
+**HestiaCP users:** Go to Web → your domain → Nginx Templates → edit the `proxy.tpl` and `proxy.stpl` (SSL) templates, or add a custom nginx config snippet via the panel. Alternatively, add the above block to `/home/<user>/conf/web/<domain>/nginx.ssl.conf_append` (create the file if it doesn't exist), then restart nginx:
+
+```bash
+# HestiaCP: create custom nginx snippet
+cat > /home/<user>/conf/web/<domain>/nginx.ssl.conf_append << 'EOF'
+location /ws {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 86400;
+}
+EOF
+
+# Restart nginx
+systemctl restart nginx
+```
+
+</details>
+
+Dashboard: `https://your-domain` (Caddy) or `http://your-server:3000` (nginx)
 Default login password: `admin` (change via `ADMIN_PASSWORD` in `.env`)
 
 ### 2. Create a User
@@ -47,35 +104,6 @@ The installer:
 3. Registers 11 hooks in `~/.claude/settings.json`
 4. Sets up watcher auto-start on login (launchd / autostart / Startup folder)
 5. Starts the watcher immediately
-
-### Deployment Options
-
-#### Option A: Behind existing proxy (nginx, hosting panel)
-
-The default `docker-compose.yml` exposes port 3000. Point your proxy to it.
-
-For WebSocket support, add to your nginx config:
-```nginx
-location /ws {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_read_timeout 86400;
-}
-```
-
-Note: WebSocket is optional. The dashboard automatically falls back to polling if WebSocket is unavailable.
-
-#### Option B: Caddy (auto-HTTPS + WebSocket, recommended for standalone)
-
-```bash
-cp .env.example .env
-nano .env    # set ADMIN_PASSWORD and DOMAIN
-docker compose -f docker-compose.caddy.yml up -d
-```
-
-Caddy automatically handles HTTPS certificates and WebSocket proxying.
 
 ### 4. Verify
 
