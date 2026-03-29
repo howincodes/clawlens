@@ -37,16 +37,6 @@ function normalizeModel(model: string): string {
   return model
 }
 
-function tamperStatusDisplay(user: any): { icon: string; label: string; variant: 'success' | 'warning' | 'destructive' | 'secondary' | 'outline' } {
-  const tamper = user.tamper_status
-  const tamperStatus = typeof tamper === 'object' && tamper ? tamper.status : tamper
-  if (user.status === 'killed') return { icon: '\u{1F534}', label: 'Killed', variant: 'destructive' }
-  if (user.status === 'paused') return { icon: '\u23F8', label: 'Paused', variant: 'secondary' }
-  if (tamperStatus === 'hooks_modified' || tamperStatus === 'config_changed') return { icon: '\u26A0\uFE0F', label: 'Tampered', variant: 'warning' }
-  if (tamperStatus === 'inactive') return { icon: '\u{1F7E1}', label: 'Inactive', variant: 'outline' }
-  return { icon: '\u{1F7E2}', label: 'Active', variant: 'success' }
-}
-
 export function UsersPage() {
   const [users, setUsers] = useState<any[]>([])
   const [leaderMap, setLeaderMap] = useState<Map<string, any>>(new Map())
@@ -177,7 +167,6 @@ export function UsersPage() {
                     <TableHead>Name</TableHead>
                     <TableHead>Slug</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Tamper</TableHead>
                     <TableHead className="text-right">Prompts</TableHead>
                     <TableHead className="text-right">Credits</TableHead>
                     <TableHead className="text-right">Sessions</TableHead>
@@ -214,17 +203,6 @@ export function UsersPage() {
                           >
                             {user.status}
                           </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {(() => {
-                            const ts = tamperStatusDisplay(user)
-                            return (
-                              <Badge variant={ts.variant} className="gap-1">
-                                <span>{ts.icon}</span>
-                                {ts.label}
-                              </Badge>
-                            )
-                          })()}
                         </TableCell>
                         <TableCell className="text-right">
                           {Number(stats.prompts || 0).toLocaleString()}

@@ -60,12 +60,6 @@ export const login = (password: string) =>
 export const getTeam = () => fetchClient('/team')
 export const updateTeam = (data: Record<string, unknown>) =>
   fetchClient('/team', { method: 'PUT', body: JSON.stringify(data) })
-export const changePassword = (currentPassword: string, newPassword: string) =>
-  fetchClient('/team/password', {
-    method: 'PUT',
-    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
-  })
-
 // ── Users ─────────────────────────────────────────────────
 export const getUsers = () => fetchClient('/users')
 export const createUser = (name: string, slug: string, limits?: unknown[]) =>
@@ -105,11 +99,6 @@ export const generateSummary = () => fetchClient('/summaries/generate', { method
 export const getAuditLog = (params?: Record<string, string>) =>
   fetchClient(`/audit-log${params ? '?' + new URLSearchParams(params).toString() : ''}`)
 
-// ── Tamper Alerts ────────────────────────────────────────────
-export const getTamperAlerts = () => fetchClient('/tamper-alerts')
-export const resolveTamperAlert = (id: number) =>
-  fetchClient(`/tamper-alerts/${id}/resolve`, { method: 'POST' })
-
 // ── Watcher ───────────────────────────────────────────────
 export const getWatcherStatus = (userId: string) => fetchClient(`/users/${userId}/watcher/status`)
 export const getWatcherLogs = (userId: string) => fetchClient(`/users/${userId}/watcher/logs`)
@@ -120,7 +109,3 @@ export const sendWatcherCommand = (userId: string, command: string, message?: st
     body: JSON.stringify({ command, message }),
   })
 
-// ── Export ─────────────────────────────────────────────────
-export const exportData = (type: string, days: number, format: string) => {
-  window.open(`/api/admin/export/${type}?days=${days}&format=${format}`)
-}

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
-import { getTeam, updateTeam, changePassword, exportData } from '@/lib/api'
+import { getTeam, updateTeam } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2, Save, DownloadCloud, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Loader2, Save, AlertTriangle, CheckCircle2 } from 'lucide-react'
 
 interface TeamSettings {
   collection_level?: string
@@ -38,14 +38,6 @@ export function Settings() {
   // Local form state
   const [name, setName] = useState('')
   const [settings, setSettings] = useState<TeamSettings>({})
-
-  // Password form
-  const [pwd, setPwd] = useState({ current: '', new: '', confirm: '' })
-  const [pwdUpdating, setPwdUpdating] = useState(false)
-  const [pwdMsg, setPwdMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
-  // Export days range
-  const [exportDays, setExportDays] = useState(30)
 
   useEffect(() => {
     async function load() {
@@ -83,36 +75,6 @@ export function Settings() {
       setSaveMsg({ type: 'error', text: 'Failed to save settings.' })
     } finally {
       setSaving(false)
-    }
-  }
-
-  const handlePasswordUpdate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setPwdMsg(null)
-
-    if (!pwd.current || !pwd.new) {
-      setPwdMsg({ type: 'error', text: 'Please fill in all password fields.' })
-      return
-    }
-    if (pwd.new.length < 6) {
-      setPwdMsg({ type: 'error', text: 'New password must be at least 6 characters.' })
-      return
-    }
-    if (pwd.new !== pwd.confirm) {
-      setPwdMsg({ type: 'error', text: 'New password and confirmation do not match.' })
-      return
-    }
-
-    setPwdUpdating(true)
-    try {
-      await changePassword(pwd.current, pwd.new)
-      setPwdMsg({ type: 'success', text: 'Password changed successfully.' })
-      setPwd({ current: '', new: '', confirm: '' })
-      setTimeout(() => setPwdMsg(null), 5000)
-    } catch (_err) {
-      setPwdMsg({ type: 'error', text: 'Failed to update password. Check your current password.' })
-    } finally {
-      setPwdUpdating(false)
     }
   }
 
@@ -356,79 +318,6 @@ export function Settings() {
         </div>
       </form>
 
-      <div className="grid gap-6 md:grid-cols-2 mt-8">
-        {/* Password Change */}
-        <form onSubmit={handlePasswordUpdate}>
-          <Card className="border-destructive/30">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-destructive">
-                <AlertTriangle className="w-5 h-5" />
-                Change Password
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {pwdMsg && (
-                <div className={`p-3 rounded-lg text-sm font-medium ${
-                  pwdMsg.type === 'success'
-                    ? 'bg-green-500/10 text-green-600 border border-green-200'
-                    : 'bg-red-500/10 text-red-600 border border-red-200'
-                }`}>
-                  {pwdMsg.text}
-                </div>
-              )}
-              <div className="space-y-2">
-                <Label>Current Password</Label>
-                <Input type="password" value={pwd.current} onChange={e => setPwd(p => ({ ...p, current: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>New Password</Label>
-                <Input type="password" value={pwd.new} onChange={e => setPwd(p => ({ ...p, new: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Confirm New Password</Label>
-                <Input type="password" value={pwd.confirm} onChange={e => setPwd(p => ({ ...p, confirm: e.target.value }))} />
-              </div>
-              <Button type="submit" disabled={pwdUpdating} variant="destructive" className="w-full mt-2">
-                {pwdUpdating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                Update Password
-              </Button>
-            </CardContent>
-          </Card>
-        </form>
-
-        {/* Data Export */}
-        <Card className="border-destructive/30">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-destructive">
-              <DownloadCloud className="w-5 h-5" />
-              Data Export
-            </CardTitle>
-            <CardDescription>Export team data for archival or analysis.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Export Range (Days)</Label>
-              <Input
-                type="number"
-                value={exportDays}
-                onChange={e => setExportDays(parseInt(e.target.value) || 30)}
-                min={1}
-              />
-            </div>
-            <div className="flex flex-col gap-3">
-              <Button onClick={() => exportData('prompts', exportDays, 'csv')} variant="outline" className="w-full justify-between">
-                <span>Export Prompt History ({exportDays}d)</span> <span className="text-xs font-mono">CSV</span>
-              </Button>
-              <Button onClick={() => exportData('usage', exportDays, 'csv')} variant="outline" className="w-full justify-between">
-                <span>Export Usage Metrics ({exportDays}d)</span> <span className="text-xs font-mono">CSV</span>
-              </Button>
-              <Button onClick={() => exportData('prompts', exportDays, 'json')} variant="outline" className="w-full justify-between text-muted-foreground">
-                <span>Export Full Telemetry Dump ({exportDays}d)</span> <span className="text-xs font-mono">JSON</span>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
     </div>
   )
 }
