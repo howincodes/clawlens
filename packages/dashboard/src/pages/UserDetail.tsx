@@ -31,6 +31,7 @@ import {
   Skull,
   FileText,
   Copy,
+  Key,
   Download,
   Clock,
   Info,
@@ -153,6 +154,9 @@ export function UserDetail() {
   const [logEntryLoading, setLogEntryLoading] = useState(false)
   const [copySuccess, setCopySuccess] = useState(false)
   const logPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Token visibility
+  const [showToken, setShowToken] = useState(false)
 
   // Modal states
   const [showLimits, setShowLimits] = useState(false)
@@ -672,12 +676,26 @@ export function UserDetail() {
             <Settings2 className="w-4 h-4 mr-2" />
             Edit Limits
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setShowToken(!showToken)}>
+            <Key className="w-4 h-4 mr-2" />
+            {showToken ? 'Hide Token' : 'Show Token'}
+          </Button>
           <Button variant="destructive" onClick={() => setConfirmAction('killed')}>
             <Trash2 className="w-4 h-4 mr-2" />
             Kill User
           </Button>
         </div>
       </div>
+      {showToken && data?.user?.auth_token && (
+        <div className="flex items-center gap-2 bg-muted/50 rounded-md px-3 py-2">
+          <code className="text-xs font-mono flex-1 select-all">{data.user.auth_token}</code>
+          <Button variant="ghost" size="sm" onClick={() => {
+            navigator.clipboard.writeText(data.user.auth_token)
+          }}>
+            <Copy className="w-3 h-3" />
+          </Button>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

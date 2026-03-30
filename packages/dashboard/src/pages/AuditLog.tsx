@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getAuditLog } from '@/lib/api'
+import { getAuditLog, getUsers } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -9,31 +9,34 @@ import { format } from 'date-fns'
 
 const ACTION_TYPES = [
   { value: '', label: 'All Actions' },
-  { value: 'user_created', label: 'User Created' },
-  { value: 'user_killed', label: 'User Killed' },
-  { value: 'user_paused', label: 'User Paused' },
-  { value: 'user_active', label: 'User Active' },
-  { value: 'limits_changed', label: 'Limits Changed' },
-  { value: 'settings_updated', label: 'Settings Updated' },
-  { value: 'password_changed', label: 'Password Changed' },
-  { value: 'token_rotated', label: 'Token Rotated' },
+  { value: 'SessionStart', label: 'Session Start' },
+  { value: 'UserPromptSubmit', label: 'Prompt' },
+  { value: 'Stop', label: 'Stop' },
+  { value: 'SessionEnd', label: 'Session End' },
+  { value: 'PreToolUse', label: 'Tool Use' },
+  { value: 'PostToolUse', label: 'Tool Complete' },
+  { value: 'ConfigChange', label: 'Config Change' },
+  { value: 'FileChanged', label: 'File Changed' },
+  { value: 'SubagentStart', label: 'Subagent' },
 ]
 
 const ACTION_COLORS: Record<string, string> = {
-  user_created: 'bg-green-500/10 text-green-600 border-green-200',
-  user_killed: 'bg-red-500/10 text-red-600 border-red-200',
-  user_paused: 'bg-yellow-500/10 text-yellow-600 border-yellow-200',
-  user_active: 'bg-blue-500/10 text-blue-600 border-blue-200',
-  limits_changed: 'bg-purple-500/10 text-purple-600 border-purple-200',
-  settings_updated: 'bg-teal-500/10 text-teal-600 border-teal-200',
-  password_changed: 'bg-orange-500/10 text-orange-600 border-orange-200',
-  token_rotated: 'bg-pink-500/10 text-pink-600 border-pink-200',
+  SessionStart: 'bg-green-500/10 text-green-600 border-green-200',
+  UserPromptSubmit: 'bg-blue-500/10 text-blue-600 border-blue-200',
+  Stop: 'bg-red-500/10 text-red-600 border-red-200',
+  SessionEnd: 'bg-yellow-500/10 text-yellow-600 border-yellow-200',
+  PreToolUse: 'bg-purple-500/10 text-purple-600 border-purple-200',
+  PostToolUse: 'bg-teal-500/10 text-teal-600 border-teal-200',
+  ConfigChange: 'bg-orange-500/10 text-orange-600 border-orange-200',
+  FileChanged: 'bg-pink-500/10 text-pink-600 border-pink-200',
+  SubagentStart: 'bg-cyan-500/10 text-cyan-600 border-cyan-200',
 }
 
 const LIMIT = 50
 
 export function AuditLog() {
   const [data, setData] = useState<{ entries: any[]; total: number }>({ entries: [], total: 0 })
+  const [userMap, setUserMap] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
@@ -49,8 +52,14 @@ export function AuditLog() {
         limit: LIMIT.toString(),
       }
       if (action) params.action = action
-      const res = await getAuditLog(params)
-      setData({ entries: res?.data || res?.entries || [], total: res?.total || 0 })
+      const [usersRes, logsRes] = await Promise.all([getUsers(), getAuditLog(params)])
+      const uMap = new Map<string, string>(
+        (usersRes?.data || []).map((u: any) => [u.id, u.name])
+      )
+      setUserMap(uMap)
+      const entries = logsRes?.data || logsRes?.entries || []
+      const total = entries.length
+      setData({ entries, total })
     } catch (_err) {
       setError('Failed to load audit log.')
       setData({ entries: [], total: 0 })
@@ -151,28 +160,30 @@ export function AuditLog() {
                 <TableBody>
                   {data.entries.map((log, idx) => {
                     const isExpanded = expandedRows.has(idx)
-                    const details = log.details
+                    const details = log.payload
                     const detailStr = formatDetails(details)
                     const isLong = detailStr.length > 80
+                    const ts = log.created_at ? new Date(String(log.created_at).endsWith('Z') ? log.created_at : log.created_at + 'Z') : null
+                    const actorName = userMap.get(log.user_id) || 'Unknown'
 
                     return (
                       <TableRow key={String(log.id || idx)} className={idx % 2 === 0 ? 'bg-muted/20' : ''}>
                         <TableCell className="text-xs text-muted-foreground font-mono">
-                          {log.timestamp ? format(new Date(String(log.timestamp)), 'MMM d, yyyy HH:mm:ss') : '-'}
+                          {ts ? format(ts, 'MMM d, yyyy HH:mm:ss') : '-'}
                         </TableCell>
                         <TableCell>
-                          {log.actor === 'admin' ? (
+                          {actorName === 'admin' ? (
                             <Badge variant="default" className="text-[10px]">ADMIN</Badge>
                           ) : (
-                            <span className="font-semibold text-sm">{String(log.actor || '-')}</span>
+                            <span className="font-semibold text-sm">{actorName}</span>
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline" className={`font-mono text-[10px] ${ACTION_COLORS[String(log.action)] || ''}`}>
-                            {String(log.action || '-')}
+                          <Badge variant="outline" className={`font-mono text-[10px] ${ACTION_COLORS[String(log.event_type)] || ''}`}>
+                            {String(log.event_type || '-')}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-sm font-medium">{String(log.target || '-')}</TableCell>
+                        <TableCell className="text-sm font-medium">{String(log.session_id || '-')}</TableCell>
                         <TableCell className="text-right text-xs text-muted-foreground">
                           {isLong ? (
                             <div>
