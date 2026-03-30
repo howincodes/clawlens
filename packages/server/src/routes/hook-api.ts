@@ -870,16 +870,22 @@ hookRouter.post('/antigravity-sync', (req: Request, res: Response) => {
         title: conv.title,
       });
 
-      // Process messages
+      // Process messages (with dedup — skip if prompt already exists for this session)
+      const db = getDb();
       for (const msg of conv.messages || []) {
         if (msg.role === 'user' && msg.content) {
-          recordPrompt({
-            session_id: cascadeId,
-            user_id: user.id,
-            prompt: msg.content,
-            model: msg.model || model,
-            credit_cost: 0,
-          });
+          const existing = db.prepare(
+            `SELECT id FROM prompts WHERE session_id = ? AND prompt = ? LIMIT 1`
+          ).get(cascadeId, msg.content);
+          if (!existing) {
+            recordPrompt({
+              session_id: cascadeId,
+              user_id: user.id,
+              prompt: msg.content,
+              model: msg.model || model,
+              credit_cost: 0,
+            });
+          }
         } else if (msg.role === 'assistant' && msg.content) {
           // Response storage disabled — uncomment to enable in future
           // db.prepare(

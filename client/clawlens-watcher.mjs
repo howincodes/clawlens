@@ -910,10 +910,10 @@ async function runAntigravityCollection() {
     if (!cascadeId) continue;
 
     const messages = Array.isArray(convo.messages) ? convo.messages : [];
-    const stepCount = convo.step_count ?? messages.length;
+    const msgCount = messages.length;
     const lastSyncedCount = lastSync[cascadeId] || 0;
 
-    if (stepCount <= lastSyncedCount) continue;
+    if (msgCount <= lastSyncedCount) continue;
 
     const newMessages = lastSyncedCount === 0 ? messages : messages.slice(lastSyncedCount);
     if (newMessages.length === 0) continue;
@@ -922,7 +922,7 @@ async function runAntigravityCollection() {
       cascade_id: cascadeId,
       title: convo.title || '',
       workspaces: convo.workspaces || [],
-      step_count: stepCount,
+      step_count: msgCount,
       messages: newMessages.map(m => ({
         role: m.role || '',
         content: m.content || '',
@@ -932,7 +932,7 @@ async function runAntigravityCollection() {
       })),
     });
 
-    updatedSync[cascadeId] = stepCount;
+    updatedSync[cascadeId] = msgCount;
   }
 
   if (conversations.length === 0) return;
