@@ -103,6 +103,19 @@ fi
 chmod 644 "$WATCHER_FILE"
 echo "  -> $WATCHER_FILE (watcher)"
 
+# Install Antigravity collector (built-in, no Python needed)
+AG_COLLECTOR="$HOOK_DIR/antigravity-collector.mjs"
+if [ -f "$INSTALL_SCRIPT_DIR/../client/antigravity-collector.mjs" ]; then
+  cp "$INSTALL_SCRIPT_DIR/../client/antigravity-collector.mjs" "$AG_COLLECTOR"
+else
+  CACHE_BUST="$(date +%s)"
+  curl -fsSL "https://raw.githubusercontent.com/howincodes/clawlens/main/client/antigravity-collector.mjs?v=$CACHE_BUST" -H "Cache-Control: no-cache" -o "$AG_COLLECTOR" 2>/dev/null || true
+fi
+if [ -f "$AG_COLLECTOR" ]; then
+  chmod 644 "$AG_COLLECTOR"
+  echo "  -> $AG_COLLECTOR (Antigravity collector)"
+fi
+
 # Write the thin bash wrapper (calls Node.js handler, fails open)
 cat > "$HOOK_SCRIPT" << 'HOOKEOF'
 #!/bin/bash
