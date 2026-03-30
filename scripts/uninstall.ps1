@@ -35,7 +35,7 @@ if (Test-Path $VbsFile) {
 
 # 3. Remove hook files
 Write-Host "  Removing hook files..."
-@("clawlens.mjs", "clawlens-watcher.mjs", "clawlens-hook.sh") | ForEach-Object {
+@("clawlens.mjs", "clawlens-watcher.mjs", "clawlens-hook.sh", "antigravity-collector.mjs") | ForEach-Object {
     $f = Join-Path $HooksDir $_
     if (Test-Path $f) { Remove-Item $f -Force }
 }

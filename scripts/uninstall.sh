@@ -42,7 +42,8 @@ echo "  Removing hook files..."
 rm -f "$HOOK_DIR/clawlens.mjs"
 rm -f "$HOOK_DIR/clawlens-watcher.mjs"
 rm -f "$HOOK_DIR/clawlens-hook.sh"
-echo "  -> Removed clawlens.mjs, clawlens-watcher.mjs, clawlens-hook.sh"
+rm -f "$HOOK_DIR/antigravity-collector.mjs"
+echo "  -> Removed hook files"
 
 # 4. Remove cache and log files
 echo "  Removing cache and log files..."
