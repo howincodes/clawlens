@@ -162,14 +162,26 @@ adminRouter.get('/users', (_req: Request, res: Response) => {
     const db = getDb();
 
     const enriched = users.map((user) => {
-      const stats = db
+      // Claude Code only (exclude Antigravity sessions)
+      const ccStats = db
         .prepare(
           `SELECT COUNT(*) as prompt_count,
                   COALESCE(SUM(credit_cost), 0) as total_credits
            FROM prompts
-           WHERE user_id = ? AND blocked = 0`,
+           WHERE user_id = ? AND blocked = 0
+           AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')`,
         )
         .get(user.id) as { prompt_count: number; total_credits: number };
+
+      // Antigravity only
+      const agStats = db
+        .prepare(
+          `SELECT COUNT(*) as ag_prompt_count
+           FROM prompts
+           WHERE user_id = ? AND blocked = 0
+           AND session_id IN (SELECT id FROM sessions WHERE source = 'antigravity')`,
+        )
+        .get(user.id) as { ag_prompt_count: number };
 
       const sessionStats = db
         .prepare(`SELECT COUNT(*) as session_count FROM sessions WHERE user_id = ?`)
@@ -186,8 +198,9 @@ adminRouter.get('/users', (_req: Request, res: Response) => {
 
       return {
         ...user,
-        prompt_count: stats.prompt_count,
-        total_credits: stats.total_credits,
+        prompt_count: ccStats.prompt_count,
+        total_credits: ccStats.total_credits,
+        ag_prompt_count: agStats.ag_prompt_count,
         session_count: sessionStats.session_count,
         top_model: topModelResult?.model || user.default_model || null,
         last_active: user.last_event_at,
@@ -272,14 +285,26 @@ adminRouter.get('/users/:id', (req: Request, res: Response) => {
     const tamperStatus = getUserTamperStatus(user.id);
 
     const db = getDb();
+    // Claude Code only (exclude Antigravity sessions)
     const stats = db
       .prepare(
         `SELECT COUNT(*) as prompt_count,
                 COALESCE(SUM(credit_cost), 0) as total_credits
          FROM prompts
-         WHERE user_id = ? AND blocked = 0`,
+         WHERE user_id = ? AND blocked = 0
+         AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')`,
       )
       .get(user.id) as { prompt_count: number; total_credits: number };
+
+    // Antigravity only
+    const agStats = db
+      .prepare(
+        `SELECT COUNT(*) as ag_prompt_count
+         FROM prompts
+         WHERE user_id = ? AND blocked = 0
+         AND session_id IN (SELECT id FROM sessions WHERE source = 'antigravity')`,
+      )
+      .get(user.id) as { ag_prompt_count: number };
 
     // Get unique devices from hook events (SessionStart sends hostname + platform)
     const devices = db.prepare(
@@ -312,6 +337,7 @@ adminRouter.get('/users/:id', (req: Request, res: Response) => {
       tamper_status: tamperStatus,
       prompt_count: stats.prompt_count,
       total_credits: stats.total_credits,
+      ag_prompt_count: agStats.ag_prompt_count,
       session_count: sessions.length,
       watcher_connected: isWatcherConnected(user.id) || isWatcherRecentlyActive(user),
     });
@@ -507,9 +533,9 @@ adminRouter.get('/subscriptions', (_req: Request, res: Response) => {
       .prepare(
         `SELECT s.*,
                 (SELECT COUNT(*) FROM users u WHERE u.subscription_id = s.id) as user_count,
-                (SELECT COUNT(*) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0) as prompt_count,
-                (SELECT COUNT(*) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0) as total_prompts,
-                (SELECT COALESCE(SUM(p.credit_cost), 0) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0) as total_credits
+                (SELECT COUNT(*) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0 AND p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')) as prompt_count,
+                (SELECT COUNT(*) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0 AND p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')) as total_prompts,
+                (SELECT COALESCE(SUM(p.credit_cost), 0) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0 AND p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')) as total_credits
          FROM subscriptions s
          ORDER BY s.created_at DESC`,
       )
@@ -520,8 +546,8 @@ adminRouter.get('/subscriptions', (_req: Request, res: Response) => {
       sub.users = db
         .prepare(
           `SELECT u.id, u.name, u.email, u.status, u.default_model,
-                  (SELECT COUNT(*) FROM prompts WHERE user_id = u.id AND blocked = 0) as prompt_count,
-                  (SELECT COALESCE(SUM(credit_cost), 0) FROM prompts WHERE user_id = u.id AND blocked = 0) as total_credits
+                  (SELECT COUNT(*) FROM prompts WHERE user_id = u.id AND blocked = 0 AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')) as prompt_count,
+                  (SELECT COALESCE(SUM(credit_cost), 0) FROM prompts WHERE user_id = u.id AND blocked = 0 AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')) as total_credits
            FROM users u WHERE u.subscription_id = ?`,
         )
         .all(sub.id);
@@ -548,7 +574,7 @@ adminRouter.get('/analytics', (req: Request, res: Response) => {
 
     const db = getDb();
 
-    // Overview
+    // Overview — Claude Code only (exclude Antigravity)
     const overview = db
       .prepare(
         `SELECT COUNT(*) as total_prompts,
@@ -556,9 +582,22 @@ adminRouter.get('/analytics', (req: Request, res: Response) => {
          FROM prompts
          WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
          AND created_at >= ?
-         AND blocked = 0`,
+         AND blocked = 0
+         AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')`,
       )
       .get(team.id, startDateStr) as { total_prompts: number; total_credits: number };
+
+    // Antigravity prompts
+    const agOverview = db
+      .prepare(
+        `SELECT COUNT(*) as ag_prompts
+         FROM prompts
+         WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
+         AND created_at >= ?
+         AND blocked = 0
+         AND session_id IN (SELECT id FROM sessions WHERE source = 'antigravity')`,
+      )
+      .get(team.id, startDateStr) as { ag_prompts: number };
 
     const sessionCount = db
       .prepare(
@@ -614,6 +653,7 @@ adminRouter.get('/analytics', (req: Request, res: Response) => {
         total_sessions: sessionCount.total_sessions,
         total_credits: overview.total_credits,
         active_users: activeUsersResult.active_users,
+        ag_prompts: agOverview.ag_prompts,
       },
       daily,
       models,
@@ -642,10 +682,11 @@ adminRouter.get('/analytics/users', (req: Request, res: Response) => {
     const data = db
       .prepare(
         `SELECT u.id, u.name, u.email, u.status, u.default_model,
-                COUNT(p.id) as prompts,
-                COALESCE(SUM(p.credit_cost), 0) as credits,
+                COUNT(CASE WHEN p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity') THEN p.id END) as prompts,
+                COALESCE(SUM(CASE WHEN p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity') THEN p.credit_cost ELSE 0 END), 0) as credits,
+                COUNT(CASE WHEN p.session_id IN (SELECT id FROM sessions WHERE source = 'antigravity') THEN p.id END) as ag_prompts,
                 (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.started_at >= ?) as sessions,
-                COALESCE(SUM(p.credit_cost), 0) as cost_usd,
+                COALESCE(SUM(CASE WHEN p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity') THEN p.credit_cost ELSE 0 END), 0) as cost_usd,
                 (SELECT model FROM prompts WHERE user_id = u.id AND blocked = 0 AND model IS NOT NULL GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1) as top_model
          FROM users u
          LEFT JOIN prompts p ON p.user_id = u.id AND p.created_at >= ? AND p.blocked = 0

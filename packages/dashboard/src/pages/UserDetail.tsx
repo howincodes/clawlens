@@ -27,7 +27,6 @@ import {
   ChevronUp,
   AlertCircle,
   RefreshCw,
-  Monitor,
   Zap,
   Skull,
   FileText,
@@ -609,6 +608,7 @@ export function UserDetail() {
   const limits = user?.limits || data.limits || []
 
   const totalPrompts = data.prompt_count ?? 0
+  const agPromptCount = data.ag_prompt_count ?? 0
   const promptsToday = data.prompts_today ?? 0
   const totalCost = data.total_credits ?? 0
   const totalSessions = data.session_count ?? data.sessions?.length ?? 0
@@ -684,14 +684,13 @@ export function UserDetail() {
         <Card>
           <CardHeader className="p-4 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Prompts
+              Total CC Prompts
             </CardTitle>
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="text-2xl font-bold">{totalPrompts}</div>
             <p className="text-xs text-muted-foreground">
               +{promptsToday} today
-              {data?.antigravity_collection !== 0 && ' (Claude + Antigravity)'}
             </p>
           </CardContent>
         </Card>
@@ -707,23 +706,23 @@ export function UserDetail() {
         <Card>
           <CardHeader className="p-4 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Sessions
+              AG Prompts
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            <div className="text-2xl font-bold">{agPromptCount}</div>
+            <p className="text-xs text-muted-foreground">Antigravity</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="p-4 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Sessions
             </CardTitle>
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="text-2xl font-bold">{totalSessions}</div>
             <p className="text-xs text-muted-foreground">+{sessionsToday} today</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Devices</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold flex items-center gap-2">
-              <Monitor className="w-5 h-5 text-muted-foreground" />
-              {deviceCount}
-            </div>
           </CardContent>
         </Card>
       </div>

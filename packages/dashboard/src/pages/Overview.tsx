@@ -334,6 +334,7 @@ export function Overview() {
   const totalUsers = analytics?.total_users ?? users.length
   const activeNow = analytics?.active_now ?? users.filter((u: any) => u.status === 'active').length
   const promptsToday = analytics?.prompts_today ?? analytics?.total_prompts ?? 0
+  const agPromptsToday = analytics?.ag_prompts ?? 0
   const costToday = analytics?.cost_today ?? analytics?.total_credits ?? 0
 
   const displayEvents = events.slice(0, 50)
@@ -368,12 +369,17 @@ export function Overview() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Prompts Today</CardTitle>
+            <CardTitle className="text-sm font-medium">CC Prompts Today</CardTitle>
             <MessageSquare className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{promptsToday}</div>
-            <p className="text-xs text-muted-foreground">Claude Code</p>
+            {agPromptsToday > 0 && (
+              <p className="text-xs text-muted-foreground">AG: {agPromptsToday}</p>
+            )}
+            {agPromptsToday === 0 && (
+              <p className="text-xs text-muted-foreground">Claude Code</p>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -548,20 +554,20 @@ export function Overview() {
                       <CardContent className="p-4 pt-2">
                         <div className="grid grid-cols-2 gap-3">
                           <div className="text-center p-2 bg-muted/30 rounded">
-                            <div className="text-lg font-bold">{Number(stats.prompts || 0)}</div>
-                            <div className="text-[10px] text-muted-foreground">Prompts</div>
+                            <div className="text-lg font-bold">{Number(stats.prompts ?? user.prompt_count ?? 0)}</div>
+                            <div className="text-[10px] text-muted-foreground">CC Prompts</div>
                           </div>
                           <div className="text-center p-2 bg-muted/30 rounded">
                             <div className="text-lg font-bold">{Number(stats.credits ?? stats.cost_usd ?? stats.cost ?? 0)} credits</div>
                             <div className="text-[10px] text-muted-foreground">Credits</div>
                           </div>
                           <div className="text-center p-2 bg-muted/30 rounded">
-                            <div className="text-lg font-bold">{Number(stats.sessions || 0)}</div>
-                            <div className="text-[10px] text-muted-foreground">Sessions</div>
+                            <div className="text-lg font-bold">{Number(stats.ag_prompts ?? user.ag_prompt_count ?? 0)}</div>
+                            <div className="text-[10px] text-muted-foreground">AG Prompts</div>
                           </div>
                           <div className="text-center p-2 bg-muted/30 rounded">
-                            <div className="text-lg font-bold capitalize">{normalizeModel(String(stats.top_model || user.top_model || user.default_model || ''))}</div>
-                            <div className="text-[10px] text-muted-foreground">Top Model</div>
+                            <div className="text-lg font-bold">{Number(stats.sessions ?? user.session_count ?? 0)}</div>
+                            <div className="text-[10px] text-muted-foreground">Sessions</div>
                           </div>
                         </div>
                       </CardContent>
