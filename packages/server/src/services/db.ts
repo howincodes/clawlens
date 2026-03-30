@@ -270,6 +270,14 @@ function runMigrations(database: Database.Database): void {
       // Column already exists — ignore
     }
   }
+
+  try {
+    database.exec(`ALTER TABLE sessions ADD COLUMN source TEXT DEFAULT 'claude_code'`);
+  } catch {}
+
+  try {
+    database.exec(`ALTER TABLE users ADD COLUMN antigravity_collection INTEGER DEFAULT 1`);
+  } catch {}
 }
 
 // ---------------------------------------------------------------------------
@@ -298,6 +306,7 @@ export interface UserRow {
   last_event_at: string | null;
   hook_integrity_hash: string | null;
   killed_at: string | null;
+  antigravity_collection: number;
   created_at: string;
 }
 
@@ -306,6 +315,7 @@ export interface SessionRow {
   user_id: string;
   model: string | null;
   cwd: string | null;
+  source: string;
   started_at: string;
   ended_at: string | null;
   end_reason: string | null;
@@ -523,11 +533,12 @@ export function updateUser(
       | 'last_event_at'
       | 'hook_integrity_hash'
       | 'killed_at'
+      | 'antigravity_collection'
     >
   >,
 ): UserRow | undefined {
   const database = getDb();
-  const ALLOWED_UPDATE_COLUMNS = new Set(['name', 'email', 'status', 'default_model', 'subscription_id', 'deployment_tier', 'poll_interval', 'notification_config', 'last_event_at', 'hook_integrity_hash', 'killed_at']);
+  const ALLOWED_UPDATE_COLUMNS = new Set(['name', 'email', 'status', 'default_model', 'subscription_id', 'deployment_tier', 'poll_interval', 'notification_config', 'last_event_at', 'hook_integrity_hash', 'killed_at', 'antigravity_collection']);
   const setClauses: string[] = [];
   const values: unknown[] = [];
 
@@ -1203,4 +1214,29 @@ export function getUserPromptCount(userId: string): number {
     `SELECT COUNT(*) as count FROM prompts WHERE user_id = ? AND blocked = 0`,
   ).get(userId) as { count: number };
   return row.count;
+}
+
+// ---------------------------------------------------------------------------
+// Prepared-statement helpers — Antigravity Sessions
+// ---------------------------------------------------------------------------
+
+export function upsertAntigravitySession(params: {
+  id: string;
+  user_id: string;
+  model?: string;
+  cwd?: string;
+  prompt_count?: number;
+  title?: string;
+}): SessionRow {
+  const database = getDb();
+  const existing = getSessionById(params.id);
+  if (existing) {
+    database.prepare(
+      `UPDATE sessions SET prompt_count = ?, model = COALESCE(?, model), cwd = COALESCE(?, cwd), ai_summary = COALESCE(?, ai_summary) WHERE id = ?`
+    ).run(params.prompt_count ?? existing.prompt_count, params.model || null, params.cwd || null, params.title || null, params.id);
+    return getSessionById(params.id)!;
+  }
+  return database.prepare(
+    `INSERT INTO sessions (id, user_id, model, cwd, source, prompt_count, ai_summary) VALUES (?, ?, ?, ?, 'antigravity', ?, ?) RETURNING *`
+  ).get(params.id, params.user_id, params.model || 'gemini', params.cwd || null, params.prompt_count || 0, params.title || null) as SessionRow;
 }
