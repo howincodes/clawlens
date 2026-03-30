@@ -212,7 +212,7 @@ curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/re
 
 ## Uninstall
 
-Removes everything: watcher, hooks, cache files, login agent, env vars. Zero traces.
+**Standard uninstall** — removes ClawLens hooks, watcher, cache, login agent, env vars:
 
 **macOS / Linux:**
 ```bash
@@ -222,6 +222,22 @@ bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scr
 **Windows (PowerShell):**
 ```powershell
 irm https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/uninstall.ps1 | iex
+```
+
+**Deep clean** — removes ALL traces including enforced mode, old claude-code-limiter, v0.1 Go binaries, and plugin registrations:
+
+**macOS / Linux:**
+```bash
+# Without sudo: cleans standard install
+bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/deep-clean.sh)
+
+# With sudo: also cleans managed-settings.d (enforced mode)
+curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/deep-clean.sh | sudo bash
+```
+
+**Windows (PowerShell — run as Administrator for full cleanup):**
+```powershell
+irm https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/deep-clean.ps1 | iex
 ```
 
 ---
