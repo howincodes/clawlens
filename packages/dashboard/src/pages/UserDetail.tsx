@@ -1180,6 +1180,27 @@ export function UserDetail() {
                     <span className={`block w-4 h-4 rounded-full bg-white shadow transition-transform ${data?.antigravity_collection !== 0 ? 'translate-x-5' : 'translate-x-0.5'}`} />
                   </button>
                 </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium">Antigravity Interval</div>
+                    <div className="text-xs text-muted-foreground">Collection frequency (seconds)</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      className="w-20 h-8 rounded border border-input px-2 text-sm"
+                      defaultValue={Math.round((data?.antigravity_interval || 120000) / 1000)}
+                      min={30}
+                      max={600}
+                      onBlur={async (e) => {
+                        const sec = parseInt(e.target.value) || 120
+                        const ms = Math.max(30000, Math.min(600000, sec * 1000))
+                        try { await updateUser(id!, { antigravity_interval: ms }); loadUser() } catch {}
+                      }}
+                    />
+                    <span className="text-xs text-muted-foreground">sec</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

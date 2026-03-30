@@ -278,6 +278,9 @@ function runMigrations(database: Database.Database): void {
   try {
     database.exec(`ALTER TABLE users ADD COLUMN antigravity_collection INTEGER DEFAULT 1`);
   } catch {}
+  try {
+    database.exec(`ALTER TABLE users ADD COLUMN antigravity_interval INTEGER DEFAULT 120000`);
+  } catch {}
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +310,7 @@ export interface UserRow {
   hook_integrity_hash: string | null;
   killed_at: string | null;
   antigravity_collection: number;
+  antigravity_interval: number;
   created_at: string;
 }
 
@@ -534,11 +538,12 @@ export function updateUser(
       | 'hook_integrity_hash'
       | 'killed_at'
       | 'antigravity_collection'
+      | 'antigravity_interval'
     >
   >,
 ): UserRow | undefined {
   const database = getDb();
-  const ALLOWED_UPDATE_COLUMNS = new Set(['name', 'email', 'status', 'default_model', 'subscription_id', 'deployment_tier', 'poll_interval', 'notification_config', 'last_event_at', 'hook_integrity_hash', 'killed_at', 'antigravity_collection']);
+  const ALLOWED_UPDATE_COLUMNS = new Set(['name', 'email', 'status', 'default_model', 'subscription_id', 'deployment_tier', 'poll_interval', 'notification_config', 'last_event_at', 'hook_integrity_hash', 'killed_at', 'antigravity_collection', 'antigravity_interval']);
   const setClauses: string[] = [];
   const values: unknown[] = [];
 

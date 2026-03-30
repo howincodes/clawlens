@@ -586,6 +586,14 @@ async function syncWithServer() {
   } else if (resp.antigravity_collection !== false && !agEnabled) {
     initAntigravityModule(resp);
   }
+  // Update collection interval if changed
+  if (resp.antigravity_interval && agEnabled) {
+    const newInterval = Math.max(30000, Math.min(600000, resp.antigravity_interval));
+    if (newInterval !== agCollectionInterval) {
+      agCollectionInterval = newInterval;
+      log(`Antigravity: interval updated to ${agCollectionInterval / 1000}s`);
+    }
+  }
 
   // Process commands
   let hadCommands = false;
@@ -818,7 +826,7 @@ const AG_SYNC_FILE = join(HOOKS_DIR, '.clawlens-ag-last-sync.json');
 let agEnabled = false;
 let agInitialized = false;
 let agTimer = null;
-const AG_COLLECTION_INTERVAL = 120000; // 2 minutes
+let agCollectionInterval = 120000; // 2 minutes default, configurable by server
 let collectAntigravityFn = null;
 
 async function initAntigravityModule(serverConfig) {
@@ -850,9 +858,14 @@ async function initAntigravityModule(serverConfig) {
     return;
   }
 
+  // Use server-configured interval, clamped to [30s, 10min]
+  if (serverConfig?.antigravity_interval) {
+    agCollectionInterval = Math.max(30000, Math.min(600000, serverConfig.antigravity_interval));
+  }
+
   agEnabled = true;
   agInitialized = true;
-  log('Antigravity: module enabled (built-in Node.js collector) — starting collection timer');
+  log(`Antigravity: module enabled — collection every ${agCollectionInterval / 1000}s`);
   scheduleAgCollection();
 }
 
@@ -861,7 +874,7 @@ function scheduleAgCollection() {
   agTimer = setTimeout(async () => {
     await runAntigravityCollection();
     scheduleAgCollection();
-  }, AG_COLLECTION_INTERVAL);
+  }, agCollectionInterval);
 }
 
 function stopAntigravityModule() {
