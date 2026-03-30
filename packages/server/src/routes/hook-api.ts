@@ -840,7 +840,6 @@ hookRouter.post('/antigravity-sync', (req: Request, res: Response) => {
     }
 
     let synced = 0;
-    const db = getDb();
 
     for (const conv of conversations) {
       const cascadeId = conv.cascade_id;
