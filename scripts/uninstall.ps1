@@ -45,10 +45,13 @@ Write-Host "  -> Removed hook files"
 Write-Host "  Removing cache and log files..."
 @(".clawlens-cache.json", ".clawlens-model.txt", ".clawlens-config.json",
   ".clawlens-watcher.pid", ".clawlens-debug.log", ".clawlens-watcher.log",
-  ".clawlens-watcher-stderr.log", ".clawlens-notify.ps1") | ForEach-Object {
+  ".clawlens-watcher-stderr.log", ".clawlens-notify.ps1",
+  ".clawlens-ag-last-sync.json") | ForEach-Object {
     $f = Join-Path $HooksDir $_
     if (Test-Path $f) { Remove-Item $f -Force }
 }
+$AgExportDir = Join-Path $HooksDir ".clawlens-ag-export"
+if (Test-Path $AgExportDir) { Remove-Item $AgExportDir -Recurse -Force }
 Write-Host "  -> Removed cache and log files"
 
 # 5. Clean settings.json
