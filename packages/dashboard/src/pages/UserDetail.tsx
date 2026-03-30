@@ -1162,6 +1162,24 @@ export function UserDetail() {
                     </Button>
                   </div>
                 </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-medium">Antigravity Collection</div>
+                    <div className="text-xs text-muted-foreground">Collect prompts from Google Antigravity IDE</div>
+                  </div>
+                  <button
+                    className={`w-10 h-5 rounded-full transition-colors ${data?.antigravity_collection !== 0 ? 'bg-green-500' : 'bg-gray-300'}`}
+                    onClick={async () => {
+                      const newVal = data?.antigravity_collection === 0 ? 1 : 0
+                      try {
+                        await updateUser(id!, { antigravity_collection: newVal })
+                        loadUser()
+                      } catch {}
+                    }}
+                  >
+                    <span className={`block w-4 h-4 rounded-full bg-white shadow transition-transform ${data?.antigravity_collection !== 0 ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>

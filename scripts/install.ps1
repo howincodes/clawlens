@@ -186,6 +186,22 @@ Write-Host "  -> Windows startup: $VbsPath"
 Start-Process -FilePath $NodePath -ArgumentList $WatcherPath -WindowStyle Hidden
 Write-Host "  -> Watcher started"
 
+# Optional: Antigravity IDE integration
+if (Get-Command python3 -ErrorAction SilentlyContinue) {
+    try {
+        $pyVersion = python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+        if ([version]$pyVersion -ge [version]"3.9") {
+            Write-Host ""
+            $useAG = Read-Host "  Do you use Google Antigravity IDE? (y/n)"
+            if ($useAG -eq 'y' -or $useAG -eq 'Y') {
+                Write-Host "  Installing Antigravity integration..."
+                pip3 install antigravity-history --quiet 2>$null
+                Write-Host "  -> Antigravity collection enabled"
+            }
+        }
+    } catch {}
+}
+
 Write-Host ""
 Write-Host "  ============================="
 Write-Host "  ClawLens installed!"

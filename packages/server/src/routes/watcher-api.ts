@@ -145,6 +145,7 @@ watcherRouter.post('/sync', (req: Request, res: Response) => {
     const response = {
       status: user.status === 'active' ? 'active' : user.status,
       poll_interval_ms: user.poll_interval || 30000,
+      antigravity_collection: (user as any).antigravity_collection == null ? true : (user as any).antigravity_collection !== 0,
       limits: limits.map((l) => ({
         id: l.id,
         type: l.type,

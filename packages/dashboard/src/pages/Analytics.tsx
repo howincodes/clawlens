@@ -37,6 +37,7 @@ function fmtCredits(v: number): string {
 
 export function Analytics() {
   const [days, setDays] = useState(7)
+  const [sourceFilter, setSourceFilter] = useState('all')
   const [sortBy, setSortBy] = useState<SortField>('prompts')
   const [analytics, setAnalytics] = useState<Record<string, unknown> | null>(null)
   const [leaderboard, setLeaderboard] = useState<Record<string, unknown>[]>([])
@@ -104,17 +105,28 @@ export function Analytics() {
           <h1 className="text-3xl font-bold tracking-tight">Analytics</h1>
           <p className="text-muted-foreground">Deep dive into team-wide usage patterns and costs.</p>
         </div>
-        <div className="flex items-center gap-2 bg-muted p-1 rounded-md">
-          {[7, 14, 30, 90].map(d => (
-            <Button
-              key={d}
-              variant={days === d ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setDays(d)}
-            >
-              {d} Days
-            </Button>
-          ))}
+        <div className="flex items-center gap-3">
+          <select
+            className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+          >
+            <option value="all">All Sources</option>
+            <option value="claude_code">Claude Code</option>
+            <option value="antigravity">Antigravity</option>
+          </select>
+          <div className="flex items-center gap-2 bg-muted p-1 rounded-md">
+            {[7, 14, 30, 90].map(d => (
+              <Button
+                key={d}
+                variant={days === d ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setDays(d)}
+              >
+                {d} Days
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
 

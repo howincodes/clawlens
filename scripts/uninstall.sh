@@ -54,6 +54,8 @@ rm -f "$HOOK_DIR/.clawlens-debug.log"
 rm -f "$HOOK_DIR/.clawlens-watcher.log"
 rm -f "$HOOK_DIR/.clawlens-watcher-stderr.log"
 rm -f "$HOOK_DIR/.clawlens-notify.ps1"
+rm -f "$HOOK_DIR/.clawlens-ag-last-sync.json"
+rm -rf "$HOOK_DIR/.clawlens-ag-export"
 echo "  -> Removed all cache and log files"
 
 # 5. Remove ClawLens hooks and env vars from settings.json

@@ -517,3 +517,98 @@ describe('POST /file-changed', () => {
     // Tamper alerts removed — file changes are informational only
   });
 });
+
+// ---------------------------------------------------------------------------
+// POST /antigravity-sync
+// ---------------------------------------------------------------------------
+
+describe('POST /antigravity-sync', () => {
+  it('should create session and prompts from Antigravity data', async () => {
+    const cascadeId = 'cascade-test-001';
+    const res = await request(app)
+      .post('/api/v1/hook/antigravity-sync')
+      .set('Authorization', `Bearer ${ACTIVE_TOKEN}`)
+      .send({
+        conversations: [
+          {
+            cascade_id: cascadeId,
+            title: 'Test Antigravity Conversation',
+            step_count: 3,
+            workspaces: ['file:///home/user/project'],
+            messages: [
+              { role: 'user', content: 'Write a function' },
+              { role: 'assistant', content: 'Here is the function...', model: 'gemini-2.5-pro' },
+              { role: 'tool', tool_name: 'WriteFile', content: '/tmp/test.ts' },
+              { role: 'user', content: 'Add tests' },
+              { role: 'assistant', content: 'Here are the tests...', model: 'gemini-2.5-pro' },
+            ],
+          },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.synced).toBe(1);
+
+    // Verify session created with source='antigravity'
+    const session = getSessionById(cascadeId);
+    expect(session).toBeDefined();
+    expect(session!.user_id).toBe(activeUser.id);
+    expect(session!.cwd).toBe('/home/user/project');
+    expect(session!.prompt_count).toBe(3);
+    expect(session!.ai_summary).toBe('Test Antigravity Conversation');
+
+    // Verify the source column is 'antigravity'
+    const db = getDb();
+    const row = db.prepare('SELECT source FROM sessions WHERE id = ?').get(cascadeId) as { source: string };
+    expect(row.source).toBe('antigravity');
+
+    // Verify prompts created with credit_cost=0
+    const prompts = getPromptsBySession(cascadeId);
+    expect(prompts.length).toBe(2); // two user messages
+    expect(prompts[0].prompt).toBe('Write a function');
+    expect(prompts[0].credit_cost).toBe(0);
+    expect(prompts[1].prompt).toBe('Add tests');
+    expect(prompts[1].credit_cost).toBe(0);
+
+    // Verify first assistant response was matched to first prompt
+    expect(prompts[0].response).toBe('Here is the function...');
+
+    // Verify tool events created
+    const toolEvents = db.prepare('SELECT * FROM tool_events WHERE session_id = ?').all(cascadeId) as Array<{ tool_name: string; tool_input: string | null }>;
+    expect(toolEvents.length).toBe(1);
+    expect(toolEvents[0].tool_name).toBe('WriteFile');
+    expect(toolEvents[0].tool_input).toBe('/tmp/test.ts');
+  });
+
+  it('should return 200 with empty conversations', async () => {
+    const res = await request(app)
+      .post('/api/v1/hook/antigravity-sync')
+      .set('Authorization', `Bearer ${ACTIVE_TOKEN}`)
+      .send({ conversations: [] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.synced).toBe(0);
+  });
+
+  it('should handle missing conversations field gracefully', async () => {
+    const res = await request(app)
+      .post('/api/v1/hook/antigravity-sync')
+      .set('Authorization', `Bearer ${ACTIVE_TOKEN}`)
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.synced).toBe(0);
+  });
+
+  it('should require auth', async () => {
+    const res = await request(app)
+      .post('/api/v1/hook/antigravity-sync')
+      .send({ conversations: [] });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBeDefined();
+  });
+});

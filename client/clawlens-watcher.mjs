@@ -10,7 +10,7 @@
 //
 // Debug: set CLAWLENS_DEBUG=1 to enable verbose logging to stderr + log file.
 
-import { readFileSync, writeFileSync, mkdirSync, appendFileSync, statSync, unlinkSync, renameSync, openSync, readSync, closeSync, watchFile } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, appendFileSync, statSync, unlinkSync, renameSync, openSync, readSync, closeSync, watchFile, readdirSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir, hostname, platform } from 'os';
 import { execSync } from 'child_process';
@@ -121,6 +121,7 @@ function cleanupPidFile() {
 function setupSignalHandlers() {
   const cleanup = (signal) => {
     log(`Received ${signal} — shutting down`);
+    stopAntigravityModule();
     cleanupPidFile();
     process.exit(0);
   };
@@ -128,6 +129,7 @@ function setupSignalHandlers() {
   process.on('SIGINT', () => cleanup('SIGINT'));
   process.on('uncaughtException', (e) => {
     log(`Uncaught exception: ${e.stack || e.message}`);
+    stopAntigravityModule();
     cleanupPidFile();
     process.exit(1);
   });
@@ -577,6 +579,14 @@ async function syncWithServer() {
   };
   writeJSON(CONFIG_FILE, configData);
 
+  // Dynamically toggle Antigravity module based on server config
+  if (resp.antigravity_collection === false && agEnabled) {
+    log('Antigravity: disabled by server');
+    stopAntigravityModule();
+  } else if (resp.antigravity_collection !== false && !agEnabled) {
+    initAntigravityModule(resp);
+  }
+
   // Process commands
   let hadCommands = false;
   if (Array.isArray(resp.commands) && resp.commands.length > 0) {
@@ -801,6 +811,155 @@ function schedulePoll(delayMs) {
 }
 
 // ══════════════════════════════════════════════════════
+// ANTIGRAVITY MODULE (pluggable — disabled if aghistory not installed)
+// ══════════════════════════════════════════════════════
+
+const AG_SYNC_FILE = join(HOOKS_DIR, '.clawlens-ag-last-sync.json');
+const AG_EXPORT_DIR = join(HOOKS_DIR, '.clawlens-ag-export');
+let agEnabled = false;
+let agTimer = null;
+const AG_COLLECTION_INTERVAL = 120000; // 2 minutes
+
+function initAntigravityModule(serverConfig) {
+  if (serverConfig?.antigravity_collection === false) {
+    log('Antigravity: disabled by server config');
+    return;
+  }
+
+  // Check if aghistory CLI is installed
+  try {
+    execSync('aghistory --version', { timeout: 5000, stdio: 'ignore' });
+  } catch {
+    log('Antigravity: aghistory not installed — module disabled');
+    return;
+  }
+
+  agEnabled = true;
+  log('Antigravity: module enabled — starting collection timer');
+  scheduleAgCollection();
+}
+
+function scheduleAgCollection() {
+  if (!agEnabled) return;
+  agTimer = setTimeout(async () => {
+    await runAntigravityCollection();
+    scheduleAgCollection();
+  }, AG_COLLECTION_INTERVAL);
+}
+
+function stopAntigravityModule() {
+  if (agTimer) clearTimeout(agTimer);
+  agTimer = null;
+  agEnabled = false;
+}
+
+async function runAntigravityCollection() {
+  if (!agEnabled || !SERVER_URL || !AUTH_TOKEN) return;
+
+  // Create temp export directory
+  try {
+    mkdirSync(AG_EXPORT_DIR, { recursive: true });
+  } catch (e) {
+    log(`Antigravity: failed to create export dir: ${e.message}`);
+    return;
+  }
+
+  // Run aghistory export
+  try {
+    execSync(`aghistory export --today --full -f json -o "${AG_EXPORT_DIR}"`, {
+      timeout: 30000,
+      stdio: 'ignore',
+    });
+  } catch {
+    // Antigravity not running or export failed — return silently
+    cleanupAgExportDir();
+    return;
+  }
+
+  // Read the exported JSON
+  let exportData;
+  try {
+    const exportFile = join(AG_EXPORT_DIR, 'conversations_export.json');
+    exportData = JSON.parse(readFileSync(exportFile, 'utf-8'));
+  } catch {
+    log('Antigravity: no export data found or failed to parse');
+    cleanupAgExportDir();
+    return;
+  }
+
+  // Load last sync state (maps cascade_id → last synced step count)
+  const lastSync = readJSON(AG_SYNC_FILE) || {};
+
+  // Extract only new messages
+  const conversations = [];
+  const updatedSync = { ...lastSync };
+
+  const items = Array.isArray(exportData) ? exportData
+    : Array.isArray(exportData.conversations) ? exportData.conversations
+    : [];
+
+  for (const convo of items) {
+    const cascadeId = convo.cascade_id || convo.id;
+    if (!cascadeId) continue;
+
+    const messages = Array.isArray(convo.messages) ? convo.messages : [];
+    const stepCount = convo.step_count ?? messages.length;
+    const lastSyncedCount = lastSync[cascadeId] || 0;
+
+    if (stepCount <= lastSyncedCount) continue; // no change
+
+    // New conversation or has new messages
+    const newMessages = lastSyncedCount === 0
+      ? messages
+      : messages.slice(lastSyncedCount);
+
+    if (newMessages.length === 0) continue;
+
+    conversations.push({
+      cascade_id: cascadeId,
+      title: convo.title || '',
+      workspaces: convo.workspaces || [],
+      step_count: stepCount,
+      messages: newMessages.map(m => ({
+        role: m.role || '',
+        content: m.content || '',
+        model: m.model || '',
+        tool_name: m.tool_name || '',
+        timestamp: m.timestamp || '',
+      })),
+    });
+
+    updatedSync[cascadeId] = stepCount;
+  }
+
+  if (conversations.length === 0) {
+    cleanupAgExportDir();
+    return;
+  }
+
+  log(`Antigravity: syncing ${conversations.length} conversation(s) with new messages`);
+
+  // POST to server
+  const resp = await postJSON('/api/v1/hook/antigravity-sync', { conversations }, 15000);
+
+  if (resp) {
+    // Save updated sync state on success
+    writeJSON(AG_SYNC_FILE, updatedSync);
+    log(`Antigravity: sync complete — ${conversations.length} conversation(s) sent`);
+  } else {
+    log('Antigravity: sync failed — server did not respond');
+  }
+
+  cleanupAgExportDir();
+}
+
+function cleanupAgExportDir() {
+  try {
+    rmSync(AG_EXPORT_DIR, { recursive: true, force: true });
+  } catch {}
+}
+
+// ══════════════════════════════════════════════════════
 // MAIN
 // ══════════════════════════════════════════════════════
 
@@ -841,6 +1000,10 @@ async function main() {
   } catch (e) {
     log(`Initial sync error: ${e.message}`);
   }
+
+  // Initialize Antigravity module from saved config
+  const savedConfig = readJSON(CONFIG_FILE);
+  initAntigravityModule(savedConfig);
 
   // Schedule poll loop
   schedulePoll();
