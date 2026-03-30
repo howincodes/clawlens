@@ -77,6 +77,16 @@ try {
 }
 Write-Host "  -> $WatcherPath (watcher)"
 
+# Install Antigravity collector (built-in, no Python needed)
+$AgCollectorUrl = "https://raw.githubusercontent.com/howincodes/clawlens/main/client/antigravity-collector.mjs?v=$CacheBust"
+$AgCollectorPath = Join-Path $HooksDir "antigravity-collector.mjs"
+try {
+    Invoke-WebRequest -Uri $AgCollectorUrl -OutFile $AgCollectorPath -UseBasicParsing -Headers @{"Cache-Control"="no-cache"}
+    Write-Host "  -> $AgCollectorPath (Antigravity collector)"
+} catch {
+    # Not critical — Antigravity collection is optional
+}
+
 # Write the thin bash wrapper (Claude Code runs hooks via bash even on Windows)
 $HookScript = @'
 #!/bin/bash
