@@ -16,6 +16,7 @@ import {
   getDb,
   createSubscription,
   updateUser,
+  upsertAntigravitySession,
   type LimitRow,
 } from '../services/db.js';
 import { broadcast } from '../services/websocket.js';
@@ -819,5 +820,90 @@ hookRouter.post('/file-changed', (req: Request, res: Response) => {
     debug(`ERROR: ${err.stack || err.message}`);
     console.error('[hook-api] file-changed error:', err);
     res.json({});
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /antigravity-sync
+// ---------------------------------------------------------------------------
+
+hookRouter.post('/antigravity-sync', (req: Request, res: Response) => {
+  debug(`──── /antigravity-sync ────`);
+  try {
+    const user = req.user!;
+    const { conversations } = req.body;
+    debug(`user: ${user.name}, conversations: ${conversations?.length || 0}`);
+
+    if (!Array.isArray(conversations)) {
+      res.json({ ok: true, synced: 0 });
+      return;
+    }
+
+    let synced = 0;
+    const db = getDb();
+
+    for (const conv of conversations) {
+      const cascadeId = conv.cascade_id;
+      if (!cascadeId) continue;
+
+      // Extract first workspace as cwd
+      let cwd: string | undefined;
+      if (Array.isArray(conv.workspaces) && conv.workspaces.length > 0) {
+        cwd = String(conv.workspaces[0]).replace('file://', '');
+      }
+
+      // Find first assistant model
+      let model: string | undefined;
+      for (const msg of conv.messages || []) {
+        if (msg.role === 'assistant' && msg.model) {
+          model = String(msg.model);
+          break;
+        }
+      }
+
+      // Upsert session
+      upsertAntigravitySession({
+        id: cascadeId,
+        user_id: user.id,
+        model,
+        cwd,
+        prompt_count: conv.step_count,
+        title: conv.title,
+      });
+
+      // Process messages
+      for (const msg of conv.messages || []) {
+        if (msg.role === 'user' && msg.content) {
+          recordPrompt({
+            session_id: cascadeId,
+            user_id: user.id,
+            prompt: msg.content,
+            model: msg.model || model,
+            credit_cost: 0,
+          });
+        } else if (msg.role === 'assistant' && msg.content) {
+          db.prepare(
+            `UPDATE prompts SET response = ?, model = COALESCE(?, model) WHERE session_id = ? AND response IS NULL ORDER BY id DESC LIMIT 1`
+          ).run(msg.content, msg.model, cascadeId);
+        } else if (msg.role === 'tool' && msg.tool_name) {
+          recordToolEvent({
+            user_id: user.id,
+            session_id: cascadeId,
+            tool_name: msg.tool_name,
+            tool_input: msg.content?.slice(0, 500),
+          });
+        }
+      }
+
+      synced++;
+    }
+
+    touchUserLastEvent(user.id);
+    debug(`synced ${synced} conversations`);
+    res.json({ ok: true, synced });
+  } catch (err: any) {
+    debug(`ERROR: ${err.stack || err.message}`);
+    console.error('[hook-api] antigravity-sync error:', err);
+    res.json({ ok: false, synced: 0 });
   }
 });
