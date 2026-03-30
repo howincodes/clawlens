@@ -918,7 +918,7 @@ hookRouter.post('/antigravity-sync', (req: Request, res: Response) => {
               session_id: cascadeId,
               user_id: user.id,
               prompt: msg.content,
-              model: resolveModel(msg.model) || model,
+              model: (msg.model && resolveModel(msg.model) !== 'Antigravity') ? resolveModel(msg.model) : model || 'Antigravity',
               credit_cost: 0,
             });
           }
