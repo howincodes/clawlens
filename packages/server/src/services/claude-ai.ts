@@ -113,14 +113,8 @@ export async function runClaude<T>(req: ClaudeRequest<T>): Promise<ClaudeRespons
       args.push('--system-prompt', req.systemPrompt);
     }
 
-    // Use --json-schema for validated output
-    try {
-      const jsonSchema = zodToJsonSchema(req.schema, { target: 'openApi3' });
-      args.push('--json-schema', JSON.stringify(jsonSchema));
-      debug('added --json-schema flag');
-    } catch (e: any) {
-      debug(`--json-schema failed: ${e.message}`);
-    }
+    // --json-schema removed: causes empty responses and tool_use issues
+    // All prompts include explicit JSON format instructions instead
 
     args.push(req.prompt);
 
