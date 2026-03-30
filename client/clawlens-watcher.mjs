@@ -887,6 +887,7 @@ async function runAntigravityCollection() {
   if (!agEnabled || !SERVER_URL || !AUTH_TOKEN || !collectAntigravityFn) return;
 
   let exportData;
+  let clientModelMapping = {};
   try {
     const result = await collectAntigravityFn({ today: true });
     if (result.error) {
@@ -894,6 +895,7 @@ async function runAntigravityCollection() {
       return;
     }
     exportData = result.conversations;
+    clientModelMapping = result.model_mapping || {};
   } catch {
     return;
   }
@@ -938,7 +940,7 @@ async function runAntigravityCollection() {
   if (conversations.length === 0) return;
 
   log(`Antigravity: syncing ${conversations.length} conversation(s) with new messages`);
-  const resp = await postJSON('/api/v1/hook/antigravity-sync', { conversations }, 15000);
+  const resp = await postJSON('/api/v1/hook/antigravity-sync', { conversations, model_mapping: clientModelMapping }, 15000);
 
   if (resp) {
     writeJSON(AG_SYNC_FILE, updatedSync);

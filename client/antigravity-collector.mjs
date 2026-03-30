@@ -656,9 +656,9 @@ export async function collectAntigravityConversations(options = {}) {
       }
     }
 
-    return { conversations, error: null };
+    return { conversations, error: null, model_mapping: modelMapping };
   } catch (e) {
-    return { conversations: [], error: e.message || String(e) };
+    return { conversations: [], error: e.message || String(e), model_mapping: {} };
   }
 }
 

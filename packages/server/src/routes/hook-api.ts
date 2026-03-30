@@ -60,19 +60,21 @@ function getCreditCost(model: string | undefined): number {
 /**
  * Normalize Antigravity model placeholders to human-readable names.
  * The LS API returns MODEL_PLACEHOLDER_M37 etc. Map known ones, pass through the rest.
+ * This map is updated as new models are discovered from user devices.
  */
 const ANTIGRAVITY_MODEL_MAP: Record<string, string> = {
   MODEL_PLACEHOLDER_M37: 'Gemini 3.1 Pro (High)',
-  MODEL_PLACEHOLDER_M36: 'Gemini 3.1 Pro',
-  MODEL_PLACEHOLDER_M47: 'Gemini 3.1 Pro (Low)',
-  MODEL_PLACEHOLDER_M35: 'Gemini 3 Flash',
-  MODEL_PLACEHOLDER_M26: 'Gemini 2.5 Pro',
+  MODEL_PLACEHOLDER_M36: 'Gemini 3.1 Pro (Low)',
+  MODEL_PLACEHOLDER_M47: 'Gemini 3 Flash',
+  MODEL_PLACEHOLDER_M35: 'Claude Sonnet 4.6',
+  MODEL_PLACEHOLDER_M26: 'Claude Opus 4.6',
   MODEL_PLACEHOLDER_M25: 'Gemini 2.5 Flash',
+  MODEL_OPENAI_GPT_OSS_120B_MEDIUM: 'GPT-OSS 120B',
 };
 
 function normalizeAntigravityModel(raw: string | undefined): string {
-  if (!raw) return 'unknown';
-  if (raw.startsWith('MODEL_PLACEHOLDER_')) {
+  if (!raw) return 'Antigravity';
+  if (raw.startsWith('MODEL_PLACEHOLDER_') || raw.startsWith('MODEL_OPENAI_')) {
     return ANTIGRAVITY_MODEL_MAP[raw] || raw;
   }
   return raw;
@@ -852,8 +854,21 @@ hookRouter.post('/antigravity-sync', (req: Request, res: Response) => {
   debug(`──── /antigravity-sync ────`);
   try {
     const user = req.user!;
-    const { conversations } = req.body;
+    const { conversations, model_mapping } = req.body;
     debug(`user: ${user.name}, conversations: ${conversations?.length || 0}`);
+
+    // Client can send model_mapping from GetUserStatus — merge with our known map
+    const dynamicMap: Record<string, string> = { ...ANTIGRAVITY_MODEL_MAP };
+    if (model_mapping && typeof model_mapping === 'object') {
+      Object.assign(dynamicMap, model_mapping);
+      debug(`received ${Object.keys(model_mapping).length} model mapping(s) from client`);
+    }
+
+    // Use dynamic map for this request
+    const resolveModel = (raw: string | undefined): string => {
+      if (!raw) return 'Antigravity';
+      return dynamicMap[raw] || ANTIGRAVITY_MODEL_MAP[raw] || raw;
+    };
 
     if (!Array.isArray(conversations)) {
       res.json({ ok: true, synced: 0 });
@@ -876,7 +891,7 @@ hookRouter.post('/antigravity-sync', (req: Request, res: Response) => {
       let model: string | undefined;
       for (const msg of conv.messages || []) {
         if (msg.role === 'assistant' && msg.model) {
-          model = normalizeAntigravityModel(String(msg.model));
+          model = resolveModel(String(msg.model));
           break;
         }
       }
@@ -903,7 +918,7 @@ hookRouter.post('/antigravity-sync', (req: Request, res: Response) => {
               session_id: cascadeId,
               user_id: user.id,
               prompt: msg.content,
-              model: normalizeAntigravityModel(msg.model) || model,
+              model: resolveModel(msg.model) || model,
               credit_cost: 0,
             });
           }
