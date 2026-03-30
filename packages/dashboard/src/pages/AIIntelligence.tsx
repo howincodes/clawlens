@@ -45,6 +45,7 @@ function parseServerDate(dateStr: string): Date {
 
 function normalizeModel(model: string): string {
   if (!model) return 'Unknown'
+  if (model.startsWith('AG-')) return model  // Keep full AG- name
   const lower = model.toLowerCase()
   if (lower.includes('opus')) return 'OPUS'
   if (lower.includes('sonnet')) return 'SONNET'
@@ -56,6 +57,7 @@ function modelBadgeVariant(
   model: string
 ): 'default' | 'secondary' | 'warning' | 'outline' {
   const n = normalizeModel(model)
+  if (n.startsWith('AG-')) return 'outline'  // AG models use outline + teal color
   if (n === 'OPUS') return 'default'
   if (n === 'SONNET') return 'secondary'
   if (n === 'HAIKU') return 'warning'
@@ -828,11 +830,11 @@ function SessionCard({
                 {projectName}
               </span>
             )}
-            <Badge variant={modelBadgeVariant(model)} className="text-[10px]">
+            <Badge variant={modelBadgeVariant(model)} className={cn('text-[10px]', model.startsWith('AG-') && 'bg-teal-500/10 text-teal-700 border-teal-200')}>
               {model}
             </Badge>
             {session.source === 'antigravity' ? (
-              <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 border-blue-200">Antigravity</Badge>
+              <Badge variant="outline" className="text-[10px] bg-teal-500/10 text-teal-600 border-teal-200">Antigravity</Badge>
             ) : (
               <Badge variant="outline" className="text-[10px] bg-gray-500/10 text-gray-500">Claude Code</Badge>
             )}

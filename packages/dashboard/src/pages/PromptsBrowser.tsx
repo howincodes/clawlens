@@ -8,9 +8,16 @@ import { Search, Loader2, ChevronLeft, ChevronRight, Clock, Coins, Shield } from
 import { formatDistanceToNow, format } from 'date-fns'
 
 const MODEL_BADGE_COLORS: Record<string, string> = {
-  opus: 'bg-blue-500/10 text-blue-600 border-blue-200',
-  sonnet: 'bg-purple-500/10 text-purple-600 border-purple-200',
-  haiku: 'bg-orange-500/10 text-orange-600 border-orange-200',
+  Opus: 'bg-purple-500/10 text-purple-700',
+  Sonnet: 'bg-blue-500/10 text-blue-700',
+  Haiku: 'bg-green-500/10 text-green-700',
+}
+
+function getModelBadgeColor(model: string): string {
+  if (model.startsWith('AG-')) return 'bg-teal-500/10 text-teal-700'
+  const known = MODEL_BADGE_COLORS[model]
+  if (known) return known
+  return 'bg-gray-500/10 text-gray-600'
 }
 
 const TOOL_BADGE_COLORS: Record<string, string> = {
@@ -36,10 +43,11 @@ function parseServerDate(dateStr: string): Date {
 
 function getModelShortName(model: string): string {
   if (!model) return 'Unknown'
+  if (model.startsWith('AG-')) return model  // Keep full AG- name
   const lower = model.toLowerCase()
-  if (lower.includes('opus')) return 'opus'
-  if (lower.includes('sonnet')) return 'sonnet'
-  if (lower.includes('haiku')) return 'haiku'
+  if (lower.includes('opus')) return 'Opus'
+  if (lower.includes('sonnet')) return 'Sonnet'
+  if (lower.includes('haiku')) return 'Haiku'
   return model
 }
 
@@ -221,7 +229,7 @@ export function PromptsBrowser() {
               {data.items.map((p) => {
                 const id = String(p.id || '')
                 const modelShort = getModelShortName(String(p.model || ''))
-                const modelColorClass = MODEL_BADGE_COLORS[modelShort] || 'bg-gray-500/10 text-gray-600'
+                const modelColorClass = getModelBadgeColor(modelShort)
                 const promptText = String(p.prompt || p.prompt_text || '')
                 const responseText = String(p.response || p.response_text || '')
                 const isPromptExpanded = expandedPrompts.has(id)

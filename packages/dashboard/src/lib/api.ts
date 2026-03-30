@@ -79,12 +79,14 @@ export const rotateToken = (id: string) =>
 export const getSubscriptions = () => fetchClient('/subscriptions')
 
 // ── Analytics ─────────────────────────────────────────────
-export const getAnalytics = (days: number) => fetchClient(`/analytics?days=${days}`)
-export const getLeaderboard = (days: number, sortBy?: string) =>
-  fetchClient(`/analytics/users?days=${days}&sortBy=${sortBy || 'prompts'}`)
-export const getProjectAnalytics = (days: number) =>
-  fetchClient(`/analytics/projects?days=${days}`)
-export const getCosts = (days: number) => fetchClient(`/analytics/costs?days=${days}`)
+export const getAnalytics = (days: number, source?: string) =>
+  fetchClient(`/analytics?days=${days}${source ? `&source=${source}` : ''}`)
+export const getLeaderboard = (days: number, sortBy?: string, source?: string) =>
+  fetchClient(`/analytics/users?days=${days}&sortBy=${sortBy || 'prompts'}${source ? `&source=${source}` : ''}`)
+export const getProjectAnalytics = (days: number, source?: string) =>
+  fetchClient(`/analytics/projects?days=${days}${source ? `&source=${source}` : ''}`)
+export const getCosts = (days: number, source?: string) =>
+  fetchClient(`/analytics/costs?days=${days}${source ? `&source=${source}` : ''}`)
 
 // ── Prompts (aggregate) ──────────────────────────────────
 export const getAllPrompts = (params?: Record<string, string>) =>

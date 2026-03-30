@@ -150,6 +150,7 @@ function eventDescription(evt: { type: string; payload: Record<string, unknown> 
 
 function normalizeModel(model: string): string {
   if (!model) return 'Unknown'
+  if (model.startsWith('AG-')) return model  // Keep full AG- name
   const lower = model.toLowerCase()
   if (lower.includes('opus')) return 'Opus'
   if (lower.includes('sonnet')) return 'Sonnet'
@@ -372,6 +373,7 @@ export function Overview() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{promptsToday}</div>
+            <p className="text-xs text-muted-foreground">Claude Code</p>
           </CardContent>
         </Card>
         <Card>
@@ -381,6 +383,7 @@ export function Overview() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{Number(costToday)} credits</div>
+            <p className="text-xs text-muted-foreground">Claude Code</p>
           </CardContent>
         </Card>
       </div>

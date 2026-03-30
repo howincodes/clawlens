@@ -51,10 +51,10 @@ export function Analytics() {
     setError(null)
     try {
       const [analyticsRes, leaderboardRes, costsRes, projectsRes] = await Promise.all([
-        getAnalytics(days).catch(() => null),
-        getLeaderboard(days, sortBy).catch(() => ({ data: [] })),
-        getCosts(days).catch(() => null),
-        getProjectAnalytics(days).catch(() => ({ data: [] })),
+        getAnalytics(days, sourceFilter !== 'all' ? sourceFilter : undefined).catch(() => null),
+        getLeaderboard(days, sortBy, sourceFilter !== 'all' ? sourceFilter : undefined).catch(() => ({ data: [] })),
+        getCosts(days, sourceFilter !== 'all' ? sourceFilter : undefined).catch(() => null),
+        getProjectAnalytics(days, sourceFilter !== 'all' ? sourceFilter : undefined).catch(() => ({ data: [] })),
       ])
       setAnalytics(analyticsRes)
       setLeaderboard(leaderboardRes?.data || leaderboardRes?.leaderboard || [])
@@ -65,7 +65,7 @@ export function Analytics() {
     } finally {
       setLoading(false)
     }
-  }, [days, sortBy])
+  }, [days, sortBy, sourceFilter])
 
   useEffect(() => { load() }, [load])
 

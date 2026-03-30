@@ -74,6 +74,7 @@ function parseServerDate(dateStr: string): Date {
 
 function normalizeModel(model: string): string {
   if (!model) return 'Unknown'
+  if (model.startsWith('AG-')) return model  // Keep full AG- name
   const lower = model.toLowerCase()
   if (lower.includes('opus')) return 'Opus'
   if (lower.includes('sonnet')) return 'Sonnet'
@@ -85,6 +86,7 @@ function modelBadgeVariant(
   model: string
 ): 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' {
   const n = normalizeModel(model)
+  if (n.startsWith('AG-')) return 'outline'  // AG models use outline + teal color
   if (n === 'Opus') return 'default'
   if (n === 'Sonnet') return 'secondary'
   if (n === 'Haiku') return 'warning'
@@ -687,7 +689,10 @@ export function UserDetail() {
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="text-2xl font-bold">{totalPrompts}</div>
-            <p className="text-xs text-muted-foreground">+{promptsToday} today</p>
+            <p className="text-xs text-muted-foreground">
+              +{promptsToday} today
+              {data?.antigravity_collection !== 0 && ' (Claude + Antigravity)'}
+            </p>
           </CardContent>
         </Card>
         <Card>
@@ -696,6 +701,7 @@ export function UserDetail() {
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="text-2xl font-bold">{Number(totalCost)} credits</div>
+            <p className="text-xs text-muted-foreground">Claude Code</p>
           </CardContent>
         </Card>
         <Card>

@@ -63,20 +63,22 @@ function getCreditCost(model: string | undefined): number {
  * This map is updated as new models are discovered from user devices.
  */
 const ANTIGRAVITY_MODEL_MAP: Record<string, string> = {
-  MODEL_PLACEHOLDER_M37: 'Gemini 3.1 Pro (High)',
-  MODEL_PLACEHOLDER_M36: 'Gemini 3.1 Pro (Low)',
-  MODEL_PLACEHOLDER_M47: 'Gemini 3 Flash',
-  MODEL_PLACEHOLDER_M35: 'Claude Sonnet 4.6',
-  MODEL_PLACEHOLDER_M26: 'Claude Opus 4.6',
-  MODEL_PLACEHOLDER_M25: 'Gemini 2.5 Flash',
-  MODEL_OPENAI_GPT_OSS_120B_MEDIUM: 'GPT-OSS 120B',
+  MODEL_PLACEHOLDER_M37: 'AG-Gemini 3.1 Pro',
+  MODEL_PLACEHOLDER_M36: 'AG-Gemini 3.1 Pro (Low)',
+  MODEL_PLACEHOLDER_M47: 'AG-Gemini 3 Flash',
+  MODEL_PLACEHOLDER_M35: 'AG-Sonnet',
+  MODEL_PLACEHOLDER_M26: 'AG-Opus',
+  MODEL_PLACEHOLDER_M25: 'AG-Gemini 2.5 Flash',
+  MODEL_OPENAI_GPT_OSS_120B_MEDIUM: 'AG-GPT-OSS',
 };
 
 function normalizeAntigravityModel(raw: string | undefined): string {
-  if (!raw) return 'Antigravity';
+  if (!raw) return 'AG-Unknown';
   if (raw.startsWith('MODEL_PLACEHOLDER_') || raw.startsWith('MODEL_OPENAI_')) {
-    return ANTIGRAVITY_MODEL_MAP[raw] || raw;
+    return ANTIGRAVITY_MODEL_MAP[raw] || 'AG-' + raw;
   }
+  // If it's already a known name but from Antigravity, prefix it
+  if (!raw.startsWith('AG-')) return 'AG-' + raw;
   return raw;
 }
 
@@ -864,10 +866,14 @@ hookRouter.post('/antigravity-sync', (req: Request, res: Response) => {
       debug(`received ${Object.keys(model_mapping).length} model mapping(s) from client`);
     }
 
-    // Use dynamic map for this request
+    // Use dynamic map for this request — always ensure AG- prefix
     const resolveModel = (raw: string | undefined): string => {
-      if (!raw) return 'Antigravity';
-      return dynamicMap[raw] || ANTIGRAVITY_MODEL_MAP[raw] || raw;
+      if (!raw) return 'AG-Unknown';
+      // Check client-provided mapping first
+      const mapped = dynamicMap[raw] || ANTIGRAVITY_MODEL_MAP[raw] || raw;
+      // Ensure AG- prefix
+      if (!mapped.startsWith('AG-')) return 'AG-' + mapped;
+      return mapped;
     };
 
     if (!Array.isArray(conversations)) {
@@ -918,7 +924,7 @@ hookRouter.post('/antigravity-sync', (req: Request, res: Response) => {
               session_id: cascadeId,
               user_id: user.id,
               prompt: msg.content,
-              model: (msg.model && resolveModel(msg.model) !== 'Antigravity') ? resolveModel(msg.model) : model || 'Antigravity',
+              model: (msg.model && resolveModel(msg.model) !== 'AG-Unknown') ? resolveModel(msg.model) : model || 'AG-Unknown',
               credit_cost: 0,
             });
           }
