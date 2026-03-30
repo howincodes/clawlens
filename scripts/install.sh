@@ -243,23 +243,7 @@ echo "  Starting watcher..."
 CLAUDE_PLUGIN_OPTION_SERVER_URL="$SERVER_URL" CLAUDE_PLUGIN_OPTION_AUTH_TOKEN="$AUTH_TOKEN" nohup "$NODE_PATH" "$WATCHER_FILE" > /dev/null 2>&1 &
 echo "  -> Watcher running (pid $!)"
 
-# ── Optional: Antigravity IDE integration ────────────────────────────────────
 
-if command -v python3 >/dev/null 2>&1; then
-  PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
-  PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
-  PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
-  if [ "$PY_MAJOR" -ge 3 ] 2>/dev/null && [ "$PY_MINOR" -ge 9 ] 2>/dev/null; then
-    echo ""
-    printf "  Do you use Google Antigravity IDE? (y/n): "
-    read -r USE_AG
-    if [ "$USE_AG" = "y" ] || [ "$USE_AG" = "Y" ]; then
-      echo "  Installing Antigravity integration..."
-      pip3 install antigravity-history --quiet 2>/dev/null || pip install antigravity-history --quiet 2>/dev/null || true
-      echo "  -> Antigravity collection enabled (prompts will be tracked automatically)"
-    fi
-  fi
-fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 
