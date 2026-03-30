@@ -831,6 +831,11 @@ function SessionCard({
             <Badge variant={modelBadgeVariant(model)} className="text-[10px]">
               {model}
             </Badge>
+            {session.source === 'antigravity' ? (
+              <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 border-blue-200">Antigravity</Badge>
+            ) : (
+              <Badge variant="outline" className="text-[10px] bg-gray-500/10 text-gray-500">Claude Code</Badge>
+            )}
             {promptCount > 0 && (
               <span className="text-xs text-muted-foreground">{promptCount} prompts</span>
             )}
