@@ -28,7 +28,8 @@ services:
       - "${PORT:-3000}:3000"
     volumes:
       - clawlens-data:/app/data
-      - ${HOME}/.claude:/root/.claude:ro
+      - ${HOME}/.claude:/root/.claude
+      - ${HOME}/.claude.json:/root/.claude.json
       - ${HOME}/.local/bin/claude:/usr/local/bin/claude:ro
     environment:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
