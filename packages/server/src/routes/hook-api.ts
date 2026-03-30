@@ -58,6 +58,27 @@ function getCreditCost(model: string | undefined): number {
 }
 
 /**
+ * Normalize Antigravity model placeholders to human-readable names.
+ * The LS API returns MODEL_PLACEHOLDER_M37 etc. Map known ones, pass through the rest.
+ */
+const ANTIGRAVITY_MODEL_MAP: Record<string, string> = {
+  MODEL_PLACEHOLDER_M37: 'Gemini 3.1 Pro (High)',
+  MODEL_PLACEHOLDER_M36: 'Gemini 3.1 Pro',
+  MODEL_PLACEHOLDER_M47: 'Gemini 3.1 Pro (Low)',
+  MODEL_PLACEHOLDER_M35: 'Gemini 3 Flash',
+  MODEL_PLACEHOLDER_M26: 'Gemini 2.5 Pro',
+  MODEL_PLACEHOLDER_M25: 'Gemini 2.5 Flash',
+};
+
+function normalizeAntigravityModel(raw: string | undefined): string {
+  if (!raw) return 'unknown';
+  if (raw.startsWith('MODEL_PLACEHOLDER_')) {
+    return ANTIGRAVITY_MODEL_MAP[raw] || raw;
+  }
+  return raw;
+}
+
+/**
  * Normalize raw subscription type strings (e.g. "STRIPE_SUBSCRIPTION")
  * into clean plan names for display and storage.
  */
@@ -855,7 +876,7 @@ hookRouter.post('/antigravity-sync', (req: Request, res: Response) => {
       let model: string | undefined;
       for (const msg of conv.messages || []) {
         if (msg.role === 'assistant' && msg.model) {
-          model = String(msg.model);
+          model = normalizeAntigravityModel(String(msg.model));
           break;
         }
       }
@@ -882,7 +903,7 @@ hookRouter.post('/antigravity-sync', (req: Request, res: Response) => {
               session_id: cascadeId,
               user_id: user.id,
               prompt: msg.content,
-              model: msg.model || model,
+              model: normalizeAntigravityModel(msg.model) || model,
               credit_cost: 0,
             });
           }
