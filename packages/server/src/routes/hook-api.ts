@@ -882,9 +882,10 @@ hookRouter.post('/antigravity-sync', (req: Request, res: Response) => {
             credit_cost: 0,
           });
         } else if (msg.role === 'assistant' && msg.content) {
-          db.prepare(
-            `UPDATE prompts SET response = ?, model = COALESCE(?, model) WHERE session_id = ? AND response IS NULL ORDER BY id DESC LIMIT 1`
-          ).run(msg.content, msg.model, cascadeId);
+          // Response storage disabled — uncomment to enable in future
+          // db.prepare(
+          //   `UPDATE prompts SET response = ?, model = COALESCE(?, model) WHERE session_id = ? AND response IS NULL ORDER BY id DESC LIMIT 1`
+          // ).run(msg.content, msg.model, cascadeId);
         } else if (msg.role === 'tool' && msg.tool_name) {
           recordToolEvent({
             user_id: user.id,

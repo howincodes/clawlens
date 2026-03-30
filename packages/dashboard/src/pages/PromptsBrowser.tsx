@@ -25,6 +25,15 @@ const TOOL_BADGE_COLORS: Record<string, string> = {
 
 const LIMIT = 50
 
+/**
+ * Parse server timestamps (SQLite stores without 'Z' suffix) as UTC,
+ * so date-fns format() and formatDistanceToNow() display in the browser's local timezone.
+ */
+function parseServerDate(dateStr: string): Date {
+  if (!dateStr) return new Date(0)
+  return new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z')
+}
+
 function getModelShortName(model: string): string {
   if (!model) return 'Unknown'
   const lower = model.toLowerCase()
@@ -220,7 +229,7 @@ export function PromptsBrowser() {
                 const tools = (p.tools_used || p.tools) as string[] | undefined
                 const isBlocked = Boolean(p.blocked || p.was_blocked)
                 const userName = p.user_id ? (userMap.get(String(p.user_id)) || `User ${p.user_id}`) : 'Unknown'
-                const timestamp = (p.created_at || p.timestamp) ? new Date(String(p.created_at || p.timestamp)) : null
+                const timestamp = (p.created_at || p.timestamp) ? parseServerDate(String(p.created_at || p.timestamp)) : null
 
                 return (
                   <Card key={id} className="overflow-hidden transition-shadow hover:shadow-md">

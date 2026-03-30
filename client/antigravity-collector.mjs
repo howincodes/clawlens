@@ -207,6 +207,22 @@ function callApi(port, csrfToken, method, params = {}, timeoutMs = 15000) {
 }
 
 /**
+ * Get the model placeholder → real label mapping from GetUserStatus.
+ * Returns: { MODEL_PLACEHOLDER_M37: "Gemini 3.1 Pro (High)", ... }
+ */
+async function getModelMapping(port, csrf) {
+  const result = await callApi(port, csrf, 'GetUserStatus', {});
+  if (!result?.userStatus?.cascadeModelConfigData?.clientModelConfigs) return {};
+  const mapping = {};
+  for (const config of result.userStatus.cascadeModelConfigData.clientModelConfigs) {
+    const placeholder = config.modelOrAlias?.model;
+    const label = config.label;
+    if (placeholder && label) mapping[placeholder] = label;
+  }
+  return mapping;
+}
+
+/**
  * Get all conversation summaries from a single LS instance.
  */
 async function getAllTrajectories(port, csrf) {
@@ -299,7 +315,7 @@ const LEVEL_FULL = 'full';
  * Parse raw API steps into structured messages.
  * Exact port of Python parser.py — supports 10 content types, skips 4 system types.
  */
-function parseSteps(steps, level = LEVEL_DEFAULT) {
+function parseSteps(steps, level = LEVEL_DEFAULT, modelMapping = {}) {
   const includeThinking = level === LEVEL_THINKING || level === LEVEL_FULL;
   const includeFull = level === LEVEL_FULL;
 
@@ -309,7 +325,7 @@ function parseSteps(steps, level = LEVEL_DEFAULT) {
     const metadata = step.metadata || {};
     const timestamp = includeThinking ? (metadata.createdAt || null) : null;
 
-    const msg = parseStep(step, stepType, includeThinking, includeFull);
+    const msg = parseStep(step, stepType, includeThinking, includeFull, modelMapping);
     if (msg === null) continue;
 
     if (timestamp) msg.timestamp = timestamp;
@@ -318,13 +334,13 @@ function parseSteps(steps, level = LEVEL_DEFAULT) {
   return messages;
 }
 
-function parseStep(step, stepType, includeThinking, includeFull) {
+function parseStep(step, stepType, includeThinking, includeFull, modelMapping = {}) {
   switch (stepType) {
     case 'CORTEX_STEP_TYPE_USER_INPUT':
       return parseUserInput(step, includeFull);
 
     case 'CORTEX_STEP_TYPE_PLANNER_RESPONSE':
-      return parsePlannerResponse(step, includeThinking, includeFull);
+      return parsePlannerResponse(step, includeThinking, includeFull, modelMapping);
 
     case 'CORTEX_STEP_TYPE_CODE_ACTION':
       return parseCodeAction(step, includeFull);
@@ -409,7 +425,7 @@ function parseUserInput(step, includeFull) {
   return msg;
 }
 
-function parsePlannerResponse(step, includeThinking, includeFull) {
+function parsePlannerResponse(step, includeThinking, includeFull, modelMapping = {}) {
   const pr = step.plannerResponse || {};
   // Prefer modifiedResponse (post-processed), fall back to response
   const content = pr.modifiedResponse || pr.response || '';
@@ -424,7 +440,8 @@ function parsePlannerResponse(step, includeThinking, includeFull) {
 
   if (includeFull) {
     const metadata = step.metadata || {};
-    if (metadata.generatorModel) msg.model = metadata.generatorModel;
+    const rawModel = metadata.generatorModel || '';
+    if (rawModel) msg.model = modelMapping[rawModel] || rawModel;
     if (pr.thinkingDuration) msg.thinking_duration = pr.thinkingDuration;
     if (pr.messageId) msg.message_id = pr.messageId;
   }
@@ -579,6 +596,13 @@ export async function collectAntigravityConversations(options = {}) {
       }
     }
 
+    // Step 1b: Get model mapping from the first working endpoint
+    let modelMapping = {};
+    try {
+      const ep = endpoints[0];
+      modelMapping = await getModelMapping(ep.port, ep.csrf);
+    } catch { /* model mapping is best-effort */ }
+
     // Step 2: Get all conversation summaries
     const { summaries, cascadeToEndpoint } = await getAllTrajectoriesMerged(endpoints);
 
@@ -619,7 +643,7 @@ export async function collectAntigravityConversations(options = {}) {
           const ep = cascadeToEndpoint[cascadeId] || { port: defaultEp.port, csrf: defaultEp.csrf };
           const stepCount = info.stepCount || 1000;
           const steps = await getTrajectorySteps(ep.port, ep.csrf, cascadeId, stepCount);
-          const messages = parseSteps(steps, level);
+          const messages = parseSteps(steps, level, modelMapping);
           const title = info.summary || 'Untitled';
           return buildConversationRecord(cascadeId, title, info, messages);
         }),

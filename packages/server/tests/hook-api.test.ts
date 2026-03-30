@@ -571,8 +571,8 @@ describe('POST /antigravity-sync', () => {
     expect(prompts[1].prompt).toBe('Add tests');
     expect(prompts[1].credit_cost).toBe(0);
 
-    // Verify first assistant response was matched to first prompt
-    expect(prompts[0].response).toBe('Here is the function...');
+    // Response storage is disabled — assistant responses are not stored
+    expect(prompts[0].response).toBeNull();
 
     // Verify tool events created
     const toolEvents = db.prepare('SELECT * FROM tool_events WHERE session_id = ?').all(cascadeId) as Array<{ tool_name: string; tool_input: string | null }>;

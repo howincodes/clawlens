@@ -816,11 +816,13 @@ function schedulePoll(delayMs) {
 
 const AG_SYNC_FILE = join(HOOKS_DIR, '.clawlens-ag-last-sync.json');
 let agEnabled = false;
+let agInitialized = false;
 let agTimer = null;
 const AG_COLLECTION_INTERVAL = 120000; // 2 minutes
 let collectAntigravityFn = null;
 
 async function initAntigravityModule(serverConfig) {
+  if (agInitialized) return; // prevent double init
   if (serverConfig?.antigravity_collection === false) {
     log('Antigravity: disabled by server config');
     return;
@@ -849,6 +851,7 @@ async function initAntigravityModule(serverConfig) {
   }
 
   agEnabled = true;
+  agInitialized = true;
   log('Antigravity: module enabled (built-in Node.js collector) — starting collection timer');
   scheduleAgCollection();
 }
