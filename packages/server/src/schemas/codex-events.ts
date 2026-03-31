@@ -117,10 +117,11 @@ export const CodexStopEvent = z.object({
 export type CodexStopPayload = z.infer<typeof CodexStopEvent>;
 
 // ---------------------------------------------------------------------------
-// Discriminated union of all Codex events
+// Union of all Codex events (plain union — hook_event_name is optional so
+// z.discriminatedUnion cannot be used here)
 // ---------------------------------------------------------------------------
 
-export const CodexEvent = z.discriminatedUnion('hook_event_name', [
+export const CodexEvent = z.union([
   CodexSessionStartEvent,
   CodexPromptEvent,
   CodexPreToolUseEvent,
