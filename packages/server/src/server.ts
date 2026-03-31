@@ -12,6 +12,7 @@ import { startDeadmanSwitch } from './services/deadman.js';
 import { hookAuth } from './middleware/hook-auth.js';
 import { adminRouter } from './routes/admin-api.js';
 import { hookRouter } from './routes/hook-api.js';
+import { codexRouter } from './routes/codex-api.js';
 import { watcherRouter } from './routes/watcher-api.js';
 import { startAICrons } from './services/ai-jobs.js';
 
@@ -56,6 +57,7 @@ app.get('/api/v1/health', (_req, res) => {
 // ---------------------------------------------------------------------------
 
 app.use('/api/v1/hook', hookAuth, hookRouter);
+app.use('/api/v1/codex', hookAuth, codexRouter);
 app.use('/api/v1/watcher', hookAuth, watcherRouter);
 
 // ---------------------------------------------------------------------------
