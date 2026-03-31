@@ -186,6 +186,14 @@ adminRouter.get('/users', (_req: Request, res: Response) => {
         )
         .get(user.id) as { ag_prompt_count: number };
 
+      // Codex only
+      const codexStats = db
+        .prepare(
+          `SELECT COUNT(*) as prompts, COALESCE(SUM(credit_cost), 0) as credits
+           FROM prompts WHERE user_id = ? AND source = 'codex' AND blocked = 0`,
+        )
+        .get(user.id) as { prompts: number; credits: number };
+
       const sessionStats = db
         .prepare(`SELECT COUNT(*) as session_count FROM sessions WHERE user_id = ?`)
         .get(user.id) as { session_count: number };
@@ -204,6 +212,8 @@ adminRouter.get('/users', (_req: Request, res: Response) => {
         prompt_count: ccStats.prompt_count,
         total_credits: ccStats.total_credits,
         ag_prompt_count: agStats.ag_prompt_count,
+        codex_prompts: codexStats?.prompts ?? 0,
+        codex_credits: codexStats?.credits ?? 0,
         session_count: sessionStats.session_count,
         top_model: topModelResult?.model || user.default_model || null,
         last_active: user.last_event_at,
@@ -309,6 +319,14 @@ adminRouter.get('/users/:id', (req: Request, res: Response) => {
       )
       .get(user.id) as { ag_prompt_count: number };
 
+    // Codex only
+    const codexStats = db
+      .prepare(
+        `SELECT COUNT(*) as prompts, COALESCE(SUM(credit_cost), 0) as credits
+         FROM prompts WHERE user_id = ? AND source = 'codex' AND blocked = 0`,
+      )
+      .get(user.id) as { prompts: number; credits: number };
+
     // Get unique devices from hook events (SessionStart sends hostname + platform)
     const devices = db.prepare(
       `SELECT DISTINCT
@@ -341,6 +359,8 @@ adminRouter.get('/users/:id', (req: Request, res: Response) => {
       prompt_count: stats.prompt_count,
       total_credits: stats.total_credits,
       ag_prompt_count: agStats.ag_prompt_count,
+      codex_prompts: codexStats?.prompts ?? 0,
+      codex_credits: codexStats?.credits ?? 0,
       session_count: sessions.length,
       watcher_connected: isWatcherConnected(user.id) || isWatcherRecentlyActive(user),
     });
@@ -458,20 +478,31 @@ adminRouter.get('/users/:id/prompts', (req: Request, res: Response) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = (page - 1) * limit;
+    const source = req.query.source as string | undefined;
 
     const db = getDb();
 
+    let whereClause = 'WHERE user_id = ?';
+    const countParams: unknown[] = [user.id];
+    if (source) {
+      whereClause += ' AND source = ?';
+      countParams.push(source);
+    }
+
     const total = (
-      db.prepare('SELECT COUNT(*) as count FROM prompts WHERE user_id = ?').get(user.id) as {
+      db.prepare(`SELECT COUNT(*) as count FROM prompts ${whereClause}`).get(...countParams) as {
         count: number;
       }
     ).count;
 
     const data = db
       .prepare(
-        'SELECT * FROM prompts WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+        `SELECT id, session_id, user_id, prompt, model, credit_cost,
+                blocked, block_reason, created_at, turn_id,
+                input_tokens, output_tokens, cached_tokens, reasoning_tokens, source
+         FROM prompts ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
       )
-      .all(user.id, limit, offset);
+      .all(...countParams, limit, offset);
 
     res.json({ data, total, page, limit });
   } catch (err) {
@@ -529,9 +560,18 @@ adminRouter.post('/users/:id/rotate-token', (req: Request, res: Response) => {
 // GET /subscriptions
 // ---------------------------------------------------------------------------
 
-adminRouter.get('/subscriptions', (_req: Request, res: Response) => {
+adminRouter.get('/subscriptions', (req: Request, res: Response) => {
   try {
     const db = getDb();
+    const source = req.query.source as string | undefined;
+
+    let sourceFilter = '';
+    const mainParams: unknown[] = [];
+    if (source) {
+      sourceFilter = ' WHERE s.source = ?';
+      mainParams.push(source);
+    }
+
     const subscriptions = db
       .prepare(
         `SELECT s.*,
@@ -539,10 +579,10 @@ adminRouter.get('/subscriptions', (_req: Request, res: Response) => {
                 (SELECT COUNT(*) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0 AND p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')) as prompt_count,
                 (SELECT COUNT(*) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0 AND p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')) as total_prompts,
                 (SELECT COALESCE(SUM(p.credit_cost), 0) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0 AND p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')) as total_credits
-         FROM subscriptions s
+         FROM subscriptions s${sourceFilter}
          ORDER BY s.created_at DESC`,
       )
-      .all() as any[];
+      .all(...mainParams) as any[];
 
     // Attach linked users to each subscription
     for (const sub of subscriptions) {
@@ -571,24 +611,39 @@ adminRouter.get('/analytics', (req: Request, res: Response) => {
   try {
     const team = getOrCreateTeam();
     const days = parseInt(req.query.days as string) || 30;
+    const source = req.query.source as string | undefined;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     const startDateStr = startDate.toISOString();
 
     const db = getDb();
 
-    // Overview — Claude Code only (exclude Antigravity)
-    const overview = db
-      .prepare(
-        `SELECT COUNT(*) as total_prompts,
+    // Build source filter for prompts
+    let sourceFilter = '';
+    const baseParams: unknown[] = [team.id, startDateStr];
+    if (source) {
+      sourceFilter = ' AND source = ?';
+      baseParams.push(source);
+    }
+
+    // Overview — with optional source filter (falls back to CC-only when no source)
+    const overviewQuery = source
+      ? `SELECT COUNT(*) as total_prompts,
                 COALESCE(SUM(credit_cost), 0) as total_credits
          FROM prompts
          WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
          AND created_at >= ?
          AND blocked = 0
-         AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')`,
-      )
-      .get(team.id, startDateStr) as { total_prompts: number; total_credits: number };
+         AND source = ?`
+      : `SELECT COUNT(*) as total_prompts,
+                COALESCE(SUM(credit_cost), 0) as total_credits
+         FROM prompts
+         WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
+         AND created_at >= ?
+         AND blocked = 0
+         AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')`;
+    const overviewParams: unknown[] = source ? [team.id, startDateStr, source] : [team.id, startDateStr];
+    const overview = db.prepare(overviewQuery).get(...overviewParams) as { total_prompts: number; total_credits: number };
 
     // Antigravity prompts
     const agOverview = db
@@ -602,53 +657,62 @@ adminRouter.get('/analytics', (req: Request, res: Response) => {
       )
       .get(team.id, startDateStr) as { ag_prompts: number };
 
-    const sessionCount = db
-      .prepare(
-        `SELECT COUNT(*) as total_sessions
+    // Sessions — filter by source if provided
+    let sessionQuery = `SELECT COUNT(*) as total_sessions
          FROM sessions
          WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
-         AND started_at >= ?`,
-      )
-      .get(team.id, startDateStr) as { total_sessions: number };
+         AND started_at >= ?`;
+    const sessionParams: unknown[] = [team.id, startDateStr];
+    if (source) {
+      sessionQuery += ' AND source = ?';
+      sessionParams.push(source);
+    }
+    const sessionCount = db.prepare(sessionQuery).get(...sessionParams) as { total_sessions: number };
 
-    const activeUsersResult = db
-      .prepare(
-        `SELECT COUNT(DISTINCT user_id) as active_users
+    // Active users — filter by source if provided
+    let activeQuery = `SELECT COUNT(DISTINCT user_id) as active_users
          FROM prompts
          WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
          AND created_at >= ?
-         AND blocked = 0`,
-      )
-      .get(team.id, startDateStr) as { active_users: number };
+         AND blocked = 0`;
+    const activeParams: unknown[] = [team.id, startDateStr];
+    if (source) {
+      activeQuery += ' AND source = ?';
+      activeParams.push(source);
+    }
+    const activeUsersResult = db.prepare(activeQuery).get(...activeParams) as { active_users: number };
 
-    // Daily trends
-    const daily = db
-      .prepare(
-        `SELECT date(created_at) as date,
+    // Daily trends — filter by source if provided
+    let dailyQuery = `SELECT date(created_at) as date,
                 COUNT(*) as prompts,
                 COALESCE(SUM(credit_cost), 0) as credits
          FROM prompts
          WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
          AND created_at >= ?
-         AND blocked = 0
-         GROUP BY date(created_at)
-         ORDER BY date`,
-      )
-      .all(team.id, startDateStr);
+         AND blocked = 0`;
+    const dailyParams: unknown[] = [team.id, startDateStr];
+    if (source) {
+      dailyQuery += ' AND source = ?';
+      dailyParams.push(source);
+    }
+    dailyQuery += ' GROUP BY date(created_at) ORDER BY date';
+    const daily = db.prepare(dailyQuery).all(...dailyParams);
 
-    // Model distribution
-    const models = db
-      .prepare(
-        `SELECT model,
+    // Model distribution — filter by source if provided
+    let modelsQuery = `SELECT model,
                 COUNT(*) as count,
                 COALESCE(SUM(credit_cost), 0) as credits
          FROM prompts
          WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
          AND created_at >= ?
-         AND blocked = 0
-         GROUP BY model`,
-      )
-      .all(team.id, startDateStr);
+         AND blocked = 0`;
+    const modelsParams: unknown[] = [team.id, startDateStr];
+    if (source) {
+      modelsQuery += ' AND source = ?';
+      modelsParams.push(source);
+    }
+    modelsQuery += ' GROUP BY model';
+    const models = db.prepare(modelsQuery).all(...modelsParams);
 
     res.json({
       overview: {
@@ -676,11 +740,24 @@ adminRouter.get('/analytics/users', (req: Request, res: Response) => {
     const team = getOrCreateTeam();
     const days = parseInt(req.query.days as string) || 30;
     const sortBy = (req.query.sortBy as string) || 'prompts';
+    const source = req.query.source as string | undefined;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     const startDateStr = startDate.toISOString();
 
     const db = getDb();
+
+    // Build source-aware join condition
+    let sourceJoinFilter = '';
+    const queryParams: unknown[] = [startDateStr, startDateStr];
+    if (source) {
+      sourceJoinFilter = ' AND p.source = ?';
+      queryParams.push(source);
+    }
+
+    queryParams.push(team.id);
+
+    const orderColumn = sortBy === 'credits' ? 'credits' : sortBy === 'sessions' ? 'sessions' : sortBy === 'cost_usd' ? 'cost_usd' : 'prompts';
 
     const data = db
       .prepare(
@@ -692,12 +769,12 @@ adminRouter.get('/analytics/users', (req: Request, res: Response) => {
                 COALESCE(SUM(CASE WHEN p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity') THEN p.credit_cost ELSE 0 END), 0) as cost_usd,
                 (SELECT model FROM prompts WHERE user_id = u.id AND blocked = 0 AND model IS NOT NULL GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1) as top_model
          FROM users u
-         LEFT JOIN prompts p ON p.user_id = u.id AND p.created_at >= ? AND p.blocked = 0
+         LEFT JOIN prompts p ON p.user_id = u.id AND p.created_at >= ? AND p.blocked = 0${sourceJoinFilter}
          WHERE u.team_id = ?
          GROUP BY u.id
-         ORDER BY ${sortBy === 'credits' ? 'credits' : sortBy === 'sessions' ? 'sessions' : sortBy === 'cost_usd' ? 'cost_usd' : 'prompts'} DESC`,
+         ORDER BY ${orderColumn} DESC`,
       )
-      .all(startDateStr, startDateStr, team.id);
+      .all(...queryParams);
 
     res.json({ data });
   } catch (err) {
@@ -714,11 +791,19 @@ adminRouter.get('/analytics/projects', (req: Request, res: Response) => {
   try {
     const team = getOrCreateTeam();
     const days = parseInt(req.query.days as string) || 30;
+    const source = req.query.source as string | undefined;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     const startDateStr = startDate.toISOString();
 
     const db = getDb();
+
+    let sourceFilter = '';
+    const params: unknown[] = [team.id, startDateStr];
+    if (source) {
+      sourceFilter = ' AND p.source = ?';
+      params.push(source);
+    }
 
     const data = db
       .prepare(
@@ -729,11 +814,11 @@ adminRouter.get('/analytics/projects', (req: Request, res: Response) => {
          JOIN sessions s ON s.id = p.session_id
          WHERE p.user_id IN (SELECT id FROM users WHERE team_id = ?)
          AND p.created_at >= ?
-         AND p.blocked = 0
+         AND p.blocked = 0${sourceFilter}
          GROUP BY s.cwd
          ORDER BY prompts DESC`,
       )
-      .all(team.id, startDateStr);
+      .all(...params);
 
     res.json({ data });
   } catch (err) {
@@ -750,11 +835,19 @@ adminRouter.get('/analytics/costs', (req: Request, res: Response) => {
   try {
     const team = getOrCreateTeam();
     const days = parseInt(req.query.days as string) || 30;
+    const source = req.query.source as string | undefined;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     const startDateStr = startDate.toISOString();
 
     const db = getDb();
+
+    let sourceFilter = '';
+    const params: unknown[] = [team.id, startDateStr];
+    if (source) {
+      sourceFilter = ' AND source = ?';
+      params.push(source);
+    }
 
     const data = db
       .prepare(
@@ -765,11 +858,11 @@ adminRouter.get('/analytics/costs', (req: Request, res: Response) => {
          FROM prompts
          WHERE user_id IN (SELECT id FROM users WHERE team_id = ?)
          AND created_at >= ?
-         AND blocked = 0
+         AND blocked = 0${sourceFilter}
          GROUP BY model
          ORDER BY credits DESC`,
       )
-      .all(team.id, startDateStr);
+      .all(...params);
 
     res.json({ data });
   } catch (err) {
@@ -790,6 +883,7 @@ adminRouter.get('/prompts', (req: Request, res: Response) => {
     const offset = (page - 1) * limit;
     const userId = req.query.user_id as string | undefined;
     const search = req.query.search as string | undefined;
+    const source = req.query.source as string | undefined;
 
     const db = getDb();
 
@@ -806,13 +900,21 @@ adminRouter.get('/prompts', (req: Request, res: Response) => {
       params.push(`%${search}%`);
     }
 
+    if (source) {
+      whereClause += ' AND p.source = ?';
+      params.push(source);
+    }
+
     const totalResult = db
       .prepare(`SELECT COUNT(*) as count FROM prompts p ${whereClause}`)
       .get(...params) as { count: number };
 
     const data = db
       .prepare(
-        `SELECT p.* FROM prompts p ${whereClause} ORDER BY p.created_at DESC LIMIT ? OFFSET ?`,
+        `SELECT p.id, p.session_id, p.user_id, p.prompt, p.model, p.credit_cost,
+                p.blocked, p.block_reason, p.created_at, p.turn_id,
+                p.input_tokens, p.output_tokens, p.cached_tokens, p.reasoning_tokens, p.source
+         FROM prompts p ${whereClause} ORDER BY p.created_at DESC LIMIT ? OFFSET ?`,
       )
       .all(...params, limit, offset);
 
