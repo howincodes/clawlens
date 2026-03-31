@@ -54,7 +54,7 @@ const HOOK_TEMPLATE = {
   SubagentStart: [{ hooks: [{ type: 'command', command: '~/.claude/hooks/clawlens-hook.sh', timeout: 10, async: true }] }],
   PostToolUseFailure: [{ hooks: [{ type: 'command', command: '~/.claude/hooks/clawlens-hook.sh', timeout: 10, async: true }] }],
   ConfigChange: [{ hooks: [{ type: 'command', command: '~/.claude/hooks/clawlens-hook.sh', timeout: 10 }] }],
-  FileChanged: [{ matcher: 'settings.json', hooks: [{ type: 'command', command: '~/.claude/hooks/clawlens-hook.sh', timeout: 10 }] }],
+  FileChanged: [{ hooks: [{ type: 'command', command: '~/.claude/hooks/clawlens-hook.sh', timeout: 10 }] }],
 };
 
 // ── State ───────────────────────────────────────────
