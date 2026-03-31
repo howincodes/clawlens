@@ -19,6 +19,7 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { AddUserModal } from '@/components/AddUserModal'
+import { SourceBadge } from '@/components/SourceBadge'
 import { ConfirmActionModal } from '@/components/ConfirmActionModal'
 import { formatDistanceToNow } from 'date-fns'
 
@@ -552,18 +553,26 @@ export function Overview() {
                     )}
                     <Link to={`/users/${user.id}`} className="flex-1">
                       <CardContent className="p-4 pt-2">
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-3 gap-3">
                           <div className="text-center p-2 bg-muted/30 rounded">
                             <div className="text-lg font-bold">{Number(stats.prompts ?? user.prompt_count ?? 0)}</div>
                             <div className="text-[10px] text-muted-foreground">CC Prompts</div>
                           </div>
                           <div className="text-center p-2 bg-muted/30 rounded">
-                            <div className="text-lg font-bold">{Number(stats.credits ?? stats.cost_usd ?? stats.cost ?? 0)} credits</div>
-                            <div className="text-[10px] text-muted-foreground">Credits</div>
-                          </div>
-                          <div className="text-center p-2 bg-muted/30 rounded">
                             <div className="text-lg font-bold">{Number(stats.ag_prompts ?? user.ag_prompt_count ?? 0)}</div>
                             <div className="text-[10px] text-muted-foreground">AG Prompts</div>
+                          </div>
+                          <div className="text-center p-2 bg-muted/30 rounded">
+                            <div className="text-lg font-bold">{Number(stats.codex_prompts ?? 0)}</div>
+                            <div className="text-[10px] text-muted-foreground">Codex Prompts</div>
+                          </div>
+                          <div className="text-center p-2 bg-muted/30 rounded">
+                            <div className="text-lg font-bold">{Number(stats.credits ?? stats.cost_usd ?? stats.cost ?? 0)}</div>
+                            <div className="text-[10px] text-muted-foreground">CC Credits</div>
+                          </div>
+                          <div className="text-center p-2 bg-muted/30 rounded">
+                            <div className="text-lg font-bold">{Number(stats.codex_credits ?? 0)}</div>
+                            <div className="text-[10px] text-muted-foreground">Codex Credits</div>
                           </div>
                           <div className="text-center p-2 bg-muted/30 rounded">
                             <div className="text-lg font-bold">{Number(stats.sessions ?? user.session_count ?? 0)}</div>
@@ -681,7 +690,8 @@ export function Overview() {
                           {formatDistanceToNow(new Date(evt.timestamp), { addSuffix: true })}
                         </span>
                       </div>
-                      <div className={`text-xs leading-tight ${eventColor(evt.type)}`}>
+                      <div className={`text-xs leading-tight ${eventColor(evt.type)} flex items-center gap-1.5`}>
+                        <SourceBadge source={(evt.payload.source as string) || 'claude_code'} />
                         {eventDescription(evt)}
                       </div>
                     </div>
