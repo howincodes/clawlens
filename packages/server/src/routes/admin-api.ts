@@ -28,6 +28,9 @@ import {
   createWatcherCommand,
   markWatcherCommandDelivered,
   getLatestWatcherLogs,
+  getModelCredits,
+  upsertModelCredit,
+  getProviderQuotas,
 } from '../services/db.js';
 import { sendToWatcher, isWatcherConnected } from '../services/watcher-ws.js';
 import { adminAuth, generateToken } from '../middleware/admin-auth.js';
@@ -1260,5 +1263,54 @@ adminRouter.get('/sessions/analyzed', (req: Request, res: Response) => {
   } catch (err) {
     console.error('[admin-api] analyzed sessions error:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /model-credits — list all model credit weights
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/model-credits', (req: Request, res: Response) => {
+  try {
+    const source = req.query.source as string | undefined;
+    const credits = getModelCredits(source || undefined);
+    res.json({ data: credits });
+  } catch (err: any) {
+    console.error('[admin-api] model-credits error:', err);
+    res.status(500).json({ error: 'Failed to load model credits' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PUT /model-credits/:id — update a credit weight
+// ---------------------------------------------------------------------------
+
+adminRouter.put('/model-credits/:id', (req: Request, res: Response) => {
+  try {
+    const { credits, tier } = req.body;
+    const db = getDb();
+    const existing = db.prepare('SELECT * FROM model_credits WHERE id = ?').get(req.params.id) as any;
+    if (!existing) { res.status(404).json({ error: 'Not found' }); return; }
+    db.prepare('UPDATE model_credits SET credits = ?, tier = ? WHERE id = ?')
+      .run(credits ?? existing.credits, tier ?? existing.tier, req.params.id);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('[admin-api] update model-credit error:', err);
+    res.status(500).json({ error: 'Failed to update' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /provider-quotas/:userId — provider quota windows for a user
+// ---------------------------------------------------------------------------
+
+adminRouter.get('/provider-quotas/:userId', (req: Request, res: Response) => {
+  try {
+    const source = (req.query.source as string) || 'codex';
+    const quotas = getProviderQuotas(req.params.userId, source);
+    res.json({ data: quotas });
+  } catch (err: any) {
+    console.error('[admin-api] provider-quotas error:', err);
+    res.status(500).json({ error: 'Failed to load quotas' });
   }
 });
