@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getUsers, getLeaderboard, updateUser, deleteUser } from '@/lib/api'
+import { SourceFilter } from '@/components/SourceFilter'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -43,6 +44,7 @@ export function UsersPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [source, setSource] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
   const [confirmAction, setConfirmAction] = useState<{
     user: any
@@ -55,7 +57,7 @@ export function UsersPage() {
     try {
       setError(null)
       const [usersRes, leaderRes] = await Promise.all([
-        getUsers(),
+        getUsers(source || undefined),
         getLeaderboard(30).catch(() => ({ leaderboard: [] })),
       ])
       setUsers(usersRes?.data || usersRes?.users || [])
@@ -71,7 +73,7 @@ export function UsersPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [source])
 
   useEffect(() => {
     loadData()
@@ -142,10 +144,13 @@ export function UsersPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <Button onClick={() => setShowAddModal(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Add User
-        </Button>
+        <div className="flex items-center gap-2">
+          <SourceFilter value={source} onChange={setSource} />
+          <Button onClick={() => setShowAddModal(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Add User
+          </Button>
+        </div>
       </div>
 
       <Card>

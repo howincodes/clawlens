@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getAllPrompts, getUsers } from '@/lib/api'
+import { SourceFilter } from '@/components/SourceFilter'
+import { SourceBadge } from '@/components/SourceBadge'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -66,6 +68,7 @@ export function PromptsBrowser() {
   const [model, setModel] = useState('')
   const [project, setProject] = useState('')
   const [blocked, setBlocked] = useState('')
+  const [source, setSource] = useState('')
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -107,6 +110,7 @@ export function PromptsBrowser() {
       if (model) params.model = model
       if (project) params.project = project
       if (blocked) params.blocked = blocked
+      if (source) params.source = source
 
       const res = await getAllPrompts(params)
       setData({ items: res?.data || [], total: res?.total || 0 })
@@ -116,7 +120,7 @@ export function PromptsBrowser() {
     } finally {
       setLoading(false)
     }
-  }, [page, debouncedSearch, userId, model, project, blocked])
+  }, [page, debouncedSearch, userId, model, project, blocked, source])
 
   useEffect(() => { load() }, [load])
 
@@ -159,7 +163,7 @@ export function PromptsBrowser() {
             </div>
 
             {/* Filter row */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
               <select
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 value={userId}
@@ -196,6 +200,8 @@ export function PromptsBrowser() {
                 <option value="yes">Yes</option>
                 <option value="no">No</option>
               </select>
+
+              <SourceFilter value={source} onChange={(v) => { setSource(v); setPage(1) }} className="w-full" />
             </div>
           </div>
         </CardHeader>
@@ -248,6 +254,7 @@ export function PromptsBrowser() {
                         <Badge variant="outline" className={`text-xs font-normal capitalize ${modelColorClass}`}>
                           {modelShort}
                         </Badge>
+                        <SourceBadge source={String(p.source || 'claude_code')} />
                         {String(p.project_dir || '') && p.project_dir ? (
                           <Badge variant="outline" className="text-xs font-normal">
                             {String(p.project_dir)}
@@ -326,6 +333,11 @@ export function PromptsBrowser() {
                         {Number(p.credit_cost || 0) > 0 && (
                           <span className="flex items-center gap-1">
                             <Coins className="w-3 h-3" /> {Number(p.credit_cost)} credits
+                          </span>
+                        )}
+                        {Number(p.input_tokens || 0) > 0 && (
+                          <span className="text-muted-foreground">
+                            {Number(p.input_tokens).toLocaleString()} in / {Number(p.output_tokens || 0).toLocaleString()} out tokens
                           </span>
                         )}
                       </div>

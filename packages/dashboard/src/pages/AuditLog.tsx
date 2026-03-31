@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getAuditLog, getUsers } from '@/lib/api'
+import { SourceFilter } from '@/components/SourceFilter'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -41,6 +42,7 @@ export function AuditLog() {
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [action, setAction] = useState('')
+  const [source, setSource] = useState('')
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
 
   const load = useCallback(async () => {
@@ -52,6 +54,7 @@ export function AuditLog() {
         limit: LIMIT.toString(),
       }
       if (action) params.action = action
+      if (source) params.source = source
       const [usersRes, logsRes] = await Promise.all([getUsers(), getAuditLog(params)])
       const uMap = new Map<string, string>(
         (usersRes?.data || []).map((u: any) => [u.id, u.name])
@@ -66,7 +69,7 @@ export function AuditLog() {
     } finally {
       setLoading(false)
     }
-  }, [page, action])
+  }, [page, action, source])
 
   useEffect(() => { load() }, [load])
 
@@ -118,15 +121,18 @@ export function AuditLog() {
               <CardTitle>Event History</CardTitle>
               <CardDescription>{data.total.toLocaleString()} total events</CardDescription>
             </div>
-            <select
-              value={action}
-              onChange={e => { setAction(e.target.value); setPage(1); setExpandedRows(new Set()) }}
-              className="flex h-9 w-[200px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              {ACTION_TYPES.map(a => (
-                <option key={a.value} value={a.value}>{a.label}</option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2">
+              <SourceFilter value={source} onChange={(v) => { setSource(v); setPage(1); setExpandedRows(new Set()) }} />
+              <select
+                value={action}
+                onChange={e => { setAction(e.target.value); setPage(1); setExpandedRows(new Set()) }}
+                className="flex h-9 w-[200px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {ACTION_TYPES.map(a => (
+                  <option key={a.value} value={a.value}>{a.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </CardHeader>
         <CardContent>

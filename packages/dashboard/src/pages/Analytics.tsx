@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getAnalytics, getLeaderboard, getProjectAnalytics, getCosts } from '@/lib/api'
+import { SourceFilter } from '@/components/SourceFilter'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -37,7 +38,7 @@ function fmtCredits(v: number): string {
 
 export function Analytics() {
   const [days, setDays] = useState(7)
-  const [sourceFilter, setSourceFilter] = useState('all')
+  const [source, setSource] = useState('')
   const [sortBy, setSortBy] = useState<SortField>('prompts')
   const [analytics, setAnalytics] = useState<Record<string, unknown> | null>(null)
   const [leaderboard, setLeaderboard] = useState<Record<string, unknown>[]>([])
@@ -51,10 +52,10 @@ export function Analytics() {
     setError(null)
     try {
       const [analyticsRes, leaderboardRes, costsRes, projectsRes] = await Promise.all([
-        getAnalytics(days, sourceFilter !== 'all' ? sourceFilter : undefined).catch(() => null),
-        getLeaderboard(days, sortBy, sourceFilter !== 'all' ? sourceFilter : undefined).catch(() => ({ data: [] })),
-        getCosts(days, sourceFilter !== 'all' ? sourceFilter : undefined).catch(() => null),
-        getProjectAnalytics(days, sourceFilter !== 'all' ? sourceFilter : undefined).catch(() => ({ data: [] })),
+        getAnalytics(days, source || undefined).catch(() => null),
+        getLeaderboard(days, sortBy, source || undefined).catch(() => ({ data: [] })),
+        getCosts(days, source || undefined).catch(() => null),
+        getProjectAnalytics(days, source || undefined).catch(() => ({ data: [] })),
       ])
       setAnalytics(analyticsRes)
       setLeaderboard(leaderboardRes?.data || leaderboardRes?.leaderboard || [])
@@ -65,7 +66,7 @@ export function Analytics() {
     } finally {
       setLoading(false)
     }
-  }, [days, sortBy, sourceFilter])
+  }, [days, sortBy, source])
 
   useEffect(() => { load() }, [load])
 
@@ -106,15 +107,7 @@ export function Analytics() {
           <p className="text-muted-foreground">Deep dive into team-wide usage patterns and costs.</p>
         </div>
         <div className="flex items-center gap-3">
-          <select
-            className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-            value={sourceFilter}
-            onChange={(e) => setSourceFilter(e.target.value)}
-          >
-            <option value="all">All Sources</option>
-            <option value="claude_code">Claude Code</option>
-            <option value="antigravity">Antigravity</option>
-          </select>
+          <SourceFilter value={source} onChange={setSource} />
           <div className="flex items-center gap-2 bg-muted p-1 rounded-md">
             {[7, 14, 30, 90].map(d => (
               <Button
