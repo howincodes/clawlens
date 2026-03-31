@@ -1113,33 +1113,41 @@ export function createSubscription(params: {
   email: string;
   subscription_type?: string;
   plan_name?: string;
+  source?: string;
+  account_id?: string;
+  org_id?: string;
+  auth_provider?: string;
 }): SubscriptionRow {
   const database = getDb();
+  const source = params.source ?? 'claude_code';
 
-  // Upsert: if subscription with this email exists, update it; otherwise create
+  // Upsert: if subscription with this email + source exists, update it; otherwise create
   const existing = database
-    .prepare(`SELECT * FROM subscriptions WHERE email = ? LIMIT 1`)
-    .get(params.email) as SubscriptionRow | undefined;
+    .prepare(`SELECT * FROM subscriptions WHERE email = ? AND source = ? LIMIT 1`)
+    .get(params.email, source) as SubscriptionRow | undefined;
 
   if (existing) {
     const newType = params.subscription_type || existing.subscription_type;
     const newPlan = params.plan_name ?? existing.plan_name;
-    // Always update — don't skip even if values seem the same
     database.prepare(
-      `UPDATE subscriptions SET subscription_type = ?, plan_name = ? WHERE id = ?`,
-    ).run(newType, newPlan, existing.id);
+      `UPDATE subscriptions SET subscription_type = ?, plan_name = ?, account_id = COALESCE(?, account_id), org_id = COALESCE(?, org_id), auth_provider = COALESCE(?, auth_provider) WHERE id = ?`,
+    ).run(newType, newPlan, params.account_id ?? null, params.org_id ?? null, params.auth_provider ?? null, existing.id);
     return { ...existing, subscription_type: newType, plan_name: newPlan };
   }
 
   const stmt = database.prepare(
-    `INSERT INTO subscriptions (email, subscription_type, plan_name)
-     VALUES (?, ?, ?)
+    `INSERT INTO subscriptions (email, subscription_type, plan_name, source, account_id, org_id, auth_provider)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      RETURNING *`,
   );
   return stmt.get(
     params.email,
     params.subscription_type ?? 'pro',
     params.plan_name ?? null,
+    source,
+    params.account_id ?? null,
+    params.org_id ?? null,
+    params.auth_provider ?? null,
   ) as SubscriptionRow;
 }
 

@@ -762,11 +762,13 @@ adminRouter.get('/analytics/users', (req: Request, res: Response) => {
     const data = db
       .prepare(
         `SELECT u.id, u.name, u.email, u.status, u.default_model,
-                COUNT(CASE WHEN p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity') THEN p.id END) as prompts,
-                COALESCE(SUM(CASE WHEN p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity') THEN p.credit_cost ELSE 0 END), 0) as credits,
-                COUNT(CASE WHEN p.session_id IN (SELECT id FROM sessions WHERE source = 'antigravity') THEN p.id END) as ag_prompts,
+                COUNT(CASE WHEN p.source IS NULL OR p.source = 'claude_code' THEN p.id END) as prompts,
+                COALESCE(SUM(CASE WHEN p.source IS NULL OR p.source = 'claude_code' THEN p.credit_cost ELSE 0 END), 0) as credits,
+                COUNT(CASE WHEN p.source = 'antigravity' THEN p.id END) as ag_prompts,
+                COUNT(CASE WHEN p.source = 'codex' THEN p.id END) as codex_prompts,
+                COALESCE(SUM(CASE WHEN p.source = 'codex' THEN p.credit_cost ELSE 0 END), 0) as codex_credits,
                 (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.started_at >= ?) as sessions,
-                COALESCE(SUM(CASE WHEN p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity') THEN p.credit_cost ELSE 0 END), 0) as cost_usd,
+                COALESCE(SUM(CASE WHEN p.source IS NULL OR p.source = 'claude_code' THEN p.credit_cost ELSE 0 END), 0) as cost_usd,
                 (SELECT model FROM prompts WHERE user_id = u.id AND blocked = 0 AND model IS NOT NULL GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1) as top_model
          FROM users u
          LEFT JOIN prompts p ON p.user_id = u.id AND p.created_at >= ? AND p.blocked = 0${sourceJoinFilter}

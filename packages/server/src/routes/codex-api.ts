@@ -165,6 +165,10 @@ codexRouter.post('/session-start', (req: Request, res: Response) => {
           email: body.subscription_email || user.email || '',
           subscription_type: subType,
           plan_name: body.org_title || undefined,
+          source: 'codex',
+          account_id: body.account_id,
+          org_id: body.org_id,
+          auth_provider: body.auth_provider,
         });
         debug(`subscription result: ${sub ? `id=${sub.id}` : '(null)'}`);
         if (sub && !user.subscription_id) {
