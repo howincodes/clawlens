@@ -595,19 +595,19 @@ adminRouter.get('/subscriptions', (req: Request, res: Response) => {
       // Count prompts/credits for linked users, filtered by subscription source
       let promptSourceFilter = '';
       if (subSource === 'codex') {
-        promptSourceFilter = `AND p.source = 'codex'`;
+        promptSourceFilter = `AND source = 'codex'`;
       } else if (subSource === 'antigravity') {
-        promptSourceFilter = `AND p.source = 'antigravity'`;
+        promptSourceFilter = `AND source = 'antigravity'`;
       } else {
-        promptSourceFilter = `AND (p.source IS NULL OR p.source = 'claude_code')`;
+        promptSourceFilter = `AND (source IS NULL OR source = 'claude_code')`;
       }
 
       const userIds = sub.users.map((u: any) => u.id);
       if (userIds.length > 0) {
         const placeholders = userIds.map(() => '?').join(',');
         const stats = db.prepare(
-          `SELECT COUNT(*) as prompt_count, COALESCE(SUM(p.credit_cost), 0) as total_credits
-           FROM prompts p WHERE p.user_id IN (${placeholders}) AND p.blocked = 0 ${promptSourceFilter}`
+          `SELECT COUNT(*) as prompt_count, COALESCE(SUM(credit_cost), 0) as total_credits
+           FROM prompts WHERE user_id IN (${placeholders}) AND blocked = 0 ${promptSourceFilter}`
         ).get(...userIds) as any;
         sub.total_prompts = stats?.prompt_count ?? 0;
         sub.prompt_count = stats?.prompt_count ?? 0;
