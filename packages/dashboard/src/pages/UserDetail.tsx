@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions, getWatcherStatus, getWatcherLogs, getWatcherLogHistory, getWatcherLogEntry, sendWatcherCommand, updateUser, getUserProfile, updateUserProfile } from '@/lib/api'
+import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions, getWatcherStatus, getWatcherLogs, getWatcherLogHistory, getWatcherLogEntry, sendWatcherCommand, updateUser, getUserProfile, updateUserProfile, getProviderQuotas } from '@/lib/api'
 import {
   Card,
   CardContent,
@@ -60,6 +60,9 @@ import {
 } from 'recharts'
 import { EditLimitsModal } from '@/components/EditLimitsModal'
 import { ConfirmActionModal } from '@/components/ConfirmActionModal'
+import { QuotaBar } from '@/components/QuotaBar'
+import { SourceBadge } from '@/components/SourceBadge'
+import { SourceFilter } from '@/components/SourceFilter'
 import { formatDistanceToNow, format } from 'date-fns'
 
 const COLORS = ['#3b82f6', '#a855f7', '#f97316', '#22c55e', '#ef4444', '#06b6d4']
@@ -112,6 +115,20 @@ function formatBytes(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   const val = bytes / Math.pow(k, i)
   return `${val < 10 && i > 0 ? val.toFixed(1) : Math.round(val)}${sizes[i]}`
+}
+
+function formatQuotaReset(unixTs: number | null | undefined): string {
+  if (!unixTs) return 'N/A'
+  const date = new Date(unixTs * 1000)
+  const now = new Date()
+  const diffMs = date.getTime() - now.getTime()
+  if (diffMs < 0) return 'Expired'
+  if (diffMs < 86400000) {
+    const hours = Math.floor(diffMs / 3600000)
+    const mins = Math.floor((diffMs % 3600000) / 60000)
+    return `Resets in ${hours}h ${mins}m`
+  }
+  return `Resets ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
 }
 
 function extractProjectName(cwd: string): string {
@@ -181,6 +198,10 @@ export function UserDetail() {
   // All prompts for charts (larger set)
   const [allPrompts, setAllPrompts] = useState<any[]>([])
 
+  // Provider quotas and prompt source filter
+  const [providerQuotas, setProviderQuotas] = useState<any[]>([])
+  const [promptSource, setPromptSource] = useState('')
+
   const loadUser = useCallback(async () => {
     if (!id) return
     try {
@@ -219,6 +240,7 @@ export function UserDetail() {
         limit: '10',
       }
       if (promptSearch) params.search = promptSearch
+      if (promptSource) params.source = promptSource
       const res = await getUserPrompts(id, params)
       setPrompts(res?.data || res?.prompts || [])
       setPromptsTotal(res?.total || 0)
@@ -227,7 +249,7 @@ export function UserDetail() {
     } finally {
       setPromptsLoading(false)
     }
-  }, [id, promptPage, promptSearch])
+  }, [id, promptPage, promptSearch, promptSource])
 
   const loadSessions = useCallback(async () => {
     if (!id) return
@@ -245,12 +267,12 @@ export function UserDetail() {
   const loadAllPromptsForCharts = useCallback(async () => {
     if (!id) return
     try {
-      const res = await getUserPrompts(id, { limit: '500' })
+      const res = await getUserPrompts(id, { limit: '500', ...(promptSource ? { source: promptSource } : {}) })
       setAllPrompts(res?.data || res?.prompts || [])
     } catch (_err) {
       // Chart data is nice-to-have, don't block on it
     }
-  }, [id])
+  }, [id, promptSource])
 
   useEffect(() => {
     loadUser()
@@ -293,6 +315,7 @@ export function UserDetail() {
     loadWatcherStatus()
     if (id) {
       getUserProfile(id).then(res => setAiProfile(res?.data || null)).catch(() => {})
+      getProviderQuotas(id, 'codex').then(res => setProviderQuotas(res?.data || [])).catch(() => {})
     }
   }, [loadSessions, loadAllPromptsForCharts, loadWatcherStatus, id])
 
@@ -744,6 +767,72 @@ export function UserDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Provider Credit Cards */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Claude Code Card */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <SourceBadge source="claude_code" /> Claude Code
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Credits Used (today)</span>
+              <span className="font-medium">{data?.cc_credits ?? data?.credits ?? 0}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Prompts</span>
+              <span className="font-medium">{data?.prompt_count ?? 0}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Model</span>
+              <span className="font-medium">{normalizeModel(user?.default_model || 'sonnet')}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Codex Card */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <SourceBadge source="codex" /> Codex
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Credits Used (today)</span>
+              <span className="font-medium">{data?.codex_credits ?? 0}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Prompts</span>
+              <span className="font-medium">{data?.codex_prompts ?? 0}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {providerQuotas.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">OpenAI Quotas</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {providerQuotas.map((q: any) => (
+              <QuotaBar
+                key={q.window_name}
+                percent={q.used_percent ?? 0}
+                label={q.window_name === 'primary' ? 'Weekly' : '5hr'}
+                resetText={formatQuotaReset(q.resets_at)}
+              />
+            ))}
+            {providerQuotas[0]?.plan_type && (
+              <div className="text-xs text-muted-foreground">Plan: {providerQuotas[0].plan_type.toUpperCase()}</div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* AI Developer Profile */}
       {(() => {
@@ -1685,6 +1774,7 @@ export function UserDetail() {
           <CardTitle className="flex justify-between items-center gap-4">
             <span>Recent Prompts</span>
             <div className="flex items-center gap-2">
+              <SourceFilter value={promptSource} onChange={(v) => { setPromptSource(v); setPromptPage(1) }} />
               <Input
                 type="text"
                 placeholder="Search prompts..."
