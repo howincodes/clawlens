@@ -243,7 +243,55 @@ echo "  Starting watcher..."
 CLAUDE_PLUGIN_OPTION_SERVER_URL="$SERVER_URL" CLAUDE_PLUGIN_OPTION_AUTH_TOKEN="$AUTH_TOKEN" nohup "$NODE_PATH" "$WATCHER_FILE" > /dev/null 2>&1 &
 echo "  -> Watcher running (pid $!)"
 
+# ── Codex Installation ──────────────────────────────
 
+echo ""
+read -p "  Install for OpenAI Codex? (Y/n) " INSTALL_CODEX
+INSTALL_CODEX=${INSTALL_CODEX:-Y}
+
+if [[ "$INSTALL_CODEX" =~ ^[Yy]$ ]]; then
+  if ! command -v codex &>/dev/null; then
+    echo "  ⚠ codex not found in PATH — skipping Codex installation"
+  else
+    CODEX_VERSION=$(codex --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    echo "  Codex version: $CODEX_VERSION"
+
+    # Ensure hooks feature is enabled
+    CODEX_CONFIG="$HOME/.codex/config.toml"
+    mkdir -p "$HOME/.codex"
+    if ! grep -q 'codex_hooks' "$CODEX_CONFIG" 2>/dev/null; then
+      echo "" >> "$CODEX_CONFIG"
+      echo "[features]" >> "$CODEX_CONFIG"
+      echo "codex_hooks = true" >> "$CODEX_CONFIG"
+      echo "  ✓ codex_hooks enabled in config.toml"
+    fi
+
+    # Deploy clawlens-codex.mjs
+    CODEX_HOOKS_DIR="$HOME/.codex/hooks"
+    mkdir -p "$CODEX_HOOKS_DIR"
+    CODEX_HOOK_URL="https://raw.githubusercontent.com/howincodes/clawlens/main/client/clawlens-codex.mjs"
+    CACHE_BUST=$(date +%s)
+    curl -fsSL "$CODEX_HOOK_URL?v=$CACHE_BUST" -o "$CODEX_HOOKS_DIR/clawlens-codex.mjs"
+    echo "  ✓ clawlens-codex.mjs deployed"
+
+    # Write hooks.json
+    CODEX_HOOKS_JSON="$HOME/.codex/hooks.json"
+    HOOK_CMD="CLAWLENS_SERVER=$SERVER_URL CLAWLENS_TOKEN=$AUTH_TOKEN node $CODEX_HOOKS_DIR/clawlens-codex.mjs"
+    cat > "$CODEX_HOOKS_JSON" << HOOKEOF
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "$HOOK_CMD", "timeout": 10}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "$HOOK_CMD", "timeout": 10}]}],
+    "PreToolUse": [{"hooks": [{"type": "command", "command": "$HOOK_CMD", "timeout": 10}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "$HOOK_CMD", "timeout": 10}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "$HOOK_CMD", "timeout": 10}]}]
+  }
+}
+HOOKEOF
+    echo "  ✓ hooks.json configured"
+    echo "  ✓ Codex integration complete"
+  fi
+fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 
