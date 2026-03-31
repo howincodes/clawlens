@@ -39,12 +39,12 @@ function debug(msg: string): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Normalize raw subscription type strings into clean plan names.
+ * Normalize Codex subscription plan type. Unlike CC (which only has pro/max),
+ * Codex has go/pro/plus/team — pass through as-is, just lowercase.
  */
 function normalizeSubscriptionType(raw: string | undefined): string {
-  const lower = String(raw || '').toLowerCase();
-  if (lower.includes('max')) return 'max';
-  return 'pro';
+  if (!raw) return 'pro';
+  return raw.toLowerCase();
 }
 
 /**

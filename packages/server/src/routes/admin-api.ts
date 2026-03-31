@@ -575,25 +575,58 @@ adminRouter.get('/subscriptions', (req: Request, res: Response) => {
     const subscriptions = db
       .prepare(
         `SELECT s.*,
-                (SELECT COUNT(*) FROM users u WHERE u.subscription_id = s.id) as user_count,
-                (SELECT COUNT(*) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0 AND p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')) as prompt_count,
-                (SELECT COUNT(*) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0 AND p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')) as total_prompts,
-                (SELECT COALESCE(SUM(p.credit_cost), 0) FROM prompts p WHERE p.user_id IN (SELECT id FROM users WHERE subscription_id = s.id) AND p.blocked = 0 AND p.session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')) as total_credits
+                (SELECT COUNT(*) FROM users u WHERE u.email = s.email) as user_count
          FROM subscriptions s${sourceFilter}
          ORDER BY s.created_at DESC`,
       )
       .all(...mainParams) as any[];
 
-    // Attach linked users to each subscription
+    // Attach linked users + source-aware prompt/credit counts
     for (const sub of subscriptions) {
+      const subSource = sub.source || 'claude_code';
+
+      // Find users by email match (not subscription_id — more reliable for multi-provider)
       sub.users = db
         .prepare(
-          `SELECT u.id, u.name, u.email, u.status, u.default_model,
-                  (SELECT COUNT(*) FROM prompts WHERE user_id = u.id AND blocked = 0 AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')) as prompt_count,
-                  (SELECT COALESCE(SUM(credit_cost), 0) FROM prompts WHERE user_id = u.id AND blocked = 0 AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')) as total_credits
-           FROM users u WHERE u.subscription_id = ?`,
+          `SELECT u.id, u.name, u.email, u.status, u.default_model FROM users u WHERE u.email = ?`,
         )
-        .all(sub.id);
+        .all(sub.email);
+
+      // Count prompts/credits for linked users, filtered by subscription source
+      let promptSourceFilter = '';
+      if (subSource === 'codex') {
+        promptSourceFilter = `AND p.source = 'codex'`;
+      } else if (subSource === 'antigravity') {
+        promptSourceFilter = `AND p.source = 'antigravity'`;
+      } else {
+        promptSourceFilter = `AND (p.source IS NULL OR p.source = 'claude_code')`;
+      }
+
+      const userIds = sub.users.map((u: any) => u.id);
+      if (userIds.length > 0) {
+        const placeholders = userIds.map(() => '?').join(',');
+        const stats = db.prepare(
+          `SELECT COUNT(*) as prompt_count, COALESCE(SUM(p.credit_cost), 0) as total_credits
+           FROM prompts p WHERE p.user_id IN (${placeholders}) AND p.blocked = 0 ${promptSourceFilter}`
+        ).get(...userIds) as any;
+        sub.total_prompts = stats?.prompt_count ?? 0;
+        sub.prompt_count = stats?.prompt_count ?? 0;
+        sub.total_credits = stats?.total_credits ?? 0;
+
+        // Per-user stats
+        for (const u of sub.users) {
+          const uStats = db.prepare(
+            `SELECT COUNT(*) as prompts, COALESCE(SUM(credit_cost), 0) as credits
+             FROM prompts WHERE user_id = ? AND blocked = 0 ${promptSourceFilter}`
+          ).get(u.id) as any;
+          u.prompt_count = uStats?.prompts ?? 0;
+          u.total_credits = uStats?.credits ?? 0;
+        }
+      } else {
+        sub.total_prompts = 0;
+        sub.prompt_count = 0;
+        sub.total_credits = 0;
+      }
     }
 
     res.json({ data: subscriptions });
