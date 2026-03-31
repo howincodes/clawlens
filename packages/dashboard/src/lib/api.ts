@@ -61,7 +61,8 @@ export const getTeam = () => fetchClient('/team')
 export const updateTeam = (data: Record<string, unknown>) =>
   fetchClient('/team', { method: 'PUT', body: JSON.stringify(data) })
 // ── Users ─────────────────────────────────────────────────
-export const getUsers = () => fetchClient('/users')
+export const getUsers = (source?: string) =>
+  fetchClient(`/users${source ? `?source=${source}` : ''}`)
 export const createUser = (name: string, slug: string, limits?: unknown[]) =>
   fetchClient('/users', { method: 'POST', body: JSON.stringify({ name, slug, limits }) })
 export const getUser = (id: string) => fetchClient(`/users/${id}`)
@@ -76,7 +77,8 @@ export const rotateToken = (id: string) =>
   fetchClient(`/users/${id}/rotate-token`, { method: 'POST' })
 
 // ── Subscriptions ─────────────────────────────────────────
-export const getSubscriptions = () => fetchClient('/subscriptions')
+export const getSubscriptions = (source?: string) =>
+  fetchClient(`/subscriptions${source ? `?source=${source}` : ''}`)
 
 // ── Analytics ─────────────────────────────────────────────
 export const getAnalytics = (days: number, source?: string) =>
@@ -131,4 +133,14 @@ export const sendWatcherCommand = (userId: string, command: string, message?: st
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ command, message }),
   })
+
+// ── Model Credits ────────────────────────────────────
+export const getModelCredits = (source?: string) =>
+  fetchClient(`/model-credits${source ? `?source=${source}` : ''}`)
+export const updateModelCredit = (id: number, credits: number, tier?: string) =>
+  fetchClient(`/model-credits/${id}`, { method: 'PUT', body: JSON.stringify({ credits, tier }) })
+
+// ── Provider Quotas ──────────────────────────────────
+export const getProviderQuotas = (userId: string, source?: string) =>
+  fetchClient(`/provider-quotas/${userId}${source ? `?source=${source}` : ''}`)
 
