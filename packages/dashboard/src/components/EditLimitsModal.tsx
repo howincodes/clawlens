@@ -20,6 +20,10 @@ function parseLimits(limitsArr: any[]) {
     time_start: '',
     time_end: '',
     time_tz: 'America/New_York',
+    gpt54_cap: '',
+    gpt54_window: 'daily',
+    gpt54mini_cap: '',
+    gpt54mini_window: 'daily',
   }
   if (!Array.isArray(limitsArr)) return result
   for (const lim of limitsArr) {
@@ -35,6 +39,12 @@ function parseLimits(limitsArr: any[]) {
     } else if (lim.type === 'per_model' && lim.model === 'haiku') {
       result.haiku_cap = String(lim.value || '')
       result.haiku_window = lim.window || 'daily'
+    } else if (lim.type === 'per_model' && lim.model === 'gpt-5.4' && lim.source === 'codex') {
+      result.gpt54_cap = String(lim.value || '')
+      result.gpt54_window = lim.window || 'daily'
+    } else if (lim.type === 'per_model' && lim.model === 'gpt-5.4-mini' && lim.source === 'codex') {
+      result.gpt54mini_cap = String(lim.value || '')
+      result.gpt54mini_window = lim.window || 'daily'
     } else if (lim.type === 'time_of_day') {
       result.time_start = lim.schedule_start || ''
       result.time_end = lim.schedule_end || ''
@@ -48,16 +58,22 @@ function parseLimits(limitsArr: any[]) {
 function buildLimitsPayload(form: ReturnType<typeof parseLimits>) {
   const limits: Record<string, unknown>[] = []
   if (form.credit_budget) {
-    limits.push({ type: 'credits', window: form.credit_window, value: Number(form.credit_budget) })
+    limits.push({ type: 'credits', window: form.credit_window, value: Number(form.credit_budget), source: 'claude_code' })
   }
   if (form.opus_cap) {
-    limits.push({ type: 'per_model', model: 'opus', window: form.opus_window, value: Number(form.opus_cap) })
+    limits.push({ type: 'per_model', model: 'opus', window: form.opus_window, value: Number(form.opus_cap), source: 'claude_code' })
   }
   if (form.sonnet_cap) {
-    limits.push({ type: 'per_model', model: 'sonnet', window: form.sonnet_window, value: Number(form.sonnet_cap) })
+    limits.push({ type: 'per_model', model: 'sonnet', window: form.sonnet_window, value: Number(form.sonnet_cap), source: 'claude_code' })
   }
   if (form.haiku_cap) {
-    limits.push({ type: 'per_model', model: 'haiku', window: form.haiku_window, value: Number(form.haiku_cap) })
+    limits.push({ type: 'per_model', model: 'haiku', window: form.haiku_window, value: Number(form.haiku_cap), source: 'claude_code' })
+  }
+  if (form.gpt54_cap) {
+    limits.push({ type: 'per_model', model: 'gpt-5.4', window: form.gpt54_window, value: Number(form.gpt54_cap), source: 'codex' })
+  }
+  if (form.gpt54mini_cap) {
+    limits.push({ type: 'per_model', model: 'gpt-5.4-mini', window: form.gpt54mini_window, value: Number(form.gpt54mini_cap), source: 'codex' })
   }
   if (form.time_start && form.time_end) {
     limits.push({ type: 'time_of_day', schedule_start: form.time_start, schedule_end: form.time_end, schedule_tz: form.time_tz })
@@ -85,6 +101,7 @@ const TIMEZONES = [
 export function EditLimitsModal({ user, onClose, onSuccess }: { user: any, onClose: () => void, onSuccess: () => void }) {
   const [loading, setLoading] = useState(false)
   const [limits, setLimits] = useState(() => parseLimits(user?.limits || []))
+  const [limitSource, setLimitSource] = useState<'claude_code' | 'codex'>('claude_code')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -116,6 +133,15 @@ export function EditLimitsModal({ user, onClose, onSuccess }: { user: any, onClo
                <CardDescription>Configure boundaries for {user.name} ({user.slug}).</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+               <div className="flex gap-2 mb-4">
+                 <Button type="button" variant={limitSource === 'claude_code' ? 'default' : 'outline'} size="sm" onClick={() => setLimitSource('claude_code')}>
+                   Claude Code
+                 </Button>
+                 <Button type="button" variant={limitSource === 'codex' ? 'default' : 'outline'} size="sm" onClick={() => setLimitSource('codex')}>
+                   Codex
+                 </Button>
+               </div>
+
                <div className="space-y-4">
                   <h4 className="text-sm font-semibold border-b pb-2">Credit Budget</h4>
                   <div className="flex gap-4">
@@ -136,42 +162,74 @@ export function EditLimitsModal({ user, onClose, onSuccess }: { user: any, onClo
 
                <div className="space-y-4">
                   <h4 className="text-sm font-semibold border-b pb-2">Per-Model Caps</h4>
-                  <div className="flex gap-4 items-end">
-                     <div className="flex-1 space-y-2">
-                        <Label>Opus Requests</Label>
-                        <Input type="number" placeholder="e.g. 50" value={limits.opus_cap} onChange={e => setLimits(l => ({...l, opus_cap: e.target.value}))} />
-                     </div>
-                     <div className="w-32 space-y-2">
-                        <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm" value={limits.opus_window} onChange={e => setLimits(l => ({...l, opus_window: e.target.value}))}>
-                           <option value="daily">Daily</option>
-                           <option value="weekly">Weekly</option>
-                        </select>
-                     </div>
-                  </div>
-                  <div className="flex gap-4 items-end">
-                     <div className="flex-1 space-y-2">
-                        <Label>Sonnet Requests</Label>
-                        <Input type="number" placeholder="e.g. 200" value={limits.sonnet_cap} onChange={e => setLimits(l => ({...l, sonnet_cap: e.target.value}))} />
-                     </div>
-                     <div className="w-32 space-y-2">
-                        <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm" value={limits.sonnet_window} onChange={e => setLimits(l => ({...l, sonnet_window: e.target.value}))}>
-                           <option value="daily">Daily</option>
-                           <option value="weekly">Weekly</option>
-                        </select>
-                     </div>
-                  </div>
-                  <div className="flex gap-4 items-end">
-                     <div className="flex-1 space-y-2">
-                        <Label>Haiku Requests</Label>
-                        <Input type="number" placeholder="e.g. 500" value={limits.haiku_cap} onChange={e => setLimits(l => ({...l, haiku_cap: e.target.value}))} />
-                     </div>
-                     <div className="w-32 space-y-2">
-                        <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm" value={limits.haiku_window} onChange={e => setLimits(l => ({...l, haiku_window: e.target.value}))}>
-                           <option value="daily">Daily</option>
-                           <option value="weekly">Weekly</option>
-                        </select>
-                     </div>
-                  </div>
+                  {limitSource === 'claude_code' && (
+                    <>
+                      <div className="flex gap-4 items-end">
+                         <div className="flex-1 space-y-2">
+                            <Label>Opus Requests</Label>
+                            <Input type="number" placeholder="e.g. 50" value={limits.opus_cap} onChange={e => setLimits(l => ({...l, opus_cap: e.target.value}))} />
+                         </div>
+                         <div className="w-32 space-y-2">
+                            <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm" value={limits.opus_window} onChange={e => setLimits(l => ({...l, opus_window: e.target.value}))}>
+                               <option value="daily">Daily</option>
+                               <option value="weekly">Weekly</option>
+                            </select>
+                         </div>
+                      </div>
+                      <div className="flex gap-4 items-end">
+                         <div className="flex-1 space-y-2">
+                            <Label>Sonnet Requests</Label>
+                            <Input type="number" placeholder="e.g. 200" value={limits.sonnet_cap} onChange={e => setLimits(l => ({...l, sonnet_cap: e.target.value}))} />
+                         </div>
+                         <div className="w-32 space-y-2">
+                            <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm" value={limits.sonnet_window} onChange={e => setLimits(l => ({...l, sonnet_window: e.target.value}))}>
+                               <option value="daily">Daily</option>
+                               <option value="weekly">Weekly</option>
+                            </select>
+                         </div>
+                      </div>
+                      <div className="flex gap-4 items-end">
+                         <div className="flex-1 space-y-2">
+                            <Label>Haiku Requests</Label>
+                            <Input type="number" placeholder="e.g. 500" value={limits.haiku_cap} onChange={e => setLimits(l => ({...l, haiku_cap: e.target.value}))} />
+                         </div>
+                         <div className="w-32 space-y-2">
+                            <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm" value={limits.haiku_window} onChange={e => setLimits(l => ({...l, haiku_window: e.target.value}))}>
+                               <option value="daily">Daily</option>
+                               <option value="weekly">Weekly</option>
+                            </select>
+                         </div>
+                      </div>
+                    </>
+                  )}
+                  {limitSource === 'codex' && (
+                    <>
+                      <div className="flex gap-4 items-end">
+                        <div className="flex-1 space-y-2">
+                          <Label>gpt-5.4 Requests</Label>
+                          <Input type="number" placeholder="e.g. 50" value={limits.gpt54_cap || ''} onChange={e => setLimits(l => ({...l, gpt54_cap: e.target.value}))} />
+                        </div>
+                        <div className="w-32 space-y-2">
+                          <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm" value={limits.gpt54_window || 'daily'} onChange={e => setLimits(l => ({...l, gpt54_window: e.target.value}))}>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="flex gap-4 items-end">
+                        <div className="flex-1 space-y-2">
+                          <Label>gpt-5.4-mini Requests</Label>
+                          <Input type="number" placeholder="e.g. 200" value={limits.gpt54mini_cap || ''} onChange={e => setLimits(l => ({...l, gpt54mini_cap: e.target.value}))} />
+                        </div>
+                        <div className="w-32 space-y-2">
+                          <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm" value={limits.gpt54mini_window || 'daily'} onChange={e => setLimits(l => ({...l, gpt54mini_window: e.target.value}))}>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                          </select>
+                        </div>
+                      </div>
+                    </>
+                  )}
                </div>
 
                <div className="space-y-4">
