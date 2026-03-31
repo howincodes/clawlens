@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getTeam, updateTeam } from '@/lib/api'
+import { getTeam, updateTeam, getModelCredits, updateModelCredit } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,6 +38,10 @@ export function Settings() {
   // Local form state
   const [name, setName] = useState('')
   const [settings, setSettings] = useState<TeamSettings>({})
+  const [ccCredits, setCcCredits] = useState<any[]>([])
+  const [codexCredits, setCodexCredits] = useState<any[]>([])
+  const [creditsLoading, setCreditsLoading] = useState(true)
+
   const [aiSettings, setAiSettings] = useState({
     sessionIntelligence: true,
     profileHours: 2,
@@ -68,6 +72,16 @@ export function Settings() {
       }
     }
     load()
+  }, [])
+
+  useEffect(() => {
+    Promise.all([
+      getModelCredits('claude_code'),
+      getModelCredits('codex'),
+    ]).then(([cc, codex]) => {
+      setCcCredits(cc?.data || [])
+      setCodexCredits(codex?.data || [])
+    }).finally(() => setCreditsLoading(false))
   }, [])
 
   const handleSave = async (e: React.FormEvent) => {
@@ -391,6 +405,104 @@ export function Settings() {
               <option value="work_only">Work only</option>
             </select>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Claude Code Model Credits */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Claude Code Model Credits</CardTitle>
+          <CardDescription>Credit cost per prompt for each Claude model.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {creditsLoading ? (
+            <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin" /></div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left">
+                  <th className="py-2 font-medium">Model</th>
+                  <th className="py-2 font-medium">Tier</th>
+                  <th className="py-2 font-medium w-24">Credits</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ccCredits.map((mc: any) => (
+                  <tr key={mc.id} className="border-b hover:bg-muted/30">
+                    <td className="py-2 font-medium">{mc.model}</td>
+                    <td className="py-2">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${mc.tier === 'unknown' ? 'bg-yellow-100 text-yellow-700' : 'bg-muted text-muted-foreground'}`}>
+                        {mc.tier || 'unknown'}{mc.tier === 'unknown' ? ' ⚠' : ''}
+                      </span>
+                    </td>
+                    <td className="py-2">
+                      <Input
+                        type="number"
+                        className="h-7 w-20"
+                        defaultValue={mc.credits}
+                        onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
+                          const val = Number(e.target.value)
+                          if (val !== mc.credits && val >= 0) {
+                            updateModelCredit(mc.id, val, mc.tier)
+                            setCcCredits(prev => prev.map(c => c.id === mc.id ? { ...c, credits: val } : c))
+                          }
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Codex Model Credits */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Codex Model Credits</CardTitle>
+          <CardDescription>Credit cost per prompt for each OpenAI Codex model.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {creditsLoading ? (
+            <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin" /></div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left">
+                  <th className="py-2 font-medium">Model</th>
+                  <th className="py-2 font-medium">Tier</th>
+                  <th className="py-2 font-medium w-24">Credits</th>
+                </tr>
+              </thead>
+              <tbody>
+                {codexCredits.map((mc: any) => (
+                  <tr key={mc.id} className="border-b hover:bg-muted/30">
+                    <td className="py-2 font-medium">{mc.model}</td>
+                    <td className="py-2">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${mc.tier === 'unknown' ? 'bg-yellow-100 text-yellow-700' : 'bg-muted text-muted-foreground'}`}>
+                        {mc.tier || 'unknown'}{mc.tier === 'unknown' ? ' ⚠' : ''}
+                      </span>
+                    </td>
+                    <td className="py-2">
+                      <Input
+                        type="number"
+                        className="h-7 w-20"
+                        defaultValue={mc.credits}
+                        onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
+                          const val = Number(e.target.value)
+                          if (val !== mc.credits && val >= 0) {
+                            updateModelCredit(mc.id, val, mc.tier)
+                            setCodexCredits(prev => prev.map(c => c.id === mc.id ? { ...c, credits: val } : c))
+                          }
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </CardContent>
       </Card>
 
