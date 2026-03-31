@@ -79,9 +79,9 @@ codexRouter.post('/session-start', (req: Request, res: Response) => {
   try {
     const user = req.user!;
     const body = req.body;
-    debug(`user: id=${user.id}, name=${user.name}, status=${user.status}`);
+    console.log(`[codex-api] session-start: user=${user.name}, model=${body.model || '(none)'}, session=${body.session_id}`);
+    console.log(`[codex-api] session-start: email=${body.subscription_email || '(none)'}, plan=${body.plan_type || '(none)'}, auth_provider=${body.auth_provider || '(none)'}, org=${body.org_title || '(none)'}`);
     debug(`body keys: ${Object.keys(body).join(', ')}`);
-    debug(`body.session_id=${body.session_id}, body.model=${body.model || '(none)'}`);
 
     const parsed = CodexSessionStartEvent.safeParse(body);
     debug(`zod parse: ${parsed.success ? 'OK' : `FAILED — ${JSON.stringify(parsed.error?.issues?.map(i => i.message))}`}`);
@@ -158,8 +158,7 @@ codexRouter.post('/session-start', (req: Request, res: Response) => {
     // Handle subscription record
     if (body.subscription_email || body.plan_type) {
       const subType = normalizeSubscriptionType(body.plan_type);
-
-      debug(`creating/updating subscription: email=${body.subscription_email || user.email}, type=${subType}, org=${body.org_title}`);
+      console.log(`[codex-api] subscription: email=${body.subscription_email || user.email}, type=${subType}, plan=${body.plan_type}, org=${body.org_title || '(none)'}, source=codex`);
       try {
         const sub = createSubscription({
           email: body.subscription_email || user.email || '',
@@ -170,12 +169,14 @@ codexRouter.post('/session-start', (req: Request, res: Response) => {
           org_id: body.org_id,
           auth_provider: body.auth_provider,
         });
-        debug(`subscription result: ${sub ? `id=${sub.id}` : '(null)'}`);
+        console.log(`[codex-api] subscription created/updated: id=${sub?.id}, email=${sub?.email}`);
         if (sub && !user.subscription_id) {
           updateUser(user.id, { subscription_id: String(sub.id) });
-          debug(`linked subscription ${sub.id} to user`);
+          console.log(`[codex-api] linked subscription ${sub.id} to user ${user.name}`);
         }
-      } catch (e: any) { debug(`subscription FAILED: ${e.message}`); }
+      } catch (e: any) { console.error(`[codex-api] subscription FAILED: ${e.message}`); }
+    } else {
+      console.log(`[codex-api] session-start: NO subscription data (email=${body.subscription_email || 'missing'}, plan_type=${body.plan_type || 'missing'})`);
     }
 
     // Update last_event_at
@@ -219,8 +220,7 @@ codexRouter.post('/prompt', (req: Request, res: Response) => {
   try {
     const user = req.user!;
     const body = req.body;
-    debug(`user: id=${user.id}, name=${user.name}, status=${user.status}`);
-    debug(`body.session_id=${body.session_id}, body.prompt=${(body.prompt || '').slice(0, 100)}...`);
+    console.log(`[codex-api] prompt: user=${user.name}, model=${body.model || '(none)'}, prompt="${(body.prompt || '').slice(0, 80)}", turn=${body.turn_id || '(none)'}`);
 
     const parsed = CodexPromptEvent.safeParse(body);
     debug(`zod parse: ${parsed.success ? 'OK' : `FAILED — ${JSON.stringify(parsed.error?.issues?.map(i => i.message))}`}`);
@@ -328,7 +328,7 @@ codexRouter.post('/prompt', (req: Request, res: Response) => {
     }
 
     if (blocked) {
-      debug(`prompt BLOCKED — recording and responding`);
+      console.log(`[codex-api] prompt BLOCKED: user=${user.name}, reason="${blockReason}"`);
       // Record blocked prompt with source/turn_id via direct INSERT
       const db = getDb();
       db.prepare(
@@ -351,7 +351,7 @@ codexRouter.post('/prompt', (req: Request, res: Response) => {
     }
 
     // Record prompt (allowed) with source/turn_id via direct INSERT
-    debug(`prompt ALLOWED — recording with credit_cost=${creditCost}`);
+    console.log(`[codex-api] prompt ALLOWED: user=${user.name}, model=${model}, credits=${creditCost}`);
     const db = getDb();
     db.prepare(
       `INSERT INTO prompts (session_id, user_id, prompt, model, credit_cost, source, turn_id)
@@ -392,8 +392,7 @@ codexRouter.post('/pre-tool-use', (req: Request, res: Response) => {
   try {
     const user = req.user!;
     const body = req.body;
-    debug(`user: id=${user.id}, name=${user.name}, status=${user.status}`);
-    debug(`body.tool_name=${body.tool_name || '(none)'}, body.session_id=${body.session_id}`);
+    console.log(`[codex-api] pre-tool: user=${user.name}, tool=${body.tool_name || '(none)'}, cmd="${JSON.stringify(body.tool_input)?.slice(0, 100)}"`);
 
     const parsed = CodexPreToolUseEvent.safeParse(body);
     debug(`zod parse: ${parsed.success ? 'OK' : `FAILED — ${JSON.stringify(parsed.error?.issues?.map(i => i.message))}`}`);
@@ -476,7 +475,7 @@ codexRouter.post('/post-tool-use', (req: Request, res: Response) => {
   try {
     const user = req.user!;
     const body = req.body;
-    debug(`user: id=${user.id}, tool_name=${body.tool_name || '(none)'}, tool_use_id=${body.tool_use_id || '(none)'}`);
+    console.log(`[codex-api] post-tool: user=${user.name}, tool=${body.tool_name || '(none)'}, tool_use_id=${body.tool_use_id || '(none)'}`);
 
     const parsed = CodexPostToolUseEvent.safeParse(body);
     debug(`zod parse: ${parsed.success ? 'OK' : 'FAILED'}`);
@@ -522,9 +521,7 @@ codexRouter.post('/stop', (req: Request, res: Response) => {
   try {
     const user = req.user!;
     const body = req.body;
-    debug(`user: id=${user.id}, name=${user.name}`);
-    debug(`body.session_id=${body.session_id}`);
-    debug(`body.last_assistant_message length: ${(body.last_assistant_message || '').length}`);
+    console.log(`[codex-api] stop: user=${user.name}, session=${body.session_id}, response_len=${(body.last_assistant_message || '').length}, tokens=${body.output_tokens || 0}, quota=${body.quota_primary_used_percent ?? 'n/a'}%`);
 
     const parsed = CodexStopEvent.safeParse(body);
     debug(`zod parse: ${parsed.success ? 'OK' : `FAILED — ${JSON.stringify(parsed.error?.issues?.map(i => i.message))}`}`);
