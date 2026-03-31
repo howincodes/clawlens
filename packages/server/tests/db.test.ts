@@ -52,6 +52,11 @@ import {
   getTeamPulseHistory,
   updateSessionAI,
   getUserPromptCount,
+  getCreditCostFromDb,
+  getModelCredits,
+  upsertModelCredit,
+  upsertProviderQuota,
+  getProviderQuotas,
 } from '../src/services/db.js';
 
 // ---------------------------------------------------------------------------
@@ -84,7 +89,9 @@ describe('table creation', () => {
       'alerts',
       'hook_events',
       'limits',
+      'model_credits',
       'prompts',
+      'provider_quotas',
       'sessions',
       'subagent_events',
       'subscriptions',
@@ -970,5 +977,100 @@ describe('user prompt count', () => {
     recordPrompt({ user_id: userId, prompt: 'B', credit_cost: 1 });
     recordPrompt({ user_id: userId, prompt: 'C', credit_cost: 0, blocked: true, block_reason: 'limit' });
     expect(getUserPromptCount(userId)).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Model Credits
+// ---------------------------------------------------------------------------
+
+describe('model credits', () => {
+  it('should return seeded credit for known codex model', () => {
+    const credits = getCreditCostFromDb('gpt-5.4', 'codex');
+    expect(credits).toBe(10);
+  });
+
+  it('should auto-insert unknown codex model with default 7', () => {
+    const credits = getCreditCostFromDb('gpt-99-turbo', 'codex');
+    expect(credits).toBe(7);
+    // Verify it was persisted
+    const all = getModelCredits('codex');
+    const inserted = all.find((r) => r.model === 'gpt-99-turbo');
+    expect(inserted).toBeDefined();
+    expect(inserted!.credits).toBe(7);
+    expect(inserted!.tier).toBe('unknown');
+  });
+
+  it('should auto-insert unknown claude_code model with default 3', () => {
+    const credits = getCreditCostFromDb('claude-next', 'claude_code');
+    expect(credits).toBe(3);
+    const all = getModelCredits('claude_code');
+    const inserted = all.find((r) => r.model === 'claude-next');
+    expect(inserted).toBeDefined();
+    expect(inserted!.credits).toBe(3);
+  });
+
+  it('should update existing credit via upsertModelCredit', () => {
+    // sonnet is seeded at 3
+    expect(getCreditCostFromDb('sonnet', 'claude_code')).toBe(3);
+    upsertModelCredit('claude_code', 'sonnet', 5, 'mid-plus');
+    expect(getCreditCostFromDb('sonnet', 'claude_code')).toBe(5);
+    const all = getModelCredits('claude_code');
+    const row = all.find((r) => r.model === 'sonnet');
+    expect(row!.tier).toBe('mid-plus');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Provider Quotas
+// ---------------------------------------------------------------------------
+
+describe('provider quotas', () => {
+  let userId: string;
+
+  beforeEach(() => {
+    const team = createTeam({ name: 'T', slug: 'pq' });
+    const user = createUser({ team_id: team.id, name: 'U', auth_token: 'tok-pq' });
+    userId = user.id;
+  });
+
+  it('should insert and retrieve a provider quota', () => {
+    upsertProviderQuota({
+      user_id: userId,
+      source: 'codex',
+      window_name: 'daily',
+      plan_type: 'pro',
+      used_percent: 42.5,
+      window_minutes: 1440,
+      resets_at: 1700000000,
+    });
+    const quotas = getProviderQuotas(userId, 'codex');
+    expect(quotas).toHaveLength(1);
+    expect(quotas[0].source).toBe('codex');
+    expect(quotas[0].window_name).toBe('daily');
+    expect(quotas[0].plan_type).toBe('pro');
+    expect(quotas[0].used_percent).toBeCloseTo(42.5);
+    expect(quotas[0].window_minutes).toBe(1440);
+    expect(quotas[0].resets_at).toBe(1700000000);
+  });
+
+  it('should update on conflict', () => {
+    upsertProviderQuota({
+      user_id: userId,
+      source: 'codex',
+      window_name: 'daily',
+      used_percent: 10,
+    });
+    upsertProviderQuota({
+      user_id: userId,
+      source: 'codex',
+      window_name: 'daily',
+      used_percent: 75,
+      plan_type: 'team',
+    });
+    const quotas = getProviderQuotas(userId, 'codex');
+    expect(quotas).toHaveLength(1);
+    expect(quotas[0].used_percent).toBeCloseTo(75);
+    expect(quotas[0].plan_type).toBe('team');
   });
 });

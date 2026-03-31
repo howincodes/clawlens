@@ -227,6 +227,30 @@ function runMigrations(database: Database.Database): void {
       generated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Model credits (cost per model per provider)
+    CREATE TABLE IF NOT EXISTS model_credits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source TEXT NOT NULL,
+      model TEXT NOT NULL,
+      credits INTEGER DEFAULT 7,
+      tier TEXT,
+      UNIQUE(source, model)
+    );
+
+    -- Provider quotas (rate-limit windows from upstream providers)
+    CREATE TABLE IF NOT EXISTS provider_quotas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      source TEXT NOT NULL,
+      window_name TEXT NOT NULL,
+      plan_type TEXT,
+      used_percent REAL,
+      window_minutes INTEGER,
+      resets_at INTEGER,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, source, window_name)
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_users_token ON users(auth_token);
     CREATE INDEX IF NOT EXISTS idx_users_team ON users(team_id);
@@ -281,6 +305,52 @@ function runMigrations(database: Database.Database): void {
   try {
     database.exec(`ALTER TABLE users ADD COLUMN antigravity_interval INTEGER DEFAULT 120000`);
   } catch {}
+
+  // Codex / multi-source column migrations
+  const sourceColumns = [
+    { table: 'prompts', col: "source TEXT DEFAULT 'claude_code'" },
+    { table: 'prompts', col: 'turn_id TEXT' },
+    { table: 'prompts', col: 'input_tokens INTEGER' },
+    { table: 'prompts', col: 'cached_tokens INTEGER' },
+    { table: 'prompts', col: 'output_tokens INTEGER' },
+    { table: 'prompts', col: 'reasoning_tokens INTEGER' },
+    { table: 'tool_events', col: "source TEXT DEFAULT 'claude_code'" },
+    { table: 'tool_events', col: 'tool_use_id TEXT' },
+    { table: 'hook_events', col: "source TEXT DEFAULT 'claude_code'" },
+    { table: 'limits', col: "source TEXT DEFAULT 'claude_code'" },
+    { table: 'subscriptions', col: "source TEXT DEFAULT 'claude_code'" },
+    { table: 'subscriptions', col: 'account_id TEXT' },
+    { table: 'subscriptions', col: 'org_id TEXT' },
+    { table: 'subscriptions', col: 'auth_provider TEXT' },
+    { table: 'sessions', col: 'cli_version TEXT' },
+    { table: 'sessions', col: 'model_provider TEXT' },
+    { table: 'sessions', col: 'reasoning_effort TEXT' },
+  ];
+  for (const { table, col } of sourceColumns) {
+    try { database.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch {}
+  }
+
+  // Seed model credits
+  const creditCount = database.prepare('SELECT COUNT(*) as c FROM model_credits').get() as any;
+  if (creditCount.c === 0) {
+    const seed = database.prepare('INSERT OR IGNORE INTO model_credits (source, model, credits, tier) VALUES (?, ?, ?, ?)');
+    seed.run('claude_code', 'opus', 10, 'flagship');
+    seed.run('claude_code', 'sonnet', 3, 'mid');
+    seed.run('claude_code', 'haiku', 1, 'mini');
+    seed.run('codex', 'gpt-5.4', 10, 'flagship');
+    seed.run('codex', 'gpt-5.3-codex', 10, 'flagship');
+    seed.run('codex', 'gpt-5.3-codex-spark', 10, 'flagship');
+    seed.run('codex', 'gpt-5.2-codex', 10, 'flagship');
+    seed.run('codex', 'gpt-5.2', 7, 'mid');
+    seed.run('codex', 'gpt-5.1-codex-max', 7, 'mid');
+    seed.run('codex', 'gpt-5.1', 5, 'mid');
+    seed.run('codex', 'gpt-5.1-codex', 5, 'mid');
+    seed.run('codex', 'gpt-5-codex', 5, 'mid');
+    seed.run('codex', 'gpt-5', 5, 'mid');
+    seed.run('codex', 'gpt-5.4-mini', 2, 'mini');
+    seed.run('codex', 'gpt-5.1-codex-mini', 2, 'mini');
+    seed.run('codex', 'gpt-5-codex-mini', 2, 'mini');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -433,6 +503,26 @@ export interface TeamPulseRow {
   team_id: string;
   pulse: string;
   generated_at: string;
+}
+
+export interface ModelCreditRow {
+  id: number;
+  source: string;
+  model: string;
+  credits: number;
+  tier: string | null;
+}
+
+export interface ProviderQuotaRow {
+  id: number;
+  user_id: string;
+  source: string;
+  window_name: string;
+  plan_type: string | null;
+  used_percent: number | null;
+  window_minutes: number | null;
+  resets_at: number | null;
+  updated_at: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1244,4 +1334,70 @@ export function upsertAntigravitySession(params: {
   return database.prepare(
     `INSERT INTO sessions (id, user_id, model, cwd, source, prompt_count, ai_summary) VALUES (?, ?, ?, ?, 'antigravity', ?, ?) RETURNING *`
   ).get(params.id, params.user_id, params.model || 'gemini', params.cwd || null, params.prompt_count || 0, params.title || null) as SessionRow;
+}
+
+// ---------------------------------------------------------------------------
+// Prepared-statement helpers — Model Credits
+// ---------------------------------------------------------------------------
+
+export function getCreditCostFromDb(model: string, source: string): number {
+  const database = getDb();
+  const row = database.prepare(
+    'SELECT credits FROM model_credits WHERE source = ? AND model = ?'
+  ).get(source, model) as { credits: number } | undefined;
+  if (row) return row.credits;
+  const defaultCredit = source === 'claude_code' ? 3 : 7;
+  database.prepare(
+    'INSERT OR IGNORE INTO model_credits (source, model, credits, tier) VALUES (?, ?, ?, ?)'
+  ).run(source, model, defaultCredit, 'unknown');
+  return defaultCredit;
+}
+
+export function getModelCredits(source?: string): ModelCreditRow[] {
+  const database = getDb();
+  if (source) {
+    return database.prepare('SELECT * FROM model_credits WHERE source = ? ORDER BY credits DESC').all(source) as ModelCreditRow[];
+  }
+  return database.prepare('SELECT * FROM model_credits ORDER BY source, credits DESC').all() as ModelCreditRow[];
+}
+
+export function upsertModelCredit(source: string, model: string, credits: number, tier?: string): void {
+  const database = getDb();
+  database.prepare(`
+    INSERT INTO model_credits (source, model, credits, tier) VALUES (?, ?, ?, ?)
+    ON CONFLICT(source, model) DO UPDATE SET credits = excluded.credits, tier = excluded.tier
+  `).run(source, model, credits, tier ?? null);
+}
+
+// ---------------------------------------------------------------------------
+// Prepared-statement helpers — Provider Quotas
+// ---------------------------------------------------------------------------
+
+export function upsertProviderQuota(params: {
+  user_id: string;
+  source: string;
+  window_name: string;
+  plan_type?: string;
+  used_percent?: number;
+  window_minutes?: number;
+  resets_at?: number;
+}): void {
+  const database = getDb();
+  database.prepare(`
+    INSERT INTO provider_quotas (user_id, source, window_name, plan_type, used_percent, window_minutes, resets_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(user_id, source, window_name) DO UPDATE SET
+      plan_type = excluded.plan_type,
+      used_percent = excluded.used_percent,
+      window_minutes = excluded.window_minutes,
+      resets_at = excluded.resets_at,
+      updated_at = datetime('now')
+  `).run(params.user_id, params.source, params.window_name, params.plan_type ?? null, params.used_percent ?? null, params.window_minutes ?? null, params.resets_at ?? null);
+}
+
+export function getProviderQuotas(userId: string, source: string): ProviderQuotaRow[] {
+  const database = getDb();
+  return database.prepare(
+    'SELECT * FROM provider_quotas WHERE user_id = ? AND source = ? ORDER BY window_name'
+  ).all(userId, source) as ProviderQuotaRow[];
 }
