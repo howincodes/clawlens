@@ -733,11 +733,12 @@ export function recordPrompt(params: {
   credit_cost?: number;
   blocked?: boolean;
   block_reason?: string;
+  source?: string;
 }): PromptRow {
   const database = getDb();
   const stmt = database.prepare(
-    `INSERT INTO prompts (session_id, user_id, prompt, response, model, credit_cost, blocked, block_reason)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO prompts (session_id, user_id, prompt, response, model, credit_cost, blocked, block_reason, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      RETURNING *`,
   );
   return stmt.get(
@@ -749,6 +750,7 @@ export function recordPrompt(params: {
     params.credit_cost ?? 0,
     params.blocked ? 1 : 0,
     params.block_reason ?? null,
+    params.source ?? 'claude_code',
   ) as PromptRow;
 }
 

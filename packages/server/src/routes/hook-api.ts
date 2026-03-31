@@ -926,6 +926,7 @@ hookRouter.post('/antigravity-sync', (req: Request, res: Response) => {
               prompt: msg.content,
               model: (msg.model && resolveModel(msg.model) !== 'AG-Unknown') ? resolveModel(msg.model) : model || 'AG-Unknown',
               credit_cost: 0,
+              source: 'antigravity',
             });
           }
         } else if (msg.role === 'assistant' && msg.content) {

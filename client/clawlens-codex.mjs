@@ -98,7 +98,7 @@ function enrichSessionStart(data) {
     const authJson = JSON.parse(authRaw);
     debug(`enrichSessionStart: auth.json keys: ${Object.keys(authJson).join(', ')}`);
 
-    const idToken = authJson.id_token;
+    const idToken = authJson.tokens?.id_token;
     if (idToken) {
       const jwt = decodeJwtPayload(idToken);
       if (jwt) {
