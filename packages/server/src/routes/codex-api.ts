@@ -168,6 +168,8 @@ codexRouter.post('/session-start', (req: Request, res: Response) => {
           account_id: body.account_id,
           org_id: body.org_id,
           auth_provider: body.auth_provider,
+          subscription_active_start: body.subscription_active_start,
+          subscription_active_until: body.subscription_active_until,
         });
         console.log(`[codex-api] subscription created/updated: id=${sub?.id}, email=${sub?.email}`);
         if (sub && !user.subscription_id) {

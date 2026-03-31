@@ -322,6 +322,8 @@ function runMigrations(database: Database.Database): void {
     { table: 'subscriptions', col: 'account_id TEXT' },
     { table: 'subscriptions', col: 'org_id TEXT' },
     { table: 'subscriptions', col: 'auth_provider TEXT' },
+    { table: 'subscriptions', col: 'subscription_active_start TEXT' },
+    { table: 'subscriptions', col: 'subscription_active_until TEXT' },
     { table: 'sessions', col: 'cli_version TEXT' },
     { table: 'sessions', col: 'model_provider TEXT' },
     { table: 'sessions', col: 'reasoning_effort TEXT' },
@@ -1117,6 +1119,8 @@ export function createSubscription(params: {
   account_id?: string;
   org_id?: string;
   auth_provider?: string;
+  subscription_active_start?: string;
+  subscription_active_until?: string;
 }): SubscriptionRow {
   const database = getDb();
   const source = params.source ?? 'claude_code';
@@ -1130,14 +1134,14 @@ export function createSubscription(params: {
     const newType = params.subscription_type || existing.subscription_type;
     const newPlan = params.plan_name ?? existing.plan_name;
     database.prepare(
-      `UPDATE subscriptions SET subscription_type = ?, plan_name = ?, account_id = COALESCE(?, account_id), org_id = COALESCE(?, org_id), auth_provider = COALESCE(?, auth_provider) WHERE id = ?`,
-    ).run(newType, newPlan, params.account_id ?? null, params.org_id ?? null, params.auth_provider ?? null, existing.id);
+      `UPDATE subscriptions SET subscription_type = ?, plan_name = ?, account_id = COALESCE(?, account_id), org_id = COALESCE(?, org_id), auth_provider = COALESCE(?, auth_provider), subscription_active_start = COALESCE(?, subscription_active_start), subscription_active_until = COALESCE(?, subscription_active_until) WHERE id = ?`,
+    ).run(newType, newPlan, params.account_id ?? null, params.org_id ?? null, params.auth_provider ?? null, params.subscription_active_start ?? null, params.subscription_active_until ?? null, existing.id);
     return { ...existing, subscription_type: newType, plan_name: newPlan };
   }
 
   const stmt = database.prepare(
-    `INSERT INTO subscriptions (email, subscription_type, plan_name, source, account_id, org_id, auth_provider)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO subscriptions (email, subscription_type, plan_name, source, account_id, org_id, auth_provider, subscription_active_start, subscription_active_until)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      RETURNING *`,
   );
   return stmt.get(
@@ -1148,6 +1152,8 @@ export function createSubscription(params: {
     params.account_id ?? null,
     params.org_id ?? null,
     params.auth_provider ?? null,
+    params.subscription_active_start ?? null,
+    params.subscription_active_until ?? null,
   ) as SubscriptionRow;
 }
 

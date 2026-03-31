@@ -33,6 +33,16 @@ function formatReset(unixTs: number | null | undefined): string {
   return `Resets ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
 }
 
+function getSubStatus(activeUntil: string | null | undefined): { color: string; label: string } {
+  if (!activeUntil) return { color: 'bg-gray-400', label: 'Unknown' }
+  const until = new Date(activeUntil)
+  const now = new Date()
+  const daysLeft = (until.getTime() - now.getTime()) / 86400000
+  if (daysLeft < 0) return { color: 'bg-red-500', label: 'Expired' }
+  if (daysLeft < 7) return { color: 'bg-yellow-500', label: 'Expiring Soon' }
+  return { color: 'bg-green-500', label: 'Active' }
+}
+
 // ── Component ─────────────────────────────────────────────
 
 export function Subscriptions() {
@@ -108,6 +118,7 @@ export function Subscriptions() {
             const quotas = quotaMap.get(sub.id || sub.email) || []
 
             if (isCodex) {
+              const subStatus = getSubStatus(sub.subscription_active_until)
               return (
                 <Card key={sub.id || sub.email} className="overflow-hidden">
                   <CardHeader className="bg-muted/30 border-b pb-4">
@@ -118,23 +129,54 @@ export function Subscriptions() {
                           {!source && <SourceBadge source={subSource} />}
                         </div>
                         <CardDescription className="text-xs">
-                          {sub.auth_provider ? `${sub.auth_provider} \u00b7 ` : ''}{sub.plan_name || sub.display_name || sub.org_name || 'Individual'}
+                          {sub.auth_provider ? `${sub.auth_provider} · ` : ''}{sub.plan_name || sub.org_name || 'Individual'}
                         </CardDescription>
                       </div>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${planBadgeClass(sub.subscription_type || sub.type || 'pro')}`}>
-                        {(sub.subscription_type || sub.type || 'PRO').toUpperCase()}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${subStatus.color}`} title={subStatus.label} />
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${planBadgeClass(sub.subscription_type || sub.type || 'pro')}`}>
+                          {(sub.subscription_type || sub.type || 'PRO').toUpperCase()}
+                        </span>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="p-0">
+                    {/* Subscription details */}
+                    <div className="p-4 border-b space-y-2 text-xs">
+                      {sub.account_id && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Account</span>
+                          <span className="font-mono text-[10px]">{sub.account_id.slice(0, 12)}...</span>
+                        </div>
+                      )}
+                      {sub.org_id && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Org</span>
+                          <span>{sub.plan_name || sub.org_id.slice(0, 12) + '...'}</span>
+                        </div>
+                      )}
+                      {sub.subscription_active_start && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Active</span>
+                          <span>
+                            {new Date(sub.subscription_active_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            {' → '}
+                            {sub.subscription_active_until
+                              ? new Date(sub.subscription_active_until).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                              : 'Active'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Quota bars */}
                     {quotas.length > 0 && (
                       <div className="p-4 border-b space-y-3">
                         {quotas.map((q: any, idx: number) => (
                           <QuotaBar
                             key={idx}
-                            percent={q.limit > 0 ? (q.used / q.limit) * 100 : 0}
-                            label={q.quota_type || q.name || 'Quota'}
+                            percent={q.used_percent ?? 0}
+                            label={q.window_name === 'primary' ? 'Weekly Quota' : '5hr Quota'}
                             resetText={formatReset(q.resets_at)}
                           />
                         ))}
@@ -155,7 +197,7 @@ export function Subscriptions() {
                       </div>
                       <div className="p-4 flex flex-col items-center justify-center">
                         <Coins className="w-4 h-4 text-muted-foreground mb-2" />
-                        <div className="text-xl font-bold">{sub.total_credits ?? Number(sub.total_cost || 0)}</div>
+                        <div className="text-xl font-bold">{sub.total_credits ?? 0}</div>
                         <div className="text-xs text-muted-foreground">Credits</div>
                       </div>
                     </div>
@@ -169,8 +211,8 @@ export function Subscriptions() {
                             <div key={u.id} className="flex items-center justify-between text-sm p-2 rounded-md hover:bg-muted/50 transition-colors">
                               <span className="font-medium">{u.name}</span>
                               <div className="text-muted-foreground text-xs flex gap-2">
-                                <span>{u.prompts ?? u.usage?.prompts ?? u.prompt_count ?? 0} prompts</span>
-                                <span>{u.credits ?? 0} credits</span>
+                                <span>{u.prompt_count ?? 0} prompts</span>
+                                <span>{u.total_credits ?? 0} credits</span>
                               </div>
                             </div>
                           ))
