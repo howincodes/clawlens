@@ -271,7 +271,12 @@ if [[ "$INSTALL_CODEX" =~ ^[Yy]$ ]]; then
     mkdir -p "$CODEX_HOOKS_DIR"
     CODEX_HOOK_URL="https://raw.githubusercontent.com/howincodes/clawlens/main/client/clawlens-codex.mjs"
     CACHE_BUST=$(date +%s)
-    curl -fsSL "$CODEX_HOOK_URL?v=$CACHE_BUST" -o "$CODEX_HOOKS_DIR/clawlens-codex.mjs"
+    # Try local copy first (works for local installs), fall back to curl
+    if [ -f "$SCRIPT_DIR/../client/clawlens-codex.mjs" ]; then
+      cp "$SCRIPT_DIR/../client/clawlens-codex.mjs" "$CODEX_HOOKS_DIR/clawlens-codex.mjs"
+    else
+      curl -fsSL "$CODEX_HOOK_URL?v=$CACHE_BUST" -o "$CODEX_HOOKS_DIR/clawlens-codex.mjs"
+    fi
     echo "  ✓ clawlens-codex.mjs deployed"
 
     # Write hooks.json
