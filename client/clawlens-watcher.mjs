@@ -40,7 +40,7 @@ const UPLOAD_MAX_BYTES = 512 * 1024;    // 500KB
 const HOOK_EVENTS = [
   'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Stop', 'StopFailure',
   'SessionEnd', 'PostToolUse', 'SubagentStart', 'PostToolUseFailure',
-  'ConfigChange', 'FileChanged',
+  'ConfigChange',
 ];
 
 const HOOK_TEMPLATE = {
@@ -54,7 +54,6 @@ const HOOK_TEMPLATE = {
   SubagentStart: [{ hooks: [{ type: 'command', command: '~/.claude/hooks/clawlens-hook.sh', timeout: 10, async: true }] }],
   PostToolUseFailure: [{ hooks: [{ type: 'command', command: '~/.claude/hooks/clawlens-hook.sh', timeout: 10, async: true }] }],
   ConfigChange: [{ hooks: [{ type: 'command', command: '~/.claude/hooks/clawlens-hook.sh', timeout: 10 }] }],
-  FileChanged: [{ hooks: [{ type: 'command', command: '~/.claude/hooks/clawlens-hook.sh', timeout: 10 }] }],
 };
 
 // ── State ───────────────────────────────────────────
