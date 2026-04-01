@@ -1,5 +1,5 @@
 {
-  "name": "clawlens",
+  "name": "howinlens",
   "private": true,
   "version": "0.2.0",
   "description": "AI usage analytics and team management for Claude Code teams",
@@ -8,14 +8,13 @@
     "build": "pnpm --filter server build && pnpm --filter dashboard build",
     "test": "pnpm --filter server test",
     "lint": "pnpm -r lint",
-    "bundle": "pnpm --filter dashboard build && pnpm --filter @clawlens/server bundle"
+    "bundle": "pnpm --filter dashboard build && pnpm --filter @howinlens/server bundle"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "better-sqlite3",
       "esbuild"
     ]
   }
