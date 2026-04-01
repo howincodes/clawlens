@@ -15,6 +15,20 @@ import { getModelCredits, getProviderQuotas } from '../db/queries/model-credits.
 import { getSubscriptions } from '../db/queries/subscriptions.js';
 import { getAllRoles, getRoleById, createRole, updateRole, deleteRole, getAllPermissions, getRolePermissions, setRolePermissions, getUserRoles, assignUserRole, removeUserRole, getUserPermissionKeys } from '../db/queries/roles.js';
 import { getAllProjects, getProjectById, createProject, updateProject, deleteProject, getProjectMembers, addProjectMember, removeProjectMember } from '../db/queries/projects.js';
+import {
+  createTask, getTaskById, getTasksByProject, updateTask, deleteTask, getSubtasks,
+  addTaskComment, getTaskComments, recordTaskActivity, getTaskActivity,
+  createMilestone, getMilestonesByProject, updateMilestone, deleteMilestone,
+  getStatusConfigs, createStatusConfig, updateStatusConfig, deleteStatusConfig,
+  createRequirementInput, getRequirementInput, getRequirementsByProject,
+  createAITaskSuggestion, getAITaskSuggestion, updateAITaskSuggestionStatus,
+} from '../db/queries/tasks.js';
+import {
+  getFileEventsByUser, getAppTrackingByUser, getActivityWindows,
+} from '../db/queries/tracking.js';
+import {
+  getStaleHeartbeats, getWatchEventsByUser,
+} from '../db/queries/credentials.js';
 import { getDb } from '../db/index.js';
 import { sendToWatcher, isWatcherConnected } from '../services/watcher-ws.js';
 import { adminAuth, generateToken } from '../middleware/admin-auth.js';
@@ -1602,6 +1616,319 @@ adminRouter.delete('/projects/:id/members/:userId', async (req: Request, res: Re
     res.json({ success: true });
   } catch (err) {
     console.error('[admin-api] remove project member error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── Tasks ──
+
+adminRouter.get('/tasks', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const { projectId, status, assigneeId, milestoneId } = req.query;
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    const tasks = await getTasksByProject(parseInt(projectId as string), {
+      status: status as string,
+      assigneeId: assigneeId ? parseInt(assigneeId as string) : undefined,
+      milestoneId: milestoneId ? parseInt(milestoneId as string) : undefined,
+    });
+    res.json(tasks);
+  } catch (err) {
+    console.error('[admin-api] list tasks error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.post('/tasks', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const task = await createTask({ ...req.body, createdBy: req.admin?.sub });
+    if (req.body.assigneeId) {
+      await recordTaskActivity({ taskId: task.id, userId: req.admin!.sub, action: 'assigned', newValue: String(req.body.assigneeId) });
+    }
+    await recordTaskActivity({ taskId: task.id, userId: req.admin!.sub, action: 'created' });
+    res.json(task);
+  } catch (err) {
+    console.error('[admin-api] create task error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.get('/tasks/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const task = await getTaskById(parseInt(req.params.id as string));
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+    const comments = await getTaskComments(task.id);
+    const activity = await getTaskActivity(task.id);
+    const subtasks = await getSubtasks(task.id);
+    res.json({ ...task, comments, activity, subtasks });
+  } catch (err) {
+    console.error('[admin-api] get task error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.put('/tasks/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id as string);
+    const old = await getTaskById(taskId);
+    if (!old) return res.status(404).json({ error: 'Task not found' });
+
+    const task = await updateTask(taskId, { ...req.body, updatedAt: new Date() });
+
+    // Record activity for changed fields
+    if (req.body.status && req.body.status !== old.status) {
+      await recordTaskActivity({ taskId, userId: req.admin!.sub, action: 'status_changed', oldValue: old.status, newValue: req.body.status });
+    }
+    if (req.body.assigneeId && req.body.assigneeId !== old.assigneeId) {
+      await recordTaskActivity({ taskId, userId: req.admin!.sub, action: 'assigned', oldValue: old.assigneeId ? String(old.assigneeId) : undefined, newValue: String(req.body.assigneeId) });
+    }
+    if (req.body.priority && req.body.priority !== old.priority) {
+      await recordTaskActivity({ taskId, userId: req.admin!.sub, action: 'priority_changed', oldValue: old.priority || undefined, newValue: req.body.priority });
+    }
+
+    res.json(task);
+  } catch (err) {
+    console.error('[admin-api] update task error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.delete('/tasks/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const deleted = await deleteTask(parseInt(req.params.id as string));
+    if (!deleted) return res.status(404).json({ error: 'Task not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[admin-api] delete task error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.post('/tasks/:id/comments', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const comment = await addTaskComment({ taskId: parseInt(req.params.id as string), userId: req.admin!.sub, content: req.body.content });
+    await recordTaskActivity({ taskId: parseInt(req.params.id as string), userId: req.admin!.sub, action: 'commented' });
+    res.json(comment);
+  } catch (err) {
+    console.error('[admin-api] add comment error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.get('/tasks/:id/activity', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const activity = await getTaskActivity(parseInt(req.params.id as string));
+    res.json(activity);
+  } catch (err) {
+    console.error('[admin-api] get activity error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.put('/tasks/:id/assign', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id as string);
+    const old = await getTaskById(taskId);
+    if (!old) return res.status(404).json({ error: 'Task not found' });
+    const task = await updateTask(taskId, { assigneeId: req.body.assigneeId, updatedAt: new Date() });
+    await recordTaskActivity({ taskId, userId: req.admin!.sub, action: 'assigned', oldValue: old.assigneeId ? String(old.assigneeId) : undefined, newValue: String(req.body.assigneeId) });
+    res.json(task);
+  } catch (err) {
+    console.error('[admin-api] assign task error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.put('/tasks/:id/status', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const taskId = parseInt(req.params.id as string);
+    const old = await getTaskById(taskId);
+    if (!old) return res.status(404).json({ error: 'Task not found' });
+    const task = await updateTask(taskId, { status: req.body.status, updatedAt: new Date() });
+    await recordTaskActivity({ taskId, userId: req.admin!.sub, action: 'status_changed', oldValue: old.status, newValue: req.body.status });
+    res.json(task);
+  } catch (err) {
+    console.error('[admin-api] change status error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── Milestones ──
+
+adminRouter.get('/projects/:id/milestones', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const milestones = await getMilestonesByProject(parseInt(req.params.id as string));
+    res.json(milestones);
+  } catch (err) {
+    console.error('[admin-api] list milestones error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.post('/projects/:id/milestones', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const milestone = await createMilestone({ projectId: parseInt(req.params.id as string), ...req.body });
+    res.json(milestone);
+  } catch (err) {
+    console.error('[admin-api] create milestone error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.put('/milestones/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const milestone = await updateMilestone(parseInt(req.params.id as string), req.body);
+    if (!milestone) return res.status(404).json({ error: 'Milestone not found' });
+    res.json(milestone);
+  } catch (err) {
+    console.error('[admin-api] update milestone error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.delete('/milestones/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const deleted = await deleteMilestone(parseInt(req.params.id as string));
+    if (!deleted) return res.status(404).json({ error: 'Milestone not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[admin-api] delete milestone error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── Task Status Configs ──
+
+adminRouter.get('/projects/:id/statuses', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const statuses = await getStatusConfigs(parseInt(req.params.id as string));
+    res.json(statuses);
+  } catch (err) {
+    console.error('[admin-api] list statuses error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.post('/projects/:id/statuses', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const status = await createStatusConfig({ projectId: parseInt(req.params.id as string), ...req.body });
+    res.json(status);
+  } catch (err) {
+    console.error('[admin-api] create status error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.put('/statuses/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const status = await updateStatusConfig(parseInt(req.params.id as string), req.body);
+    if (!status) return res.status(404).json({ error: 'Status not found' });
+    res.json(status);
+  } catch (err) {
+    console.error('[admin-api] update status error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.delete('/statuses/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const deleted = await deleteStatusConfig(parseInt(req.params.id as string));
+    if (!deleted) return res.status(404).json({ error: 'Status not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[admin-api] delete status error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── AI Requirements & Task Generation ──
+
+adminRouter.post('/requirements', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const input = await createRequirementInput({ ...req.body, createdBy: req.admin?.sub });
+    res.json(input);
+  } catch (err) {
+    console.error('[admin-api] create requirement error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.get('/requirements/:id/suggestions', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const suggestion = await getAITaskSuggestion(parseInt(req.params.id as string));
+    res.json(suggestion || { status: 'not_generated' });
+  } catch (err) {
+    console.error('[admin-api] get suggestions error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.post('/requirements/:id/approve', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id as string);
+    const suggestion = await getAITaskSuggestion(id);
+    if (!suggestion) return res.status(404).json({ error: 'Suggestion not found' });
+
+    // Create tasks from approved suggestions
+    const suggestedTasks = suggestion.suggestedTasks as any[];
+    const createdTasks = [];
+    if (Array.isArray(suggestedTasks)) {
+      for (const st of suggestedTasks) {
+        const task = await createTask({
+          projectId: suggestion.projectId,
+          title: st.title,
+          description: st.description,
+          priority: st.priority,
+          effort: st.effort,
+          assigneeId: st.assigneeId,
+          createdBy: req.admin!.sub,
+        });
+        await recordTaskActivity({ taskId: task.id, userId: req.admin!.sub, action: 'created' });
+        createdTasks.push(task);
+      }
+    }
+
+    await updateAITaskSuggestionStatus(id, 'approved', req.admin!.sub);
+    res.json({ success: true, tasksCreated: createdTasks.length, tasks: createdTasks });
+  } catch (err) {
+    console.error('[admin-api] approve suggestions error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.post('/requirements/:id/reject', adminAuth, async (req: Request, res: Response) => {
+  try {
+    await updateAITaskSuggestionStatus(parseInt(req.params.id as string), 'rejected', req.admin!.sub);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[admin-api] reject suggestions error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── Activity Tracking (Admin view) ──
+
+adminRouter.get('/activity/:userId', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = parseInt(req.params.userId as string);
+    const since = req.query.since ? new Date(req.query.since as string) : undefined;
+    const fileEvents = await getFileEventsByUser(userId, since);
+    const appTracking = await getAppTrackingByUser(userId);
+    const watchEvents = await getWatchEventsByUser(userId);
+    res.json({ fileEvents, appTracking, watchEvents });
+  } catch (err) {
+    console.error('[admin-api] activity error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.get('/activity/windows/:userId', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = parseInt(req.params.userId as string);
+    const date = req.query.date as string | undefined;
+    const windows = await getActivityWindows(userId, date);
+    res.json(windows);
+  } catch (err) {
+    console.error('[admin-api] activity windows error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

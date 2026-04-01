@@ -1,6 +1,6 @@
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { getDb } from '../index.js';
-import { modelCredits, providerQuotas } from '../schema/index.js';
+import { modelCredits, providerQuotas, modelAliases } from '../schema/index.js';
 
 export async function getCreditCostFromDb(model: string, source: string): Promise<number> {
   const db = getDb();
@@ -78,4 +78,55 @@ export async function getProviderQuotas(userId: number, source?: string) {
     .from(providerQuotas)
     .where(eq(providerQuotas.userId, userId))
     .orderBy(desc(providerQuotas.updatedAt));
+}
+
+// ── Model Aliases ──
+
+export async function getOrCreateModelAlias(rawName: string, displayName?: string, provider?: string, family?: string, tier?: string) {
+  const db = getDb();
+  // Try to find existing
+  const [existing] = await db.select().from(modelAliases).where(eq(modelAliases.rawName, rawName));
+  if (existing) return existing;
+
+  // Auto-detect provider/family/tier from raw name
+  const detected = detectModelInfo(rawName);
+  const [created] = await db.insert(modelAliases).values({
+    rawName,
+    displayName: displayName || detected.displayName,
+    provider: provider || detected.provider,
+    family: family || detected.family,
+    tier: tier || detected.tier,
+  }).returning();
+  return created;
+}
+
+export async function getAllModelAliases() {
+  const db = getDb();
+  return db.select().from(modelAliases).orderBy(modelAliases.provider, modelAliases.family);
+}
+
+export async function resolveModelName(rawName: string): Promise<string> {
+  const db = getDb();
+  const [alias] = await db.select().from(modelAliases).where(eq(modelAliases.rawName, rawName));
+  return alias?.displayName || rawName;
+}
+
+function detectModelInfo(rawName: string): { displayName: string; provider: string; family: string; tier: string } {
+  const lower = rawName.toLowerCase();
+
+  // Anthropic models
+  if (lower.includes('opus')) return { displayName: rawName.replace(/claude-/i, '').replace(/-\d+$/,''), provider: 'anthropic', family: 'opus', tier: 'flagship' };
+  if (lower.includes('sonnet')) return { displayName: rawName.replace(/claude-/i, '').replace(/-\d+$/,''), provider: 'anthropic', family: 'sonnet', tier: 'mid' };
+  if (lower.includes('haiku')) return { displayName: rawName.replace(/claude-/i, '').replace(/-\d+$/,''), provider: 'anthropic', family: 'haiku', tier: 'mini' };
+
+  // OpenAI models
+  if (lower.includes('gpt')) return { displayName: rawName, provider: 'openai', family: rawName.split('-').slice(0,2).join('-'), tier: lower.includes('mini') ? 'mini' : 'flagship' };
+
+  // Google models
+  if (lower.includes('gemini')) return { displayName: rawName, provider: 'google', family: 'gemini', tier: lower.includes('flash') ? 'mini' : 'flagship' };
+
+  // Antigravity model placeholders
+  if (lower.includes('model_placeholder')) return { displayName: rawName, provider: 'google', family: 'antigravity', tier: 'unknown' };
+
+  return { displayName: rawName, provider: 'unknown', family: 'unknown', tier: 'unknown' };
 }

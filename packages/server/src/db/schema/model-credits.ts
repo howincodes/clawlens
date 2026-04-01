@@ -24,3 +24,13 @@ export const providerQuotas = pgTable('provider_quotas', {
 }, (table) => [
   uniqueIndex('provider_quotas_user_source_window_idx').on(table.userId, table.source, table.windowName),
 ]);
+
+export const modelAliases = pgTable('model_aliases', {
+  id: serial('id').primaryKey(),
+  rawName: varchar('raw_name', { length: 255 }).unique().notNull(),
+  displayName: varchar('display_name', { length: 100 }).notNull(),
+  provider: varchar('provider', { length: 50 }).notNull(), // anthropic, openai, google
+  family: varchar('family', { length: 50 }), // opus, sonnet, haiku, gpt-5, gemini
+  tier: varchar('tier', { length: 20 }), // flagship, mid, mini
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});

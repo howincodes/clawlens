@@ -15,6 +15,13 @@
       "when": 1775076267020,
       "tag": "0001_watery_peter_quill",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775076998174,
+      "tag": "0002_secret_chat",
+      "breakpoints": true
     }
   ]
 }
