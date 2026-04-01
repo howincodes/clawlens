@@ -8,7 +8,9 @@ import {
   Search,
   Settings,
   ShieldAlert,
-  Terminal
+  Terminal,
+  CheckSquare,
+  KeyRound
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWSStore } from '@/hooks/useWebSockets'
@@ -19,7 +21,9 @@ const navItems = [
   { path: '/subscriptions', label: 'Subscriptions', icon: CreditCard },
   { path: '/analytics', label: 'Analytics', icon: BarChart3 },
   { path: '/ai', label: 'AI Intelligence', icon: Brain },
+  { path: '/tasks', label: 'Tasks', icon: CheckSquare },
   { path: '/prompts', label: 'Prompts Browser', icon: Search },
+  { path: '/subscriptions-manager', label: 'Sub Manager', icon: KeyRound },
 ]
 
 const adminItems = [

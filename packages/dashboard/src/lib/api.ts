@@ -210,3 +210,124 @@ export async function removeProjectMemberApi(projectId: number, userId: number) 
   return fetchClient(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' })
 }
 
+// ── Subscription Credentials ──
+
+export async function getSubscriptionCredentials() {
+  return fetchClient('/subscriptions/credentials');
+}
+
+export async function createSubscriptionCredential(data: { email: string; accessToken?: string; refreshToken?: string; orgId?: string; subscriptionType?: string }) {
+  return fetchClient('/subscriptions/credentials', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function deleteSubscriptionCredential(id: number) {
+  return fetchClient(`/subscriptions/credentials/${id}`, { method: 'DELETE' });
+}
+
+export async function getSubscriptionUsage() {
+  return fetchClient('/subscriptions/usage');
+}
+
+export async function killUserCredential(userId: number) {
+  return fetchClient(`/subscriptions/kill/${userId}`, { method: 'POST' });
+}
+
+export async function rotateUserCredential(userId: number) {
+  return fetchClient('/subscriptions/rotate', { method: 'POST', body: JSON.stringify({ userId }) });
+}
+
+// ── Tasks ──
+
+export async function getTasks(projectId: number, filters?: { status?: string; assigneeId?: number }) {
+  const params = new URLSearchParams({ projectId: String(projectId) });
+  if (filters?.status) params.set('status', filters.status);
+  if (filters?.assigneeId) params.set('assigneeId', String(filters.assigneeId));
+  return fetchClient(`/tasks?${params}`);
+}
+
+export async function createTaskApi(data: { projectId: number; title: string; description?: string; priority?: string; effort?: string; assigneeId?: number; milestoneId?: number }) {
+  return fetchClient('/tasks', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function getTask(id: number) {
+  return fetchClient(`/tasks/${id}`);
+}
+
+export async function updateTaskApi(id: number, data: any) {
+  return fetchClient(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export async function deleteTaskApi(id: number) {
+  return fetchClient(`/tasks/${id}`, { method: 'DELETE' });
+}
+
+export async function addTaskComment(taskId: number, content: string) {
+  return fetchClient(`/tasks/${taskId}/comments`, { method: 'POST', body: JSON.stringify({ content }) });
+}
+
+export async function assignTask(taskId: number, assigneeId: number) {
+  return fetchClient(`/tasks/${taskId}/assign`, { method: 'PUT', body: JSON.stringify({ assigneeId }) });
+}
+
+export async function changeTaskStatus(taskId: number, status: string) {
+  return fetchClient(`/tasks/${taskId}/status`, { method: 'PUT', body: JSON.stringify({ status }) });
+}
+
+// ── Milestones ──
+
+export async function getMilestones(projectId: number) {
+  return fetchClient(`/projects/${projectId}/milestones`);
+}
+
+export async function createMilestoneApi(projectId: number, data: { name: string; description?: string; dueDate?: string }) {
+  return fetchClient(`/projects/${projectId}/milestones`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function updateMilestoneApi(id: number, data: any) {
+  return fetchClient(`/milestones/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+}
+
+export async function deleteMilestoneApi(id: number) {
+  return fetchClient(`/milestones/${id}`, { method: 'DELETE' });
+}
+
+// ── Requirements & AI Task Generation ──
+
+export async function submitRequirement(data: { projectId: number; inputType: string; content: string }) {
+  return fetchClient('/requirements', { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function getRequirementSuggestions(requirementId: number) {
+  return fetchClient(`/requirements/${requirementId}/suggestions`);
+}
+
+export async function approveRequirementSuggestions(requirementId: number) {
+  return fetchClient(`/requirements/${requirementId}/approve`, { method: 'POST' });
+}
+
+export async function rejectRequirementSuggestions(requirementId: number) {
+  return fetchClient(`/requirements/${requirementId}/reject`, { method: 'POST' });
+}
+
+// ── Activity ──
+
+export async function getUserActivity(userId: number, since?: string) {
+  const params = since ? `?since=${since}` : '';
+  return fetchClient(`/activity/${userId}${params}`);
+}
+
+export async function getUserActivityWindows(userId: number, date?: string) {
+  const params = date ? `?date=${date}` : '';
+  return fetchClient(`/activity/windows/${userId}${params}`);
+}
+
+// ── Task Status Configs ──
+
+export async function getTaskStatuses(projectId: number) {
+  return fetchClient(`/projects/${projectId}/statuses`);
+}
+
+export async function createTaskStatusApi(projectId: number, data: { name: string; color?: string; position?: number; isDoneState?: boolean }) {
+  return fetchClient(`/projects/${projectId}/statuses`, { method: 'POST', body: JSON.stringify(data) });
+}
+
