@@ -167,6 +167,16 @@ export default function ProjectDetail() {
           <div className="bg-white border rounded-lg p-4">
             <h3 className="font-semibold mb-3">Generate Tasks from Requirements</h3>
             <textarea value={requirementText} onChange={e => setRequirementText(e.target.value)} placeholder="Paste meeting notes, requirements, or feature descriptions here..." className="w-full border rounded px-3 py-2 mb-3" rows={8} />
+            <div className="mb-3">
+              <label className="text-sm text-gray-500">Or upload a document:</label>
+              <input type="file" accept=".txt,.md,.pdf,.doc,.docx" onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  const text = await file.text();
+                  setRequirementText(text);
+                }
+              }} className="block mt-1 text-sm" />
+            </div>
             <button onClick={handleSubmitRequirement} disabled={generating || !requirementText.trim()} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
               {generating ? 'Generating...' : 'Generate Tasks'}
             </button>

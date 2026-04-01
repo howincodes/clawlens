@@ -10,6 +10,7 @@ import {
   getLeastUsedCredential, assignCredentialToUser,
 } from '../db/queries/credentials.js';
 import { getUserById } from '../db/queries/users.js';
+import { sendToWatcher } from '../services/watcher-ws.js';
 
 export const subscriptionRouter: RouterType = Router();
 
@@ -129,6 +130,10 @@ subscriptionRouter.post('/kill/:userId', async (req: Request, res: Response) => 
   try {
     const userId = parseInt(req.params.userId as string);
     await releaseCredentialFromUser(userId);
+
+    // Push WebSocket command to the watcher so the client learns immediately
+    try { sendToWatcher(userId, 'credential_revoked'); } catch {}
+
     res.json({ success: true, message: 'Credential revoked' });
   } catch (err) {
     console.error('[subscription-api] kill error:', err);
@@ -151,6 +156,33 @@ subscriptionRouter.post('/rotate', async (req: Request, res: Response) => {
     res.json({ success: true, credential: { email: leastUsed.email, subscriptionType: leastUsed.subscriptionType }, assignment });
   } catch (err) {
     console.error('[subscription-api] rotate error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /efficiency — subscription efficiency report (Phase 1, Item 8)
+subscriptionRouter.get('/efficiency', async (_req: Request, res: Response) => {
+  try {
+    const credentials = await getActiveSubscriptionCredentials();
+    const allAssignments = [];
+    for (const cred of credentials) {
+      const assignments = await getAssignmentsByCredential(cred.id);
+      const activeAssignments = assignments.filter((a: any) => a.status === 'active');
+      for (const a of activeAssignments) {
+        const user = await getUserById(a.userId);
+        const snapshot = await getLatestUsageSnapshot(cred.id);
+        allAssignments.push({
+          userId: a.userId,
+          userName: user?.name,
+          credentialEmail: cred.email,
+          fiveHourUtilization: snapshot?.fiveHourUtilization || 0,
+          sevenDayUtilization: snapshot?.sevenDayUtilization || 0,
+        });
+      }
+    }
+    res.json(allAssignments);
+  } catch (err) {
+    console.error('[subscription-api] efficiency error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

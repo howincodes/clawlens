@@ -4,6 +4,7 @@ import { createTray, updateTrayState } from './tray';
 import { createWindow, getWindow } from './window';
 import { startHeartbeat, stopHeartbeat } from './services/heartbeat';
 import { startJsonlWatcher, stopJsonlWatcher } from './services/jsonl-watcher';
+import { startFileWatcher, stopFileWatcher, scanForProjects } from './services/file-watcher';
 import { loadConfig } from './utils/config';
 import { setupIpcHandlers } from './ipc';
 
@@ -46,6 +47,9 @@ app.whenReady().then(async () => {
   // Start background services
   startHeartbeat(config);
   startJsonlWatcher(config);
+  startFileWatcher(config);
+  // Scan for projects once on startup
+  scanForProjects(config).catch(() => {});
 
   console.log('[howinlens] Client started');
 });
@@ -57,6 +61,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   stopHeartbeat();
   stopJsonlWatcher();
+  stopFileWatcher();
 });
 
 // macOS: re-create window when clicking dock icon

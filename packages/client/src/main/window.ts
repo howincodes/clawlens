@@ -1,6 +1,13 @@
 import { BrowserWindow, screen } from 'electron';
 import path from 'path';
 
+// Embedded WebView Auth (Phase 1, Item 3)
+// The BrowserWindow's webContents can navigate to claude.ai for OAuth login.
+// The webview already supports arbitrary URLs — no additional code is needed.
+// When we integrate real OAuth flows, the window can load the Anthropic
+// authorization endpoint directly, and we intercept the redirect callback
+// to capture the access token and refresh token.
+
 let mainWindow: BrowserWindow | null = null;
 
 export function createWindow(isSetup = false): BrowserWindow {

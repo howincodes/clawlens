@@ -119,4 +119,38 @@ function extractSkills(profileText: string): string[] {
   return skills.slice(0, 8); // Limit to 8 top skills
 }
 
+// ---------------------------------------------------------------------------
+// Task inference from cwd + prompt content (Phase 2, Item 12)
+// ---------------------------------------------------------------------------
+
+/**
+ * Infer which task a developer is working on based on their cwd and recent prompt.
+ */
+export async function inferActiveTask(userId: number, cwd: string, _promptContent?: string): Promise<number | null> {
+  // 1. Check if cwd matches a known project directory
+  const { getProjectDirectories } = await import('../db/queries/tracking.js');
+  const dirs = await getProjectDirectories(userId);
+
+  let projectId: number | null = null;
+  for (const dir of dirs) {
+    if (cwd.startsWith(dir.localPath)) {
+      projectId = dir.projectId;
+      break;
+    }
+  }
+
+  if (!projectId) return null;
+
+  // 2. Get open tasks for this project assigned to this user
+  const { getTasksByProject } = await import('../db/queries/tasks.js');
+  const tasks = await getTasksByProject(projectId, { assigneeId: userId, status: 'in_progress' });
+
+  if (tasks.length === 1) return tasks[0].id; // Only one active task — must be this one
+  if (tasks.length === 0) return null;
+
+  // 3. If multiple tasks, try to match by branch name or prompt content
+  // (Simple keyword matching for now — AI inference can be added later)
+  return tasks[0].id; // Default to first in-progress task
+}
+
 export { buildTaskGenerationPrompt };

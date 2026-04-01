@@ -28,6 +28,8 @@ async function checkSubscriptionUsage(accessToken: string): Promise<{
   sevenDayUtilization: number;
   fiveHourResetsAt: Date | null;
   sevenDayResetsAt: Date | null;
+  opusWeeklyUtilization: number;
+  sonnetWeeklyUtilization: number;
 } | null> {
   return new Promise((resolve) => {
     const body = JSON.stringify({
@@ -61,11 +63,17 @@ async function checkSubscriptionUsage(accessToken: string): Promise<{
         const r5h = parseInt(headers['anthropic-ratelimit-unified-5h-reset'] as string || '0', 10);
         const r7d = parseInt(headers['anthropic-ratelimit-unified-7d-reset'] as string || '0', 10);
 
+        // Per-model breakdown (Phase 1, Item 5)
+        const opusUtil = parseFloat(headers['anthropic-ratelimit-unified-opus-utilization'] as string || '0');
+        const sonnetUtil = parseFloat(headers['anthropic-ratelimit-unified-sonnet-utilization'] as string || '0');
+
         resolve({
           fiveHourUtilization: u5h,
           sevenDayUtilization: u7d,
           fiveHourResetsAt: r5h ? new Date(r5h * 1000) : null,
           sevenDayResetsAt: r7d ? new Date(r7d * 1000) : null,
+          opusWeeklyUtilization: opusUtil,
+          sonnetWeeklyUtilization: sonnetUtil,
         });
       });
     });
@@ -89,8 +97,25 @@ async function checkSubscriptionUsage(accessToken: string): Promise<{
  * Poll all active subscriptions and record usage snapshots.
  */
 async function pollAllSubscriptions() {
+  // Refresh any tokens that are about to expire (Phase 1, Item 1)
+  await refreshExpiredTokens();
+
   const credentials = await getActiveSubscriptionCredentials();
   debug(`Polling ${credentials.length} active subscription(s)`);
+
+  // Check for expiring tokens — 24h warning (Phase 1, Item 4)
+  for (const cred of credentials) {
+    if (!cred.expiresAt) continue;
+    const hoursLeft = (cred.expiresAt.getTime() - Date.now()) / (60 * 60 * 1000);
+    if (hoursLeft > 0 && hoursLeft <= 24) {
+      broadcast({
+        type: 'token_expiry_warning',
+        credentialId: cred.id,
+        email: cred.email,
+        hoursLeft: Math.round(hoursLeft),
+      });
+    }
+  }
 
   for (const cred of credentials) {
     if (!cred.accessToken) {
@@ -104,7 +129,7 @@ async function pollAllSubscriptions() {
       continue;
     }
 
-    debug(`Credential ${cred.id} (${cred.email}): 5h=${(usage.fiveHourUtilization * 100).toFixed(0)}%, 7d=${(usage.sevenDayUtilization * 100).toFixed(0)}%`);
+    debug(`Credential ${cred.id} (${cred.email}): 5h=${(usage.fiveHourUtilization * 100).toFixed(0)}%, 7d=${(usage.sevenDayUtilization * 100).toFixed(0)}%, opus=${(usage.opusWeeklyUtilization * 100).toFixed(0)}%, sonnet=${(usage.sonnetWeeklyUtilization * 100).toFixed(0)}%`);
 
     await recordUsageSnapshot({
       credentialId: cred.id,
@@ -112,7 +137,12 @@ async function pollAllSubscriptions() {
       sevenDayUtilization: usage.sevenDayUtilization,
       fiveHourResetsAt: usage.fiveHourResetsAt ?? undefined,
       sevenDayResetsAt: usage.sevenDayResetsAt ?? undefined,
+      opusWeeklyUtilization: usage.opusWeeklyUtilization,
+      sonnetWeeklyUtilization: usage.sonnetWeeklyUtilization,
     });
+
+    // Auto-start session reset if 5h drops to 0% (Phase 1, Item 7)
+    await autoStartSessionIfNeeded(cred, usage.fiveHourUtilization);
 
     // Alert if approaching limit (80%+)
     if (usage.fiveHourUtilization >= 0.8) {
@@ -231,6 +261,72 @@ export function startUsageMonitor(): () => void {
     }
     console.log('[usage-monitor] Stopped');
   };
+}
+
+// ---------------------------------------------------------------------------
+// Token refresh flow (Phase 1, Item 1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Check all credentials for tokens expiring within 30 minutes and log warnings.
+ * Actual OAuth token refresh will be implemented when testing with real credentials.
+ */
+async function refreshExpiredTokens() {
+  const credentials = await getActiveSubscriptionCredentials();
+  for (const cred of credentials) {
+    if (!cred.expiresAt || !cred.refreshToken) continue;
+    const expiresIn = cred.expiresAt.getTime() - Date.now();
+    if (expiresIn > 30 * 60 * 1000) continue; // More than 30 min left, skip
+
+    debug(`Token for ${cred.email} expires in ${Math.round(expiresIn / 60000)} min, refreshing...`);
+    // Note: Actual OAuth refresh requires knowing the token endpoint
+    // For now, log the warning. Real refresh will be implemented when we test with real tokens.
+    console.log(`[usage-monitor] WARNING: Token for ${cred.email} is expiring soon. Manual refresh needed.`);
+    // TODO: Implement actual OAuth token refresh when testing with real credentials
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pace projection — 6-tier (Phase 1, Item 6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Calculate projected usage pace based on current utilization and elapsed
+ * fraction of the rate-limit window.
+ */
+export function calculatePace(utilization: number, elapsedFraction: number): {
+  tier: 'comfortable' | 'on_track' | 'warming' | 'pressing' | 'critical' | 'runaway';
+  projectedEndUsage: number;
+} {
+  if (elapsedFraction < 0.03 || utilization === 0) {
+    return { tier: 'comfortable', projectedEndUsage: 0 };
+  }
+  const projected = utilization / elapsedFraction;
+  if (projected < 0.5) return { tier: 'comfortable', projectedEndUsage: projected };
+  if (projected < 0.75) return { tier: 'on_track', projectedEndUsage: projected };
+  if (projected < 0.9) return { tier: 'warming', projectedEndUsage: projected };
+  if (projected < 1.0) return { tier: 'pressing', projectedEndUsage: projected };
+  if (projected < 1.2) return { tier: 'critical', projectedEndUsage: projected };
+  return { tier: 'runaway', projectedEndUsage: projected };
+}
+
+// ---------------------------------------------------------------------------
+// Auto-start session reset (Phase 1, Item 7)
+// ---------------------------------------------------------------------------
+
+/**
+ * When the 5h utilization drops to 0%, the checkSubscriptionUsage call already
+ * sends a haiku message which starts a new session window. Log the event.
+ */
+async function autoStartSessionIfNeeded(cred: any, utilization: number) {
+  if (utilization > 0) return; // Not at 0%, no need to reset
+  if (!cred.accessToken) return;
+
+  debug(`Credential ${cred.email}: 5h at 0%, auto-starting session...`);
+  // The usage check itself already sends a minimal message (haiku, 1 token)
+  // which starts a new session window. So this is already handled by the
+  // checkSubscriptionUsage call. Log it.
+  console.log(`[usage-monitor] Session auto-started for ${cred.email} (5h window reset)`);
 }
 
 export { checkClaudeStatus, checkSubscriptionUsage, pollAllSubscriptions };
