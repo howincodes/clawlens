@@ -7,6 +7,7 @@ import {
   heartbeats,
   watchEvents,
   conversationMessages,
+  sessionRawJsonl,
 } from '../schema/index.js';
 
 // ---------------------------------------------------------------------------
@@ -293,5 +294,53 @@ export async function getConversationsByUser(userId: number, limit = 50) {
     .from(conversationMessages)
     .where(eq(conversationMessages.userId, userId))
     .orderBy(desc(conversationMessages.syncedAt))
+    .limit(limit);
+}
+
+// ---------------------------------------------------------------------------
+// Session Raw JSONL (full session replay)
+// ---------------------------------------------------------------------------
+
+export async function upsertSessionRawJsonl(params: {
+  userId: number;
+  sessionId: string;
+  projectPath?: string;
+  rawContent: string;
+  lineCount?: number;
+  lastOffset?: number;
+}) {
+  const db = getDb();
+  const [result] = await db
+    .insert(sessionRawJsonl)
+    .values(params)
+    .onConflictDoUpdate({
+      target: [sessionRawJsonl.userId, sessionRawJsonl.sessionId],
+      set: {
+        rawContent: params.rawContent,
+        lineCount: params.lineCount,
+        lastOffset: params.lastOffset,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+  return result;
+}
+
+export async function getSessionRawJsonl(userId: number, sessionId: string) {
+  const db = getDb();
+  const [result] = await db
+    .select()
+    .from(sessionRawJsonl)
+    .where(and(eq(sessionRawJsonl.userId, userId), eq(sessionRawJsonl.sessionId, sessionId)));
+  return result;
+}
+
+export async function getSessionRawJsonlByUser(userId: number, limit = 50) {
+  const db = getDb();
+  return db
+    .select()
+    .from(sessionRawJsonl)
+    .where(eq(sessionRawJsonl.userId, userId))
+    .orderBy(desc(sessionRawJsonl.updatedAt))
     .limit(limit);
 }

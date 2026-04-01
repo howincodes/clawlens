@@ -5,6 +5,7 @@ import {
   getActiveAssignment, assignCredentialToUser, releaseCredentialFromUser,
   getLeastUsedCredential, getSubscriptionCredentialById,
   recordConversationMessages, getConversationsByUser,
+  upsertSessionRawJsonl,
 } from '../db/queries/credentials.js';
 import { getTasksByUser, getTaskById, updateTask } from '../db/queries/tasks.js';
 import { getProjectDirectories, linkProjectDirectory, getProjectDirectoryByPath } from '../db/queries/tracking.js';
@@ -301,6 +302,32 @@ clientRouter.put('/active-task', async (req: Request, res: Response) => {
     res.json({ ok: true, activeTaskId: taskId });
   } catch (err) {
     console.error('[client-api] active-task error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /session-jsonl — sync raw JSONL session data (full session replay)
+clientRouter.post('/session-jsonl', async (req: Request, res: Response) => {
+  try {
+    const user = req.user!;
+    const { sessionId, projectPath, rawContent, lineCount, lastOffset } = req.body;
+
+    if (!sessionId || !rawContent) {
+      return res.status(400).json({ error: 'sessionId and rawContent required' });
+    }
+
+    const result = await upsertSessionRawJsonl({
+      userId: user.id,
+      sessionId,
+      projectPath,
+      rawContent,
+      lineCount,
+      lastOffset,
+    });
+
+    res.json({ ok: true, id: result.id });
+  } catch (err) {
+    console.error('[client-api] session-jsonl error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

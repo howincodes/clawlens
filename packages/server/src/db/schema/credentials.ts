@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, text, integer, real, boolean, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, text, integer, real, boolean, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 import { users } from './users.js';
 
 export const subscriptionCredentials = pgTable('subscription_credentials', {
@@ -63,6 +63,7 @@ export const conversationMessages = pgTable('conversation_messages', {
   type: varchar('type', { length: 20 }).notNull(),
   messageContent: text('message_content'),
   model: varchar('model', { length: 100 }),
+  rawModel: varchar('raw_model', { length: 255 }),
   inputTokens: integer('input_tokens'),
   outputTokens: integer('output_tokens'),
   cachedTokens: integer('cached_tokens'),
@@ -71,3 +72,17 @@ export const conversationMessages = pgTable('conversation_messages', {
   timestamp: timestamp('timestamp', { withTimezone: true }),
   syncedAt: timestamp('synced_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const sessionRawJsonl = pgTable('session_raw_jsonl', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id),
+  sessionId: varchar('session_id', { length: 255 }).notNull(),
+  projectPath: text('project_path'),
+  rawContent: text('raw_content').notNull(),
+  lineCount: integer('line_count'),
+  lastOffset: integer('last_offset'),
+  syncedAt: timestamp('synced_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('session_raw_jsonl_user_session_idx').on(table.userId, table.sessionId),
+]);
