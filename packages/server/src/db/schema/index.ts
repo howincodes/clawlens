@@ -10,3 +10,6 @@ export * from './ai.js';
 export * from './roles.js';
 export * from './projects.js';
 export * from './model-credits.js';
+export * from './credentials.js';
+export * from './tasks.js';
+export * from './tracking.js';
