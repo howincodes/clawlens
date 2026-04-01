@@ -1,0 +1,22 @@
+appId: com.howinlens.client
+productName: HowinLens
+directories:
+  output: release
+files:
+  - dist/**/*
+  - assets/**/*
+  - "!node_modules/**/*"
+mac:
+  target:
+    - target: dmg
+      arch: [universal]
+  icon: assets/icon.png
+linux:
+  target:
+    - target: AppImage
+    - target: deb
+  icon: assets/icon.png
+win:
+  target:
+    - target: nsis
+  icon: assets/icon.png

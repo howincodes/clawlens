@@ -1,0 +1,24 @@
+{
+  "name": "@howinlens/client",
+  "version": "0.3.0",
+  "description": "HowinLens Desktop Client",
+  "main": "dist/main/index.js",
+  "private": true,
+  "scripts": {
+    "dev": "electron .",
+    "build": "tsc",
+    "start": "electron dist/main/index.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^26.0.0",
+    "typescript": "~5.7.3",
+    "@types/node": "^22.0.0"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.0",
+    "electron-updater": "^6.0.0"
+  }
+}
