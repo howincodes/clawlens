@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { Request, Response } from 'express';
+import type { Request, Response, Router as RouterType } from 'express';
 import {
   createSession,
   recordPrompt,
@@ -104,7 +104,7 @@ async function ensureSession(sessionId: string | undefined, userId: number, mode
 // Router
 // ---------------------------------------------------------------------------
 
-export const hookRouter = Router();
+export const hookRouter: RouterType = Router();
 
 // ---------------------------------------------------------------------------
 // POST /session-start

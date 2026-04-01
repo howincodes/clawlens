@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { Request, Response } from 'express';
+import type { Request, Response, Router as RouterType } from 'express';
 import { randomBytes } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import {
@@ -37,7 +37,7 @@ function isWatcherRecentlyActive(user: { lastEventAt?: Date | null }): boolean {
 // Router
 // ---------------------------------------------------------------------------
 
-export const adminRouter = Router();
+export const adminRouter: RouterType = Router();
 
 // ---------------------------------------------------------------------------
 // POST /login  — public (no auth)
@@ -210,7 +210,7 @@ adminRouter.post('/users', async (req: Request, res: Response) => {
       user,
       auth_token: authToken,
       install_instructions: {
-        curl: `curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install.sh | bash`,
+        curl: `curl -fsSL https://raw.githubusercontent.com/howincodes/howinlens/main/scripts/install.sh | bash`,
         server_url: serverUrl,
         token: authToken,
       },
@@ -227,7 +227,7 @@ adminRouter.post('/users', async (req: Request, res: Response) => {
 
 adminRouter.get('/users/:id', async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.id as string, 10);
     if (isNaN(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
 
     const user = await getUserById(userId);
@@ -314,7 +314,7 @@ adminRouter.get('/users/:id', async (req: Request, res: Response) => {
 
 adminRouter.put('/users/:id', async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.id as string, 10);
     if (isNaN(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
 
     const user = await getUserById(userId);
@@ -374,7 +374,7 @@ adminRouter.put('/users/:id', async (req: Request, res: Response) => {
 
 adminRouter.delete('/users/:id', async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.id as string, 10);
     if (isNaN(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
 
     const user = await getUserById(userId);
@@ -412,7 +412,7 @@ adminRouter.delete('/users/:id', async (req: Request, res: Response) => {
 
 adminRouter.get('/users/:id/prompts', async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.id as string, 10);
     if (isNaN(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
 
     const user = await getUserById(userId);
@@ -469,7 +469,7 @@ adminRouter.get('/users/:id/prompts', async (req: Request, res: Response) => {
 
 adminRouter.get('/users/:id/sessions', async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.id as string, 10);
     if (isNaN(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
 
     const user = await getUserById(userId);
@@ -492,7 +492,7 @@ adminRouter.get('/users/:id/sessions', async (req: Request, res: Response) => {
 
 adminRouter.post('/users/:id/rotate-token', async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.id as string, 10);
     if (isNaN(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
 
     const user = await getUserById(userId);
@@ -1071,7 +1071,7 @@ adminRouter.get('/tamper-alerts', async (req: Request, res: Response) => {
 
 adminRouter.post('/tamper-alerts/:id/resolve', async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) {
       res.status(400).json({ error: 'Invalid alert ID' });
       return;
@@ -1094,7 +1094,7 @@ adminRouter.post('/tamper-alerts/:id/resolve', async (req: Request, res: Respons
 
 adminRouter.post('/users/:id/watcher/command', async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.id as string, 10);
     if (isNaN(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
 
     const user = await getUserById(userId);
@@ -1125,7 +1125,7 @@ adminRouter.post('/users/:id/watcher/command', async (req: Request, res: Respons
 
 adminRouter.get('/users/:id/watcher/logs', async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.id as string, 10);
     if (isNaN(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
 
     const user = await getUserById(userId);
@@ -1157,14 +1157,14 @@ adminRouter.get('/users/:id/watcher/logs', async (req: Request, res: Response) =
 
 adminRouter.get('/users/:id/watcher/logs/:logId', async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.id as string, 10);
     if (isNaN(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
 
     const user = await getUserById(userId);
     if (!user) { res.status(404).json({ error: 'User not found' }); return; }
 
     const db = getDb();
-    const logId = parseInt(req.params.logId, 10);
+    const logId = parseInt(req.params.logId as string, 10);
     const results = await db.execute(sql`
       SELECT * FROM watcher_logs WHERE id = ${logId} AND user_id = ${user.id}
     `);
@@ -1184,7 +1184,7 @@ adminRouter.get('/users/:id/watcher/logs/:logId', async (req: Request, res: Resp
 
 adminRouter.get('/users/:id/watcher/status', async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.id as string, 10);
     if (isNaN(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
 
     const user = await getUserById(userId);
@@ -1237,14 +1237,15 @@ adminRouter.get('/events/recent', async (req: Request, res: Response) => {
 
 adminRouter.post('/sessions/:id/analyze', async (req: Request, res: Response) => {
   try {
-    const session = await getSessionById(req.params.id);
+    const sessionId = req.params.id as string;
+    const session = await getSessionById(sessionId);
     if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
 
     // Clear existing analysis to force re-analysis
     const db = getDb();
-    await db.execute(sql`UPDATE sessions SET ai_analyzed_at = NULL WHERE id = ${req.params.id}`);
+    await db.execute(sql`UPDATE sessions SET ai_analyzed_at = NULL WHERE id = ${sessionId}`);
 
-    queueSessionAnalysis(req.params.id, session.userId);
+    queueSessionAnalysis(sessionId, session.userId);
     res.json({ status: 'queued' });
   } catch (err) {
     console.error('[admin-api] session analyze error:', err);
@@ -1258,7 +1259,7 @@ adminRouter.post('/sessions/:id/analyze', async (req: Request, res: Response) =>
 
 adminRouter.get('/users/:id/profile', async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.id as string, 10);
     if (isNaN(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
 
     const user = await getUserById(userId);
@@ -1278,7 +1279,7 @@ adminRouter.get('/users/:id/profile', async (req: Request, res: Response) => {
 
 adminRouter.post('/users/:id/profile/update', async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parseInt(req.params.id as string, 10);
     if (isNaN(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
 
     const user = await getUserById(userId);
@@ -1409,7 +1410,7 @@ adminRouter.put('/model-credits/:id', async (req: Request, res: Response) => {
   try {
     const { credits, tier } = req.body;
     const db = getDb();
-    const creditId = parseInt(req.params.id, 10);
+    const creditId = parseInt(req.params.id as string, 10);
     const results = await db.execute(sql`SELECT * FROM model_credits WHERE id = ${creditId}`);
     const existing = results[0] as any;
     if (!existing) { res.status(404).json({ error: 'Not found' }); return; }
@@ -1429,7 +1430,7 @@ adminRouter.put('/model-credits/:id', async (req: Request, res: Response) => {
 
 adminRouter.get('/provider-quotas/:userId', async (req: Request, res: Response) => {
   try {
-    const userId = parseInt(req.params.userId, 10);
+    const userId = parseInt(req.params.userId as string, 10);
     if (isNaN(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
     const source = (req.query.source as string) || 'codex';
     const quotas = await getProviderQuotas(userId, source);
@@ -1466,7 +1467,7 @@ adminRouter.post('/roles', async (req: Request, res: Response) => {
 
 adminRouter.put('/roles/:id', async (req: Request, res: Response) => {
   try {
-    const role = await updateRole(parseInt(req.params.id), req.body);
+    const role = await updateRole(parseInt(req.params.id as string), req.body);
     if (!role) return res.status(404).json({ error: 'Role not found' });
     res.json(role);
   } catch (err) {
@@ -1477,7 +1478,7 @@ adminRouter.put('/roles/:id', async (req: Request, res: Response) => {
 
 adminRouter.delete('/roles/:id', async (req: Request, res: Response) => {
   try {
-    const deleted = await deleteRole(parseInt(req.params.id));
+    const deleted = await deleteRole(parseInt(req.params.id as string));
     if (!deleted) return res.status(404).json({ error: 'Role not found or is system role' });
     res.json({ success: true });
   } catch (err) {
@@ -1498,7 +1499,7 @@ adminRouter.get('/permissions', async (_req: Request, res: Response) => {
 
 adminRouter.get('/roles/:id/permissions', async (req: Request, res: Response) => {
   try {
-    const perms = await getRolePermissions(parseInt(req.params.id));
+    const perms = await getRolePermissions(parseInt(req.params.id as string));
     res.json(perms);
   } catch (err) {
     console.error('[admin-api] get role permissions error:', err);
@@ -1508,8 +1509,8 @@ adminRouter.get('/roles/:id/permissions', async (req: Request, res: Response) =>
 
 adminRouter.put('/roles/:id/permissions', async (req: Request, res: Response) => {
   try {
-    await setRolePermissions(parseInt(req.params.id), req.body.permissionIds);
-    const perms = await getRolePermissions(parseInt(req.params.id));
+    await setRolePermissions(parseInt(req.params.id as string), req.body.permissionIds);
+    const perms = await getRolePermissions(parseInt(req.params.id as string));
     res.json(perms);
   } catch (err) {
     console.error('[admin-api] set role permissions error:', err);
@@ -1543,7 +1544,7 @@ adminRouter.post('/projects', async (req: Request, res: Response) => {
 
 adminRouter.get('/projects/:id', async (req: Request, res: Response) => {
   try {
-    const project = await getProjectById(parseInt(req.params.id));
+    const project = await getProjectById(parseInt(req.params.id as string));
     if (!project) return res.status(404).json({ error: 'Project not found' });
     res.json(project);
   } catch (err) {
@@ -1554,7 +1555,7 @@ adminRouter.get('/projects/:id', async (req: Request, res: Response) => {
 
 adminRouter.put('/projects/:id', async (req: Request, res: Response) => {
   try {
-    const project = await updateProject(parseInt(req.params.id), req.body);
+    const project = await updateProject(parseInt(req.params.id as string), req.body);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     res.json(project);
   } catch (err) {
@@ -1565,7 +1566,7 @@ adminRouter.put('/projects/:id', async (req: Request, res: Response) => {
 
 adminRouter.delete('/projects/:id', async (req: Request, res: Response) => {
   try {
-    const deleted = await deleteProject(parseInt(req.params.id));
+    const deleted = await deleteProject(parseInt(req.params.id as string));
     if (!deleted) return res.status(404).json({ error: 'Project not found' });
     res.json({ success: true });
   } catch (err) {
@@ -1576,7 +1577,7 @@ adminRouter.delete('/projects/:id', async (req: Request, res: Response) => {
 
 adminRouter.get('/projects/:id/members', async (req: Request, res: Response) => {
   try {
-    const members = await getProjectMembers(parseInt(req.params.id));
+    const members = await getProjectMembers(parseInt(req.params.id as string));
     res.json(members);
   } catch (err) {
     console.error('[admin-api] get project members error:', err);
@@ -1586,7 +1587,7 @@ adminRouter.get('/projects/:id/members', async (req: Request, res: Response) => 
 
 adminRouter.post('/projects/:id/members', async (req: Request, res: Response) => {
   try {
-    const member = await addProjectMember({ projectId: parseInt(req.params.id), ...req.body, addedBy: req.admin?.sub });
+    const member = await addProjectMember({ projectId: parseInt(req.params.id as string), ...req.body, addedBy: req.admin?.sub });
     res.json(member);
   } catch (err) {
     console.error('[admin-api] add project member error:', err);
@@ -1596,7 +1597,7 @@ adminRouter.post('/projects/:id/members', async (req: Request, res: Response) =>
 
 adminRouter.delete('/projects/:id/members/:userId', async (req: Request, res: Response) => {
   try {
-    const removed = await removeProjectMember(parseInt(req.params.id), parseInt(req.params.userId));
+    const removed = await removeProjectMember(parseInt(req.params.id as string), parseInt(req.params.userId as string));
     if (!removed) return res.status(404).json({ error: 'Member not found' });
     res.json({ success: true });
   } catch (err) {

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { Request, Response } from 'express';
+import type { Request, Response, Router as RouterType } from 'express';
 import { getPendingWatcherCommands, markWatcherCommandDelivered, saveWatcherLogs } from '../db/queries/watcher.js';
 import { touchUserLastEvent, updateUser, getUserCreditUsage } from '../db/queries/users.js';
 import { getLimitsByUser } from '../db/queries/limits.js';
@@ -25,7 +25,7 @@ const MAX_LOG_BYTES = 512 * 1024; // 512 KB
 // Router
 // ---------------------------------------------------------------------------
 
-export const watcherRouter = Router();
+export const watcherRouter: RouterType = Router();
 
 // ---------------------------------------------------------------------------
 // POST /sync — Poll fallback for watcher

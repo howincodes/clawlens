@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { Request, Response } from 'express';
+import type { Request, Response, Router as RouterType } from 'express';
 import {
   createSession,
   getSessionById,
@@ -62,7 +62,7 @@ async function ensureSession(sessionId: string | undefined, userId: number, mode
 // Router
 // ---------------------------------------------------------------------------
 
-export const codexRouter = Router();
+export const codexRouter: RouterType = Router();
 
 // ---------------------------------------------------------------------------
 // POST /session-start

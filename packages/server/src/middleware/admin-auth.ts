@@ -46,7 +46,7 @@ export function generateToken(payload: Omit<AdminPayload, 'iat' | 'exp'>): strin
  * Returns the decoded payload, or throws if invalid/expired.
  */
 export function verifyToken(token: string): AdminPayload {
-  return jwt.verify(token, JWT_SECRET) as AdminPayload;
+  return jwt.verify(token, JWT_SECRET) as unknown as AdminPayload;
 }
 
 // ---------------------------------------------------------------------------

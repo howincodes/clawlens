@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { type Express } from 'express';
 import cors from 'cors';
 import { createServer } from 'node:http';
 import path from 'node:path';
@@ -23,7 +23,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Express app setup
 // ---------------------------------------------------------------------------
 
-export const app = express();
+export const app: Express = express();
 
 // Body parsing
 app.use(express.json({ limit: '1mb' }));
