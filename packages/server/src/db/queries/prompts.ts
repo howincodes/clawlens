@@ -1,4 +1,4 @@
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { getDb } from '../index.js';
 import { prompts } from '../schema/index.js';
 
@@ -59,4 +59,37 @@ export async function updatePromptResponse(promptId: number, response: string) {
     .where(eq(prompts.id, promptId))
     .returning();
   return record;
+}
+
+/**
+ * Update the model on the most recent prompt for a session that has no response yet.
+ * Used by the /stop hook to stamp the model after response generation.
+ */
+export async function updateLastPromptModel(sessionId: string, model: string) {
+  const db = getDb();
+  // Find the most recent prompt with no response for this session
+  const [latest] = await db
+    .select({ id: prompts.id })
+    .from(prompts)
+    .where(and(eq(prompts.sessionId, sessionId), sql`${prompts.response} IS NULL`))
+    .orderBy(desc(prompts.id))
+    .limit(1);
+
+  if (latest) {
+    await db.update(prompts).set({ model }).where(eq(prompts.id, latest.id));
+  }
+}
+
+/**
+ * Check if a prompt with exact content already exists for a given session.
+ * Used for deduplication during antigravity sync.
+ */
+export async function promptExistsForSession(sessionId: string, promptText: string): Promise<boolean> {
+  const db = getDb();
+  const [existing] = await db
+    .select({ id: prompts.id })
+    .from(prompts)
+    .where(and(eq(prompts.sessionId, sessionId), eq(prompts.prompt, promptText)))
+    .limit(1);
+  return !!existing;
 }

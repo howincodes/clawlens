@@ -76,6 +76,42 @@ export async function updateSessionAI(
   return session;
 }
 
+export async function updateSessionModel(sessionId: string, model: string) {
+  const db = getDb();
+  await db.update(sessions).set({ model }).where(eq(sessions.id, sessionId));
+}
+
+export async function upsertAntigravitySession(params: {
+  id: string;
+  userId: number;
+  model?: string;
+  cwd?: string;
+  promptCount?: number;
+  title?: string;
+}) {
+  const db = getDb();
+  const [session] = await db
+    .insert(sessions)
+    .values({
+      id: params.id,
+      userId: params.userId,
+      model: params.model,
+      cwd: params.cwd,
+      promptCount: params.promptCount ?? 0,
+      source: 'antigravity',
+    })
+    .onConflictDoUpdate({
+      target: sessions.id,
+      set: {
+        model: params.model,
+        cwd: params.cwd,
+        promptCount: params.promptCount ?? 0,
+      },
+    })
+    .returning();
+  return session;
+}
+
 export async function getRecentSessions(limit = 50) {
   const db = getDb();
   return db.select().from(sessions).orderBy(desc(sessions.startedAt)).limit(limit);
