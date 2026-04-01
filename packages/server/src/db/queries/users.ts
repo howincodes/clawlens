@@ -1,6 +1,6 @@
-import { eq } from 'drizzle-orm';
+import { eq, and, gte, sql } from 'drizzle-orm';
 import { getDb } from '../index.js';
-import { users } from '../schema/index.js';
+import { users, prompts } from '../schema/index.js';
 
 export async function createUser(params: {
   name: string;
@@ -54,4 +54,51 @@ export async function deleteUser(id: number) {
 export async function touchUserLastEvent(id: number) {
   const db = getDb();
   await db.update(users).set({ lastEventAt: new Date() }).where(eq(users.id, id));
+}
+
+export async function getUserCreditUsage(
+  userId: number,
+  window: 'daily' | 'hourly' | 'monthly',
+  source?: string,
+): Promise<number> {
+  const db = getDb();
+  const now = new Date();
+  let since: Date;
+  if (window === 'hourly') since = new Date(now.getTime() - 60 * 60 * 1000);
+  else if (window === 'daily') since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  else since = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const conditions = [eq(prompts.userId, userId), gte(prompts.createdAt, since)];
+  if (source) conditions.push(eq(prompts.source, source));
+
+  const result = await db
+    .select({ total: sql<number>`coalesce(sum(${prompts.creditCost}), 0)::real` })
+    .from(prompts)
+    .where(and(...conditions));
+  return result[0]?.total ?? 0;
+}
+
+export async function getUserModelCreditUsage(
+  userId: number,
+  model: string,
+  window: 'daily' | 'hourly' | 'monthly',
+): Promise<number> {
+  const db = getDb();
+  const now = new Date();
+  let since: Date;
+  if (window === 'hourly') since = new Date(now.getTime() - 60 * 60 * 1000);
+  else if (window === 'daily') since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  else since = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const result = await db
+    .select({ total: sql<number>`coalesce(sum(${prompts.creditCost}), 0)::real` })
+    .from(prompts)
+    .where(
+      and(
+        eq(prompts.userId, userId),
+        eq(prompts.model, model),
+        gte(prompts.createdAt, since),
+      ),
+    );
+  return result[0]?.total ?? 0;
 }
