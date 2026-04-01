@@ -13,29 +13,30 @@ RUN pnpm install --frozen-lockfile
 
 # Copy source
 COPY packages/server/src packages/server/src
+COPY packages/server/drizzle packages/server/drizzle
 COPY packages/dashboard packages/dashboard
 
 # Build dashboard
 RUN pnpm --filter dashboard build
 
-# Bundle server with esbuild (skips tsc strict errors)
-RUN pnpm --filter @clawlens/server bundle
+# Bundle server with esbuild
+RUN pnpm --filter @howinlens/server bundle
 
 # --- Production image ---
 FROM node:22-slim
 
 WORKDIR /app
 
-# Copy bundled server + dashboard + native deps from builder
 COPY --from=builder /app/release/server.mjs ./server.mjs
 COPY --from=builder /app/release/node_modules ./node_modules
 COPY --from=builder /app/release/package.json ./package.json
 COPY --from=builder /app/packages/dashboard/dist ./dashboard
+COPY --from=builder /app/packages/server/drizzle ./drizzle
 
 EXPOSE 3000
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV DB_PATH=/app/data/clawlens.db
+ENV DATABASE_URL=postgresql://howinlens:howinlens@postgres:5432/howinlens
 ENV DASHBOARD_DIR=/app/dashboard
 
 CMD ["node", "server.mjs"]

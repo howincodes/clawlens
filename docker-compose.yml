@@ -1,41 +1,42 @@
-# Standard docker-compose — exposes port 3000 directly.
-# Use this when you have an existing reverse proxy (nginx, Traefik, etc.)
-# or for local development.
-#
-# For auto-HTTPS with Caddy (recommended for standalone deployments), use:
-#   docker compose -f docker-compose.caddy.yml up -d
-#
-# NOTE: If you use a reverse proxy in front of ClawLens, forward WebSocket
-# upgrade headers for real-time features. The dashboard will automatically
-# fall back to HTTP polling if WebSocket is unavailable.
-#
-# Example nginx config for the /ws path:
-#
-#   location /ws {
-#       proxy_pass http://127.0.0.1:3000;
-#       proxy_http_version 1.1;
-#       proxy_set_header Upgrade $http_upgrade;
-#       proxy_set_header Connection "upgrade";
-#       proxy_read_timeout 86400;
-#   }
-
 services:
-  clawlens:
+  howinlens:
     build: .
-    container_name: clawlens
+    container_name: howinlens
     restart: always
     ports:
       - "${PORT:-3000}:3000"
     volumes:
-      - clawlens-data:/app/data
-      - ${HOME}/.claude:/root/.claude
-      - ${HOME}/.claude.json:/root/.claude.json
-      - ${HOME}/.local/bin/claude:/usr/local/bin/claude:ro
+      - howinlens-data:/app/data
+      - ${HOME}/.claude:/root/.claude:ro
     environment:
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
       - PORT=3000
-      - DB_PATH=/app/data/clawlens.db
-      - CLAWLENS_DEBUG=${CLAWLENS_DEBUG:-false}
+      - DATABASE_URL=postgresql://howinlens:${DB_PASSWORD:-howinlens}@postgres:5432/howinlens
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@howinlens.local}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - JWT_SECRET=${JWT_SECRET:-}
+      - HOWINLENS_DEBUG=${HOWINLENS_DEBUG:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: howinlens-db
+    restart: always
+    volumes:
+      - howinlens-pgdata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=howinlens
+      - POSTGRES_USER=howinlens
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-howinlens}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U howinlens"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "${DB_PORT:-5432}:5432"
 
 volumes:
-  clawlens-data:
+  howinlens-data:
+  howinlens-pgdata:
