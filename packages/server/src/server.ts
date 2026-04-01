@@ -18,6 +18,7 @@ import { watcherRouter } from './routes/watcher-api.js';
 import { clientRouter } from './routes/client-api.js';
 import { subscriptionRouter } from './routes/subscription-api.js';
 import { startAICrons } from './services/ai-jobs.js';
+import { startUsageMonitor } from './services/usage-monitor.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -131,6 +132,7 @@ if (process.env.NODE_ENV !== 'test') {
 
     let stopDeadman: (() => void) | undefined;
     let stopAICrons: (() => void) | undefined;
+    let stopUsageMonitor: (() => void) | undefined;
 
     server.listen(port, () => {
       console.log(`[howinlens] Server running on port ${port}`);
@@ -151,12 +153,16 @@ if (process.env.NODE_ENV !== 'test') {
 
       stopAICrons = startAICrons();
       console.log('[howinlens] AI intelligence crons started');
+
+      stopUsageMonitor = startUsageMonitor();
+      console.log('[howinlens] Usage monitor started');
     });
 
     const shutdown = async () => {
       console.log('[howinlens] Shutting down...');
       if (stopDeadman) stopDeadman();
       if (stopAICrons) stopAICrons();
+      if (stopUsageMonitor) stopUsageMonitor();
       await closeDb();
       server.close();
     };

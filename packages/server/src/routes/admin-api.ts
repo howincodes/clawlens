@@ -35,6 +35,7 @@ import { adminAuth, generateToken } from '../middleware/admin-auth.js';
 import { getUserTamperStatus } from '../services/tamper.js';
 import { generateSummary, isClaudeAvailable } from '../services/claude-ai.js';
 import { queueSessionAnalysis, updateUserProfile, generateTeamPulse } from '../services/ai-jobs.js';
+import { generateTaskSuggestions } from '../services/task-generation.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1845,6 +1846,12 @@ adminRouter.delete('/statuses/:id', adminAuth, async (req: Request, res: Respons
 adminRouter.post('/requirements', adminAuth, async (req: Request, res: Response) => {
   try {
     const input = await createRequirementInput({ ...req.body, createdBy: req.admin?.sub });
+
+    // Trigger AI task generation in background (don't await — let it run async)
+    generateTaskSuggestions(input.id).catch(err => {
+      console.error('[admin-api] Background task generation failed:', err);
+    });
+
     res.json(input);
   } catch (err) {
     console.error('[admin-api] create requirement error:', err);
