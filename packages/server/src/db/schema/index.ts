@@ -7,4 +7,6 @@ export * from './subscriptions.js';
 export * from './alerts.js';
 export * from './watcher.js';
 export * from './ai.js';
+export * from './roles.js';
+export * from './projects.js';
 export * from './model-credits.js';
