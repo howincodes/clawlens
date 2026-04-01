@@ -15,6 +15,8 @@ import { adminRouter } from './routes/admin-api.js';
 import { hookRouter } from './routes/hook-api.js';
 import { codexRouter } from './routes/codex-api.js';
 import { watcherRouter } from './routes/watcher-api.js';
+import { clientRouter } from './routes/client-api.js';
+import { subscriptionRouter } from './routes/subscription-api.js';
 import { startAICrons } from './services/ai-jobs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -60,12 +62,14 @@ app.get('/api/v1/health', (_req, res) => {
 app.use('/api/v1/hook', hookAuth, hookRouter);
 app.use('/api/v1/codex', hookAuth, codexRouter);
 app.use('/api/v1/watcher', hookAuth, watcherRouter);
+app.use('/api/v1/client', hookAuth, clientRouter);
 
 // ---------------------------------------------------------------------------
 // Admin API routes (React dashboard endpoints)
 // ---------------------------------------------------------------------------
 
 app.use('/api/admin', adminRouter);
+app.use('/api/admin/subscriptions', subscriptionRouter);
 
 // ---------------------------------------------------------------------------
 // Serve dashboard static files
