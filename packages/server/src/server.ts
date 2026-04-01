@@ -3,9 +3,10 @@ import cors from 'cors';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 
-import { initDb, getDb, closeDb } from './services/db.js';
+import { initDb, closeDb } from './db/index.js';
+import { seedDatabase } from './db/seed.js';
 import { initWebSocket } from './services/websocket.js';
 import { initWatcherWebSocket } from './services/watcher-ws.js';
 import { startDeadmanSwitch } from './services/deadman.js';
@@ -114,58 +115,49 @@ app.use(
 // ---------------------------------------------------------------------------
 
 if (process.env.NODE_ENV !== 'test') {
-  const port = parseInt(process.env.PORT ?? '3000', 10);
-  const dbPath = process.env.DB_PATH ?? path.join(__dirname, '..', 'clawlens.db');
+  (async () => {
+    const port = parseInt(process.env.PORT ?? '3000', 10);
 
-  // Ensure the directory exists
-  mkdirSync(path.dirname(dbPath), { recursive: true });
+    initDb();
+    await seedDatabase();
 
-  initDb(dbPath);
+    const server = createServer(app);
+    initWebSocket(server);
+    initWatcherWebSocket(server);
 
-  const server = createServer(app);
-  initWebSocket(server);
-  initWatcherWebSocket(server);
+    let stopDeadman: (() => void) | undefined;
+    let stopAICrons: (() => void) | undefined;
 
-  let stopDeadman: (() => void) | undefined;
-  let stopAICrons: (() => void) | undefined;
+    server.listen(port, () => {
+      console.log(`[howinlens] Server running on port ${port}`);
+      console.log(`[howinlens] Dashboard: http://localhost:${port}`);
+      console.log(`[howinlens] Hook API:  http://localhost:${port}/api/v1/hook/`);
+      console.log(`[howinlens] Admin API: http://localhost:${port}/api/admin/`);
+      console.log(`[howinlens] Database:  PostgreSQL`);
 
-  server.listen(port, () => {
-    console.log(`[clawlens] Server running on port ${port}`);
-    console.log(`[clawlens] Dashboard: http://localhost:${port}`);
-    console.log(`[clawlens] Hook API:  http://localhost:${port}/api/v1/hook/`);
-    console.log(`[clawlens] Admin API: http://localhost:${port}/api/admin/`);
-    console.log(`[clawlens] Database:  ${dbPath}`);
+      if (!process.env.ADMIN_PASSWORD) {
+        console.warn('[howinlens] WARNING: Using default admin password. Set ADMIN_PASSWORD env var.');
+      }
+      if (!process.env.JWT_SECRET) {
+        console.log('[howinlens] JWT secret auto-generated (sessions reset on restart)');
+      }
 
-    if (!process.env.ADMIN_PASSWORD) {
-      console.warn('[clawlens] WARNING: Using default admin password. Set ADMIN_PASSWORD env var for production.');
-    }
-    if (!process.env.JWT_SECRET) {
-      console.log('[clawlens] JWT secret auto-generated (sessions reset on restart)');
-    }
+      stopDeadman = startDeadmanSwitch();
+      console.log('[howinlens] Dead man\'s switch started');
 
-    stopDeadman = startDeadmanSwitch();
-    console.log('[clawlens] Dead man\'s switch started');
+      stopAICrons = startAICrons();
+      console.log('[howinlens] AI intelligence crons started');
+    });
 
-    stopAICrons = startAICrons();
-    console.log('[clawlens] AI intelligence crons started');
-  });
+    const shutdown = async () => {
+      console.log('[howinlens] Shutting down...');
+      if (stopDeadman) stopDeadman();
+      if (stopAICrons) stopAICrons();
+      await closeDb();
+      server.close();
+    };
 
-  // Graceful shutdown
-  const shutdown = () => {
-    console.log('[clawlens] Shutting down...');
-    if (stopDeadman) {
-      stopDeadman();
-    }
-    if (stopAICrons) {
-      stopAICrons();
-    }
-    try {
-      getDb().pragma('wal_checkpoint(FULL)');
-    } catch {}
-    closeDb();
-    server.close();
-  };
-
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
+    process.on('SIGTERM', () => void shutdown());
+    process.on('SIGINT', () => void shutdown());
+  })();
 }

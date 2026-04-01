@@ -14,9 +14,10 @@ const TOKEN_EXPIRY = '24h';
 // ---------------------------------------------------------------------------
 
 export interface AdminPayload {
-  sub: string;       // admin user id
+  sub: number;         // user id (integer now)
   email: string;
-  role: string;      // 'admin' | 'super_admin'
+  role: string;        // primary role name
+  permissions: string[];  // permission keys for quick access checks
   iat?: number;
   exp?: number;
 }
