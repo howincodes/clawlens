@@ -67,8 +67,11 @@ function processJsonlFile(filePath: string) {
 
     if (content.length <= offset) return;
 
-    const newContent = content.slice(offset);
-    fileOffsets.set(filePath, content.length);
+    const lastNewline = content.lastIndexOf('\n');
+    if (lastNewline <= offset) return; // No complete new lines
+
+    const newContent = content.slice(offset, lastNewline + 1);
+    fileOffsets.set(filePath, lastNewline + 1);
 
     const lines = newContent.split('\n').filter(l => l.trim());
 

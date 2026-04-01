@@ -1890,7 +1890,7 @@ adminRouter.post('/requirements/:id/approve', adminAuth, async (req: Request, re
           description: st.description,
           priority: st.priority,
           effort: st.effort,
-          assigneeId: st.assigneeId,
+          assigneeId: st.suggestedAssigneeId || st.assigneeId,
           createdBy: req.admin!.sub,
         });
         await recordTaskActivity({ taskId: task.id, userId: req.admin!.sub, action: 'created' });

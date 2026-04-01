@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { getProject, getProjectMembersApi, getUsers, addProjectMemberApi, removeProjectMemberApi, getTasks, getMilestones, submitRequirement, getRequirementSuggestions, approveRequirementSuggestions } from '../lib/api';
 
@@ -16,6 +16,7 @@ export default function ProjectDetail() {
   const [generating, setGenerating] = useState(false);
   const [suggestions, setSuggestions] = useState<any>(null);
   const [lastRequirementId, setLastRequirementId] = useState<number | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!projectId) return;
@@ -33,6 +34,12 @@ export default function ProjectDetail() {
       setMilestones(ms);
     }).finally(() => setLoading(false));
   }, [projectId]);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
 
   const handleAddMember = async (userId: number) => {
     await addProjectMemberApi(projectId, { userId });
@@ -54,16 +61,21 @@ export default function ProjectDetail() {
       setLastRequirementId(input.id);
       // Poll for suggestions (AI generates in background)
       let attempts = 0;
-      const poll = setInterval(async () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(async () => {
         attempts++;
-        const sugg = await getRequirementSuggestions(input.id);
-        if (sugg && sugg.status !== 'not_generated') {
-          clearInterval(poll);
-          setSuggestions(sugg);
-          setGenerating(false);
-        }
+        try {
+          const sugg = await getRequirementSuggestions(input.id);
+          if (sugg && sugg.status !== 'not_generated') {
+            clearInterval(pollRef.current!);
+            pollRef.current = null;
+            setSuggestions(sugg);
+            setGenerating(false);
+          }
+        } catch {}
         if (attempts > 30) { // 30 seconds timeout
-          clearInterval(poll);
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
           setGenerating(false);
         }
       }, 1000);

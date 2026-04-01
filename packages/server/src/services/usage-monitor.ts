@@ -58,6 +58,12 @@ async function checkSubscriptionUsage(accessToken: string): Promise<{
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
+        if (res.statusCode && (res.statusCode === 401 || res.statusCode === 403 || res.statusCode >= 500)) {
+          console.error(`[usage-monitor] API returned ${res.statusCode} for credential check`);
+          resolve(null);
+          return;
+        }
+
         const u5h = parseFloat(headers['anthropic-ratelimit-unified-5h-utilization'] as string || '0');
         const u7d = parseFloat(headers['anthropic-ratelimit-unified-7d-utilization'] as string || '0');
         const r5h = parseInt(headers['anthropic-ratelimit-unified-5h-reset'] as string || '0', 10);
@@ -123,42 +129,47 @@ async function pollAllSubscriptions() {
       continue;
     }
 
-    const usage = await checkSubscriptionUsage(cred.accessToken);
-    if (!usage) {
-      debug(`Failed to get usage for credential ${cred.id} (${cred.email})`);
-      continue;
-    }
+    try {
+      const usage = await checkSubscriptionUsage(cred.accessToken);
+      if (!usage) {
+        debug(`Failed to get usage for credential ${cred.id} (${cred.email})`);
+        continue;
+      }
 
-    debug(`Credential ${cred.id} (${cred.email}): 5h=${(usage.fiveHourUtilization * 100).toFixed(0)}%, 7d=${(usage.sevenDayUtilization * 100).toFixed(0)}%, opus=${(usage.opusWeeklyUtilization * 100).toFixed(0)}%, sonnet=${(usage.sonnetWeeklyUtilization * 100).toFixed(0)}%`);
+      debug(`Credential ${cred.id} (${cred.email}): 5h=${(usage.fiveHourUtilization * 100).toFixed(0)}%, 7d=${(usage.sevenDayUtilization * 100).toFixed(0)}%, opus=${(usage.opusWeeklyUtilization * 100).toFixed(0)}%, sonnet=${(usage.sonnetWeeklyUtilization * 100).toFixed(0)}%`);
 
-    await recordUsageSnapshot({
-      credentialId: cred.id,
-      fiveHourUtilization: usage.fiveHourUtilization,
-      sevenDayUtilization: usage.sevenDayUtilization,
-      fiveHourResetsAt: usage.fiveHourResetsAt ?? undefined,
-      sevenDayResetsAt: usage.sevenDayResetsAt ?? undefined,
-      opusWeeklyUtilization: usage.opusWeeklyUtilization,
-      sonnetWeeklyUtilization: usage.sonnetWeeklyUtilization,
-    });
-
-    // Auto-start session reset if 5h drops to 0% (Phase 1, Item 7)
-    await autoStartSessionIfNeeded(cred, usage.fiveHourUtilization);
-
-    // Alert if approaching limit (80%+)
-    if (usage.fiveHourUtilization >= 0.8) {
-      console.log(`[usage-monitor] WARNING: Subscription ${cred.email} at ${(usage.fiveHourUtilization * 100).toFixed(0)}% (5h window)`);
-      broadcast({
-        type: 'subscription_alert',
+      await recordUsageSnapshot({
         credentialId: cred.id,
-        email: cred.email,
         fiveHourUtilization: usage.fiveHourUtilization,
         sevenDayUtilization: usage.sevenDayUtilization,
+        fiveHourResetsAt: usage.fiveHourResetsAt ?? undefined,
+        sevenDayResetsAt: usage.sevenDayResetsAt ?? undefined,
+        opusWeeklyUtilization: usage.opusWeeklyUtilization,
+        sonnetWeeklyUtilization: usage.sonnetWeeklyUtilization,
       });
-    }
 
-    // Auto-rotate if above 85%
-    if (usage.fiveHourUtilization >= 0.85) {
-      await autoRotateUsers(cred.id);
+      // Auto-start session reset if 5h drops to 0% (Phase 1, Item 7)
+      await autoStartSessionIfNeeded(cred, usage.fiveHourUtilization);
+
+      // Alert if approaching limit (80%+)
+      if (usage.fiveHourUtilization >= 0.8) {
+        console.log(`[usage-monitor] WARNING: Subscription ${cred.email} at ${(usage.fiveHourUtilization * 100).toFixed(0)}% (5h window)`);
+        broadcast({
+          type: 'subscription_alert',
+          credentialId: cred.id,
+          email: cred.email,
+          fiveHourUtilization: usage.fiveHourUtilization,
+          sevenDayUtilization: usage.sevenDayUtilization,
+        });
+      }
+
+      // Auto-rotate if above 85%
+      if (usage.fiveHourUtilization >= 0.85) {
+        await autoRotateUsers(cred.id);
+      }
+    } catch (err) {
+      console.error(`[usage-monitor] Error processing credential ${cred.id} (${cred.email}):`, err);
+      continue;
     }
   }
 }

@@ -6,6 +6,9 @@ import os from 'os';
 const CRED_PATH = path.join(os.homedir(), '.claude', '.credentials.json');
 const KEYCHAIN_SERVICE = 'Claude Code-credentials';
 
+// NOTE: Credentials are stored in the same format and location that Claude Code
+// uses (~/.claude/.credentials.json). File permissions (0o600) restrict access.
+// On macOS, credentials are also stored in the system Keychain for additional security.
 export async function writeCredentials(accessToken: string, refreshToken: string): Promise<void> {
   const creds = {
     claudeAiOauth: {
