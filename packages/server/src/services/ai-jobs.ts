@@ -1,17 +1,19 @@
 import cron from 'node-cron';
 import {
-  getDb,
   getSessionById,
   getPromptsBySession,
   getUserProfile,
   upsertUserProfile,
   getUserPromptCount,
   updateSessionAI,
-  getUsersByTeam,
-  listTeams,
-  createTeamPulse,
+  getAllUsers,
   getAllUserProfiles,
-} from './db.js';
+  createTeamPulse,
+  getUserCreditUsage,
+} from '../db/queries/index.js';
+import { getDb } from '../db/index.js';
+import { toolEvents, prompts, sessions } from '../db/schema/index.js';
+import { eq, and, gte, sql, desc } from 'drizzle-orm';
 import { runClaude, isClaudeAvailable } from './claude-ai.js';
 import { z } from 'zod';
 
@@ -55,43 +57,49 @@ const SessionAnalysisSchema = z.object({
   tools_summary: z.string(),
 });
 
-export function queueSessionAnalysis(sessionId: string, userId: string): void {
+export function queueSessionAnalysis(sessionId: string, userId: number): void {
   enqueueJob(`session-analysis:${sessionId}`, async () => {
     await analyzeSession(sessionId, userId);
   });
 }
 
-async function analyzeSession(sessionId: string, userId: string): Promise<void> {
+async function analyzeSession(sessionId: string, userId: number): Promise<void> {
   const available = await isClaudeAvailable();
   if (!available) return;
 
-  const session = getSessionById(sessionId);
+  const session = await getSessionById(sessionId);
   if (!session) return;
-  if (session.ai_analyzed_at) return; // already analyzed
+  if (session.aiAnalyzedAt) return; // already analyzed
 
-  const prompts = getPromptsBySession(sessionId);
-  if (prompts.length < 2) return; // not worth analyzing
+  const sessionPrompts = await getPromptsBySession(sessionId);
+  if (sessionPrompts.length < 2) return; // not worth analyzing
 
   // Get tool events for this session
   const db = getDb();
-  const tools = db.prepare(
-    `SELECT tool_name, success, COUNT(*) as count FROM tool_events WHERE session_id = ? GROUP BY tool_name, success`
-  ).all(sessionId) as any[];
+  const tools = await db
+    .select({
+      toolName: toolEvents.toolName,
+      success: toolEvents.success,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(toolEvents)
+    .where(eq(toolEvents.sessionId, sessionId))
+    .groupBy(toolEvents.toolName, toolEvents.success);
 
-  const duration = session.ended_at
-    ? Math.round((new Date(session.ended_at).getTime() - new Date(session.started_at).getTime()) / 60000)
+  const duration = session.endedAt
+    ? Math.round((new Date(session.endedAt).getTime() - new Date(session.startedAt).getTime()) / 60000)
     : 0;
 
-  const toolSummary = tools.map(t => `${t.tool_name}(${t.count}${t.success === 0 ? ' failed' : ''})`).join(', ');
+  const toolSummary = tools.map(t => `${t.toolName}(${t.count}${t.success === false ? ' failed' : ''})`).join(', ');
 
-  const promptList = prompts
+  const promptList = sessionPrompts
     .map((p, i) => `${i + 1}. ${p.prompt?.slice(0, 200) || '(empty)'}`)
     .join('\n');
 
   const { data } = await runClaude({
     prompt: `Analyze this Claude Code session and return JSON.
 
-Session: project="${session.cwd || 'unknown'}", ${duration}min, ${prompts.length} prompts, ${session.total_credits} credits, model: ${session.model}
+Session: project="${session.cwd || 'unknown'}", ${duration}min, ${sessionPrompts.length} prompts, ${session.totalCredits} credits, model: ${session.model}
 
 Prompts:
 ${promptList}
@@ -109,12 +117,12 @@ Return JSON with these exact keys:
     timeout: 60000,
   });
 
-  updateSessionAI(sessionId, {
-    ai_summary: data.summary,
-    ai_categories: JSON.stringify(data.categories),
-    ai_productivity_score: data.productivity_score,
-    ai_key_actions: JSON.stringify(data.key_actions),
-    ai_tools_summary: data.tools_summary,
+  await updateSessionAI(sessionId, {
+    aiSummary: data.summary,
+    aiCategories: JSON.stringify(data.categories),
+    aiProductivityScore: data.productivity_score,
+    aiKeyActions: JSON.stringify(data.key_actions),
+    aiToolsSummary: data.tools_summary,
   });
 }
 
@@ -146,40 +154,71 @@ const DeveloperProfileSchema = z.object({
   flags: z.array(z.string()),
 });
 
-export async function updateUserProfile(userId: string): Promise<void> {
+export async function updateUserProfile(userId: number): Promise<void> {
   const available = await isClaudeAvailable();
   if (!available) return;
 
-  const currentProfile = getUserProfile(userId);
-  const currentPromptCount = getUserPromptCount(userId);
+  const currentProfile = await getUserProfile(userId);
+  const currentPromptCount = await getUserPromptCount(userId);
 
   // Skip if no new prompts
-  if (currentProfile && currentProfile.prompt_count_at_update >= currentPromptCount) return;
+  if (currentProfile && currentProfile.promptCountAtUpdate !== null && currentProfile.promptCountAtUpdate >= currentPromptCount) return;
 
   const db = getDb();
-  const since = currentProfile?.updated_at || new Date(0).toISOString();
+  const since = currentProfile?.updatedAt || new Date(0);
 
   // Get new prompts since last update
-  const newPrompts = db.prepare(
-    `SELECT p.prompt, p.model, p.created_at FROM prompts p WHERE p.user_id = ? AND p.created_at > ? AND p.blocked = 0 AND p.prompt IS NOT NULL ORDER BY p.created_at DESC LIMIT 100`
-  ).all(userId, since) as any[];
+  const newPrompts = await db
+    .select({
+      prompt: prompts.prompt,
+      model: prompts.model,
+      createdAt: prompts.createdAt,
+    })
+    .from(prompts)
+    .where(
+      and(
+        eq(prompts.userId, userId),
+        gte(prompts.createdAt, since),
+        eq(prompts.blocked, false),
+        sql`${prompts.prompt} IS NOT NULL`,
+      ),
+    )
+    .orderBy(desc(prompts.createdAt))
+    .limit(100);
 
   if (newPrompts.length === 0) return;
 
   // Get recent session summaries
-  const recentSessions = db.prepare(
-    `SELECT model, cwd, prompt_count, total_credits, ai_summary, ai_productivity_score, started_at, ended_at FROM sessions WHERE user_id = ? AND started_at > ? ORDER BY started_at DESC LIMIT 20`
-  ).all(userId, since) as any[];
+  const recentSessions = await db
+    .select({
+      model: sessions.model,
+      cwd: sessions.cwd,
+      promptCount: sessions.promptCount,
+      totalCredits: sessions.totalCredits,
+      aiSummary: sessions.aiSummary,
+      aiProductivityScore: sessions.aiProductivityScore,
+      startedAt: sessions.startedAt,
+      endedAt: sessions.endedAt,
+    })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.userId, userId),
+        gte(sessions.startedAt, since),
+      ),
+    )
+    .orderBy(desc(sessions.startedAt))
+    .limit(20);
 
   const previousProfile = currentProfile?.profile || 'No previous profile — this is the first analysis.';
 
   const sessionSummaries = recentSessions
-    .map((s: any, i: number) => `${i + 1}. ${s.cwd || 'unknown'} (${s.prompt_count} prompts, ${s.total_credits} credits, model: ${s.model})${s.ai_summary ? ` — ${s.ai_summary}` : ''}`)
+    .map((s, i) => `${i + 1}. ${s.cwd || 'unknown'} (${s.promptCount} prompts, ${s.totalCredits} credits, model: ${s.model})${s.aiSummary ? ` — ${s.aiSummary}` : ''}`)
     .join('\n');
 
   const promptSamples = newPrompts
     .slice(0, 30)
-    .map((p: any, i: number) => `${i + 1}. [${p.model}] ${p.prompt.slice(0, 150)}`)
+    .map((p, i) => `${i + 1}. [${p.model}] ${(p.prompt ?? '').slice(0, 150)}`)
     .join('\n');
 
   const { data } = await runClaude({
@@ -216,10 +255,10 @@ Return JSON with these exact keys:
     timeout: 60000,
   });
 
-  upsertUserProfile({
-    user_id: userId,
+  await upsertUserProfile({
+    userId,
     profile: JSON.stringify(data),
-    prompt_count_at_update: currentPromptCount,
+    promptCountAtUpdate: currentPromptCount,
   });
 
   console.log(`[ai-jobs] profile updated for user ${userId} (v${(currentProfile?.version || 0) + 1})`);
@@ -239,40 +278,65 @@ const TeamPulseSchema = z.object({
   recommendations: z.array(z.string()),
 });
 
-export async function generateTeamPulse(teamId: string): Promise<void> {
+export async function generateTeamPulse(): Promise<void> {
   const available = await isClaudeAvailable();
   if (!available) return;
 
-  const users = getUsersByTeam(teamId);
-  const profiles = getAllUserProfiles(teamId);
+  const allUsers = await getAllUsers();
+  const profiles = await getAllUserProfiles();
   const db = getDb();
   const today = new Date().toISOString().slice(0, 10);
 
-  const userSummaries = users.map(u => {
-    const profile = profiles.find(p => p.user_id === u.id);
+  const userSummaries = await Promise.all(allUsers.map(async (u) => {
+    const profile = profiles.find(p => p.userId === u.id);
     let profileData: any = {};
     try { if (profile) profileData = JSON.parse(profile.profile); } catch {}
 
-    const todayStats = db.prepare(
-      `SELECT COUNT(*) as prompts, COALESCE(SUM(credit_cost), 0) as credits FROM prompts WHERE user_id = ? AND date(created_at) = ? AND blocked = 0`
-    ).get(u.id, today) as any;
+    const todayStart = new Date(today);
+    const todayStats = await db
+      .select({
+        promptsCount: sql<number>`count(*)::int`,
+        credits: sql<number>`coalesce(sum(${prompts.creditCost}), 0)::real`,
+      })
+      .from(prompts)
+      .where(
+        and(
+          eq(prompts.userId, u.id),
+          gte(prompts.createdAt, todayStart),
+          eq(prompts.blocked, false),
+        ),
+      );
 
-    return `- ${u.name}: ${profileData.role_estimate || 'unknown role'}, productivity ${profileData.productivity?.score || '?'}/100 (${profileData.productivity?.trend || '?'}), focus: ${profileData.current_focus || 'unknown'}, today: ${todayStats.prompts} prompts/${todayStats.credits} credits, flags: ${profileData.flags?.join(', ') || 'none'}`;
-  }).join('\n');
+    const stats = todayStats[0] ?? { promptsCount: 0, credits: 0 };
 
-  const totalToday = db.prepare(
-    `SELECT COUNT(*) as prompts, COALESCE(SUM(credit_cost), 0) as credits FROM prompts WHERE user_id IN (SELECT id FROM users WHERE team_id = ?) AND date(created_at) = ? AND blocked = 0`
-  ).get(teamId, today) as any;
+    return `- ${u.name}: ${profileData.role_estimate || 'unknown role'}, productivity ${profileData.productivity?.score || '?'}/100 (${profileData.productivity?.trend || '?'}), focus: ${profileData.current_focus || 'unknown'}, today: ${stats.promptsCount} prompts/${stats.credits} credits, flags: ${profileData.flags?.join(', ') || 'none'}`;
+  }));
+
+  const todayStart = new Date(today);
+  const totalToday = await db
+    .select({
+      promptsCount: sql<number>`count(*)::int`,
+      credits: sql<number>`coalesce(sum(${prompts.creditCost}), 0)::real`,
+    })
+    .from(prompts)
+    .where(
+      and(
+        gte(prompts.createdAt, todayStart),
+        eq(prompts.blocked, false),
+      ),
+    );
+
+  const totals = totalToday[0] ?? { promptsCount: 0, credits: 0 };
 
   const { data } = await runClaude({
     prompt: `Generate a team executive briefing. Be concise — the reader has 30 seconds.
 
-TEAM: ${users.length} developers
+TEAM: ${allUsers.length} developers
 
 USER PROFILES:
-${userSummaries}
+${userSummaries.join('\n')}
 
-TODAY'S TOTALS: ${totalToday.prompts} prompts, ${totalToday.credits} credits
+TODAY'S TOTALS: ${totals.promptsCount} prompts, ${totals.credits} credits
 
 Return JSON with these exact keys:
 - "headline": string (one sentence team status)
@@ -287,8 +351,8 @@ Return JSON with these exact keys:
     timeout: 60000,
   });
 
-  createTeamPulse({ team_id: teamId, pulse: JSON.stringify(data) });
-  console.log(`[ai-jobs] team pulse generated for team ${teamId}`);
+  await createTeamPulse(JSON.stringify(data));
+  console.log(`[ai-jobs] team pulse generated`);
 }
 
 // ---------------------------------------------------------------------------
@@ -299,16 +363,13 @@ export function startAICrons(): () => void {
   // Update profiles every 2 hours
   const profileCron = cron.schedule('0 */2 * * *', async () => {
     console.log('[ai-jobs] running profile update cron');
-    const teams = listTeams();
-    for (const team of teams) {
-      const users = getUsersByTeam(team.id);
-      for (const user of users) {
-        if (user.status !== 'active') continue;
-        try {
-          await updateUserProfile(user.id);
-        } catch (e: any) {
-          console.error(`[ai-jobs] profile update failed for ${user.name}:`, e.message);
-        }
+    const allUsers = await getAllUsers();
+    for (const user of allUsers) {
+      if (user.status !== 'active') continue;
+      try {
+        await updateUserProfile(user.id);
+      } catch (e: any) {
+        console.error(`[ai-jobs] profile update failed for ${user.name}:`, e.message);
       }
     }
   });
@@ -316,13 +377,10 @@ export function startAICrons(): () => void {
   // Daily team pulse at 9 AM
   const pulseCron = cron.schedule('0 9 * * *', async () => {
     console.log('[ai-jobs] running daily team pulse');
-    const teams = listTeams();
-    for (const team of teams) {
-      try {
-        await generateTeamPulse(team.id);
-      } catch (e: any) {
-        console.error(`[ai-jobs] team pulse failed for ${team.name}:`, e.message);
-      }
+    try {
+      await generateTeamPulse();
+    } catch (e: any) {
+      console.error(`[ai-jobs] team pulse failed:`, e.message);
     }
   });
 

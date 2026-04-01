@@ -15,7 +15,7 @@ await build({
   target: 'node20',
   format: 'esm',
   outfile: join(releaseDir, 'server.mjs'),
-  external: ['better-sqlite3'],
+  external: ['postgres', 'drizzle-orm'],
   banner: {
     js: [
       `import{createRequire}from'module';`,
@@ -29,13 +29,16 @@ await build({
   minify: true,
 });
 
-// 2. Install only better-sqlite3 in release dir (with all deps)
+// 2. Install production deps in release dir
 writeFileSync(join(releaseDir, 'package.json'), JSON.stringify({
-  name: 'clawlens-server',
-  version: '0.2.0',
+  name: 'howinlens-server',
+  version: '0.3.0',
   type: 'module',
   scripts: { start: 'node server.mjs' },
-  dependencies: { 'better-sqlite3': '^11.9.1' },
+  dependencies: {
+    'postgres': '^3.4.5',
+    'drizzle-orm': '^0.39.3',
+  },
 }));
 
 execSync('npm install --production --ignore-scripts=false', {
@@ -54,8 +57,8 @@ rmSync(join(releaseDir, 'package-lock.json'), { force: true });
 
 console.log('Release built:');
 console.log('  release/server.mjs        — bundled server (1 file)');
-console.log('  release/node_modules/     — better-sqlite3 native module');
+console.log('  release/node_modules/     — postgres + drizzle-orm');
 console.log('  release/dashboard/        — static dashboard files');
 console.log('');
 console.log('Deploy:');
-console.log('  PORT=3000 ADMIN_PASSWORD=secret JWT_SECRET=secret node server.mjs');
+console.log('  DATABASE_URL=postgresql://... PORT=3000 ADMIN_PASSWORD=secret JWT_SECRET=secret node server.mjs');

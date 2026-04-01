@@ -4,7 +4,7 @@ import {
   createTamperAlert,
   getUnresolvedTamperAlerts,
   resolveTamperAlert,
-} from './db.js';
+} from '../db/queries/index.js';
 
 /**
  * Check if a user's hook integrity hash has changed.
@@ -16,21 +16,21 @@ import {
  *
  * @returns true if integrity is OK, false if tampered
  */
-export function checkHookIntegrity(
-  userId: string,
+export async function checkHookIntegrity(
+  userId: number,
   reportedHash: string | undefined,
-): boolean {
-  const user = getUserById(userId);
+): Promise<boolean> {
+  const user = await getUserById(userId);
   if (!user) return true; // user not found, nothing to compare
 
-  const storedHash = user.hook_integrity_hash;
+  const storedHash = user.hookIntegrityHash;
 
   // If no hash reported, nothing to check
   if (!reportedHash) return true;
 
   // If no previous hash stored, store the new one and return OK
   if (!storedHash) {
-    updateUser(userId, { hook_integrity_hash: reportedHash });
+    await updateUser(userId, { hookIntegrityHash: reportedHash });
     return true;
   }
 
@@ -40,17 +40,17 @@ export function checkHookIntegrity(
   }
 
   // Hash mismatch — tamper detected
-  createTamperAlert({
-    user_id: userId,
-    alert_type: 'hooks_modified',
+  await createTamperAlert({
+    userId,
+    alertType: 'hooks_modified',
     details: JSON.stringify({
-      previous_hash: storedHash,
-      reported_hash: reportedHash,
+      previousHash: storedHash,
+      reportedHash,
     }),
   });
 
   // Update stored hash to the new value
-  updateUser(userId, { hook_integrity_hash: reportedHash });
+  await updateUser(userId, { hookIntegrityHash: reportedHash });
 
   return false;
 }
@@ -59,20 +59,20 @@ export function checkHookIntegrity(
  * Get the tamper status for a user.
  * Returns a summary object for the dashboard.
  */
-export function getUserTamperStatus(userId: string): {
+export async function getUserTamperStatus(userId: number): Promise<{
   status: 'ok' | 'inactive' | 'tampered';
   unresolvedAlerts: number;
-  lastEventAt: string | null;
-} {
-  const user = getUserById(userId);
-  const lastEventAt = user?.last_event_at ?? null;
+  lastEventAt: Date | null;
+}> {
+  const user = await getUserById(userId);
+  const lastEventAt = user?.lastEventAt ?? null;
 
-  const alerts = getUnresolvedTamperAlerts(userId);
+  const alerts = await getUnresolvedTamperAlerts(userId);
   const unresolvedAlerts = alerts.length;
 
   // Check for tamper-level alerts
   const hasTamper = alerts.some(
-    (a) => a.alert_type === 'hooks_modified' || a.alert_type === 'config_changed',
+    (a) => a.alertType === 'hooks_modified' || a.alertType === 'config_changed',
   );
 
   if (hasTamper) {
@@ -80,7 +80,7 @@ export function getUserTamperStatus(userId: string): {
   }
 
   // Check for inactive alerts
-  const hasInactive = alerts.some((a) => a.alert_type === 'inactive');
+  const hasInactive = alerts.some((a) => a.alertType === 'inactive');
 
   if (hasInactive) {
     return { status: 'inactive', unresolvedAlerts, lastEventAt };
@@ -95,13 +95,13 @@ export function getUserTamperStatus(userId: string): {
  *
  * @returns count of resolved alerts
  */
-export function autoResolveInactiveAlerts(userId: string): number {
-  const alerts = getUnresolvedTamperAlerts(userId);
+export async function autoResolveInactiveAlerts(userId: number): Promise<number> {
+  const alerts = await getUnresolvedTamperAlerts(userId);
   let resolved = 0;
 
   for (const alert of alerts) {
-    if (alert.alert_type === 'inactive') {
-      resolveTamperAlert(alert.id);
+    if (alert.alertType === 'inactive') {
+      await resolveTamperAlert(alert.id);
       resolved++;
     }
   }

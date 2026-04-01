@@ -605,7 +605,7 @@ hookRouter.post('/session-end', async (req: Request, res: Response) => {
     await endSession(data.session_id, data.reason ?? 'unknown');
 
     // Queue AI analysis for the completed session
-    queueSessionAnalysis(data.session_id, String(user.id));
+    queueSessionAnalysis(data.session_id, user.id);
 
     // Update last_event_at
     await touchUserLastEvent(user.id);

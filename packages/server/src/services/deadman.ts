@@ -1,10 +1,9 @@
 import cron from 'node-cron';
 import {
-  listTeams,
-  getUsersByTeam,
+  getAllUsers,
   createTamperAlert,
   getUnresolvedTamperAlerts,
-} from './db.js';
+} from '../db/queries/index.js';
 
 // Default threshold: 8 hours (in milliseconds)
 const DEFAULT_THRESHOLD_MS = 8 * 60 * 60 * 1000;
@@ -19,52 +18,48 @@ export interface DeadmanConfig {
  * For each active user: if last_event_at is older than threshold, create an "inactive" tamper alert
  * (but only if there isn't already an unresolved "inactive" alert for that user).
  */
-export function runDeadmanCheck(thresholdMs?: number): {
+export async function runDeadmanCheck(thresholdMs?: number): Promise<{
   checked: number;
-  flagged: string[];
-} {
+  flagged: number[];
+}> {
   const threshold = thresholdMs ?? DEFAULT_THRESHOLD_MS;
   const now = Date.now();
   let checked = 0;
-  const flagged: string[] = [];
+  const flagged: number[] = [];
 
-  const teams = listTeams();
+  const users = await getAllUsers();
 
-  for (const team of teams) {
-    const users = getUsersByTeam(team.id);
+  for (const user of users) {
+    // Only check active users
+    if (user.status !== 'active') continue;
 
-    for (const user of users) {
-      // Only check active users
-      if (user.status !== 'active') continue;
+    checked++;
 
-      checked++;
+    // If lastEventAt is null, skip (never connected, not an alert)
+    if (!user.lastEventAt) continue;
 
-      // If last_event_at is null, skip (never connected, not an alert)
-      if (!user.last_event_at) continue;
+    const lastEventTime = new Date(user.lastEventAt).getTime();
+    const elapsed = now - lastEventTime;
 
-      const lastEventTime = new Date(user.last_event_at).getTime();
-      const elapsed = now - lastEventTime;
+    if (elapsed > threshold) {
+      // Check if there's already an unresolved 'inactive' alert for this user
+      const existingAlerts = await getUnresolvedTamperAlerts(user.id);
+      const hasInactiveAlert = existingAlerts.some(
+        (a) => a.alertType === 'inactive',
+      );
 
-      if (elapsed > threshold) {
-        // Check if there's already an unresolved 'inactive' alert for this user
-        const existingAlerts = getUnresolvedTamperAlerts(user.id);
-        const hasInactiveAlert = existingAlerts.some(
-          (a) => a.alert_type === 'inactive',
-        );
-
-        if (!hasInactiveAlert) {
-          createTamperAlert({
-            user_id: user.id,
-            alert_type: 'inactive',
-            details: JSON.stringify({
-              last_event_at: user.last_event_at,
-              threshold_hours: threshold / 3600000,
-            }),
-          });
-        }
-
-        flagged.push(user.id);
+      if (!hasInactiveAlert) {
+        await createTamperAlert({
+          userId: user.id,
+          alertType: 'inactive',
+          details: JSON.stringify({
+            lastEventAt: user.lastEventAt,
+            thresholdHours: threshold / 3600000,
+          }),
+        });
       }
+
+      flagged.push(user.id);
     }
   }
 
@@ -79,9 +74,9 @@ export function startDeadmanSwitch(config?: DeadmanConfig): () => void {
   const cronExpression = config?.checkIntervalCron ?? '*/5 * * * *';
   const thresholdMs = config?.thresholdMs;
 
-  const task = cron.schedule(cronExpression, () => {
+  const task = cron.schedule(cronExpression, async () => {
     try {
-      runDeadmanCheck(thresholdMs);
+      await runDeadmanCheck(thresholdMs);
     } catch (err) {
       console.error('[deadman] Check failed:', err);
     }
