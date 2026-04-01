@@ -3,6 +3,9 @@
   "version": "0.3.0",
   "description": "HowinLens Desktop Client",
   "main": "dist/main/index.js",
+  "bin": {
+    "howinlens": "dist/cli/index.js"
+  },
   "private": true,
   "scripts": {
     "dev": "electron .",
