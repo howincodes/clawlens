@@ -12,6 +12,7 @@ import { getProjectDirectories, linkProjectDirectory, getProjectDirectoryByPath 
 import { recordFileEvents } from '../db/queries/tracking.js';
 import { recordAppTracking } from '../db/queries/tracking.js';
 import { updateUser } from '../db/queries/users.js';
+import { getProjectById } from '../db/queries/projects.js';
 
 export const clientRouter: RouterType = Router();
 
@@ -164,6 +165,11 @@ clientRouter.post('/conversations', async (req: Request, res: Response) => {
       return res.json({ ok: true, synced: 0 });
     }
 
+    const valid = messages.every((m: any) => m.type && typeof m.type === 'string');
+    if (!valid) {
+      return res.status(400).json({ error: 'Each message must have a type field' });
+    }
+
     const enriched = messages.map((m: any) => ({
       userId: user.id,
       sessionId: m.sessionId,
@@ -194,6 +200,11 @@ clientRouter.post('/file-events', async (req: Request, res: Response) => {
 
     if (!Array.isArray(events) || events.length === 0) {
       return res.json({ ok: true, synced: 0 });
+    }
+
+    const valid = events.every((e: any) => e.filePath && e.eventType);
+    if (!valid) {
+      return res.status(400).json({ error: 'Each event must have filePath and eventType' });
     }
 
     const enriched = events.map((e: any) => ({
@@ -253,6 +264,16 @@ clientRouter.post('/project-directories', async (req: Request, res: Response) =>
     const user = req.user!;
     const { projectId, localPath, discoveredVia } = req.body;
 
+    if (!projectId || !localPath) {
+      return res.status(400).json({ error: 'projectId and localPath required' });
+    }
+
+    // Verify project exists
+    const project = await getProjectById(projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
     // Check if already linked
     const existing = await getProjectDirectoryByPath(user.id, localPath);
     if (existing) {
@@ -282,10 +303,15 @@ clientRouter.get('/tasks', async (req: Request, res: Response) => {
 // PUT /tasks/:id/status — quick status update from client
 clientRouter.put('/tasks/:id/status', async (req: Request, res: Response) => {
   try {
+    const user = req.user!;
     const taskId = parseInt(req.params.id as string);
     const { status } = req.body;
+
+    const existing = await getTaskById(taskId);
+    if (!existing) return res.status(404).json({ error: 'Task not found' });
+    if (existing.assigneeId !== user.id) return res.status(403).json({ error: 'Not your task' });
+
     const task = await updateTask(taskId, { status, updatedAt: new Date() });
-    if (!task) return res.status(404).json({ error: 'Task not found' });
     res.json(task);
   } catch (err) {
     console.error('[client-api] task status update error:', err);

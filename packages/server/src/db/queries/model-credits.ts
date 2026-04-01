@@ -84,20 +84,18 @@ export async function getProviderQuotas(userId: number, source?: string) {
 
 export async function getOrCreateModelAlias(rawName: string, displayName?: string, provider?: string, family?: string, tier?: string) {
   const db = getDb();
-  // Try to find existing
-  const [existing] = await db.select().from(modelAliases).where(eq(modelAliases.rawName, rawName));
-  if (existing) return existing;
-
-  // Auto-detect provider/family/tier from raw name
   const detected = detectModelInfo(rawName);
-  const [created] = await db.insert(modelAliases).values({
+
+  await db.insert(modelAliases).values({
     rawName,
     displayName: displayName || detected.displayName,
     provider: provider || detected.provider,
     family: family || detected.family,
     tier: tier || detected.tier,
-  }).returning();
-  return created;
+  }).onConflictDoNothing({ target: modelAliases.rawName });
+
+  const [result] = await db.select().from(modelAliases).where(eq(modelAliases.rawName, rawName));
+  return result;
 }
 
 export async function getAllModelAliases() {

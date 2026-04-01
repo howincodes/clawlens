@@ -125,15 +125,17 @@ export async function getAssignmentsByCredential(credentialId: number) {
 
 export async function getLeastUsedCredential() {
   const db = getDb();
-  const [result] = await db.execute(sql`
-    SELECT sc.* FROM subscription_credentials sc
+  const result = await db.execute(sql`
+    SELECT sc.id FROM subscription_credentials sc
     LEFT JOIN credential_assignments ca ON ca.credential_id = sc.id AND ca.status = 'active'
     WHERE sc.is_active = true
     GROUP BY sc.id
     ORDER BY COUNT(ca.id) ASC
     LIMIT 1
   `);
-  return result;
+  const row = result[0] as { id: number } | undefined;
+  if (!row) return undefined;
+  return getSubscriptionCredentialById(row.id);
 }
 
 // ---------------------------------------------------------------------------

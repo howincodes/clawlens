@@ -48,7 +48,7 @@ subscriptionRouter.get('/credentials', async (_req: Request, res: Response) => {
 subscriptionRouter.post('/credentials', async (req: Request, res: Response) => {
   try {
     const credential = await createSubscriptionCredential(req.body);
-    res.json(credential);
+    res.json({ ...credential, accessToken: undefined, refreshToken: undefined });
   } catch (err) {
     console.error('[subscription-api] create credential error:', err);
     res.status(500).json({ error: 'Internal server error' });

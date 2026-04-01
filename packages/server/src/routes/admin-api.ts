@@ -21,7 +21,7 @@ import {
   createMilestone, getMilestonesByProject, updateMilestone, deleteMilestone,
   getStatusConfigs, createStatusConfig, updateStatusConfig, deleteStatusConfig,
   createRequirementInput, getRequirementInput, getRequirementsByProject,
-  createAITaskSuggestion, getAITaskSuggestion, updateAITaskSuggestionStatus,
+  createAITaskSuggestion, getAITaskSuggestion, getAITaskSuggestionByRequirement, updateAITaskSuggestionStatus,
 } from '../db/queries/tasks.js';
 import {
   getFileEventsByUser, getAppTrackingByUser, getActivityWindows,
@@ -1678,7 +1678,7 @@ adminRouter.put('/tasks/:id', adminAuth, async (req: Request, res: Response) => 
     if (req.body.status && req.body.status !== old.status) {
       await recordTaskActivity({ taskId, userId: req.admin!.sub, action: 'status_changed', oldValue: old.status, newValue: req.body.status });
     }
-    if (req.body.assigneeId && req.body.assigneeId !== old.assigneeId) {
+    if (req.body.assigneeId !== undefined && req.body.assigneeId !== old.assigneeId) {
       await recordTaskActivity({ taskId, userId: req.admin!.sub, action: 'assigned', oldValue: old.assigneeId ? String(old.assigneeId) : undefined, newValue: String(req.body.assigneeId) });
     }
     if (req.body.priority && req.body.priority !== old.priority) {
@@ -1854,7 +1854,7 @@ adminRouter.post('/requirements', adminAuth, async (req: Request, res: Response)
 
 adminRouter.get('/requirements/:id/suggestions', adminAuth, async (req: Request, res: Response) => {
   try {
-    const suggestion = await getAITaskSuggestion(parseInt(req.params.id as string));
+    const suggestion = await getAITaskSuggestionByRequirement(parseInt(req.params.id as string));
     res.json(suggestion || { status: 'not_generated' });
   } catch (err) {
     console.error('[admin-api] get suggestions error:', err);
@@ -1864,9 +1864,13 @@ adminRouter.get('/requirements/:id/suggestions', adminAuth, async (req: Request,
 
 adminRouter.post('/requirements/:id/approve', adminAuth, async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id as string);
-    const suggestion = await getAITaskSuggestion(id);
+    const requirementId = parseInt(req.params.id as string);
+    const suggestion = await getAITaskSuggestionByRequirement(requirementId);
     if (!suggestion) return res.status(404).json({ error: 'Suggestion not found' });
+
+    if (suggestion.status !== 'pending') {
+      return res.status(400).json({ error: 'Suggestion already processed' });
+    }
 
     // Create tasks from approved suggestions
     const suggestedTasks = suggestion.suggestedTasks as any[];
@@ -1887,7 +1891,7 @@ adminRouter.post('/requirements/:id/approve', adminAuth, async (req: Request, re
       }
     }
 
-    await updateAITaskSuggestionStatus(id, 'approved', req.admin!.sub);
+    await updateAITaskSuggestionStatus(suggestion.id, 'approved', req.admin!.sub);
     res.json({ success: true, tasksCreated: createdTasks.length, tasks: createdTasks });
   } catch (err) {
     console.error('[admin-api] approve suggestions error:', err);
@@ -1897,7 +1901,11 @@ adminRouter.post('/requirements/:id/approve', adminAuth, async (req: Request, re
 
 adminRouter.post('/requirements/:id/reject', adminAuth, async (req: Request, res: Response) => {
   try {
-    await updateAITaskSuggestionStatus(parseInt(req.params.id as string), 'rejected', req.admin!.sub);
+    const requirementId = parseInt(req.params.id as string);
+    const suggestion = await getAITaskSuggestionByRequirement(requirementId);
+    if (!suggestion) return res.status(404).json({ error: 'Suggestion not found' });
+
+    await updateAITaskSuggestionStatus(suggestion.id, 'rejected', req.admin!.sub);
     res.json({ success: true });
   } catch (err) {
     console.error('[admin-api] reject suggestions error:', err);

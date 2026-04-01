@@ -279,6 +279,12 @@ export async function getAITaskSuggestion(id: number) {
   return suggestion;
 }
 
+export async function getAITaskSuggestionByRequirement(requirementInputId: number) {
+  const db = getDb();
+  const [result] = await db.select().from(aiTaskSuggestions).where(eq(aiTaskSuggestions.requirementInputId, requirementInputId)).orderBy(desc(aiTaskSuggestions.createdAt));
+  return result;
+}
+
 export async function updateAITaskSuggestionStatus(
   id: number,
   status: string,
