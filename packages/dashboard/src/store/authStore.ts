@@ -1,10 +1,17 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+interface User {
+  id: number
+  name: string
+  email: string
+  role: string
+}
+
 interface AuthState {
   token: string | null
-  team: any | null
-  setToken: (token: string, team?: any) => void
+  user: User | null
+  setAuth: (token: string, user: User) => void
   logout: () => void
 }
 
@@ -12,12 +19,12 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       token: null,
-      team: null,
-      setToken: (token, team) => set({ token, team }),
-      logout: () => set({ token: null, team: null }),
+      user: null,
+      setAuth: (token, user) => set({ token, user }),
+      logout: () => set({ token: null, user: null }),
     }),
     {
-      name: 'clawlens-auth',
+      name: 'howinlens-auth',
     }
   )
 )

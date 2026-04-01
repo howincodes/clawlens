@@ -113,12 +113,12 @@ export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSu
                   <div className="flex items-center justify-between px-3 py-1.5 bg-blue-500/10 border-b">
                     <span className="text-xs font-medium text-blue-600">Step 1: Run the installer</span>
                     <CopyButton
-                      text={`bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install.sh)`}
+                      text={`bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/howinlens/main/scripts/install.sh)`}
                       label="step1"
                     />
                   </div>
                   <pre className="p-3 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed">
-{`bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/clawlens/main/scripts/install.sh)`}
+{`bash <(curl -fsSL https://raw.githubusercontent.com/howincodes/howinlens/main/scripts/install.sh)`}
                   </pre>
                 </div>
 

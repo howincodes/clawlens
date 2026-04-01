@@ -5,14 +5,16 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuthStore } from '@/store/authStore'
-import { Terminal, Lock } from 'lucide-react'
+import { login } from '@/lib/api'
+import { Terminal, Lock, Mail } from 'lucide-react'
 
 export function Login() {
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
-  const setToken = useAuthStore((s) => s.setToken)
+  const setAuth = useAuthStore((s) => s.setAuth)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -20,20 +22,8 @@ export function Login() {
     setLoading(true)
 
     try {
-      const res = await fetch('/api/admin/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ password }),
-      })
-
-      if (!res.ok) {
-        throw new Error('Invalid password')
-      }
-
-      const data = await res.json()
-      setToken(data.token, data.team)
+      const data = await login(email, password)
+      setAuth(data.token, data.user)
       navigate('/')
     } catch (err: any) {
       setError(err.message || 'Login failed')
@@ -53,8 +43,8 @@ export function Login() {
           <div className="mx-auto bg-primary/10 w-12 h-12 rounded-full flex items-center justify-center mb-2">
             <Terminal className="w-6 h-6 text-primary" />
           </div>
-          <CardTitle className="text-2xl font-bold tracking-tight">ClawLens</CardTitle>
-          <CardDescription>Enter the admin password to continue</CardDescription>
+          <CardTitle className="text-2xl font-bold tracking-tight">HowinLens</CardTitle>
+          <CardDescription>Sign in with your email and password</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
@@ -63,6 +53,21 @@ export function Login() {
                 {error}
               </div>
             )}
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="email"
+                  type="email"
+                  required
+                  className="pl-9"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                />
+              </div>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <div className="relative">

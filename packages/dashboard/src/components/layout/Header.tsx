@@ -4,13 +4,13 @@ import { Button } from '@/components/ui/button'
 
 export function Header() {
   const logout = useAuthStore((s) => s.logout)
-  const team = useAuthStore((s) => s.team)
+  const user = useAuthStore((s) => s.user)
 
   return (
     <header className="h-16 border-b flex items-center justify-between px-6 bg-background/95 backdrop-blur z-10 sticky top-0">
       <div className="flex items-center gap-4">
         <h2 className="text-sm font-medium text-muted-foreground">
-          {team?.name || 'ClawLens Admin'}
+          {user?.name || 'HowinLens Admin'}
         </h2>
       </div>
       

@@ -46,15 +46,19 @@ export const fetchClient = async (endpoint: string, options: RequestInit = {}) =
 }
 
 // ── Auth ──────────────────────────────────────────────────
-export const login = (password: string) =>
-  fetch('/api/admin/login', {
+export async function login(email: string, password: string) {
+  const res = await fetch('/api/admin/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
-  }).then((r) => {
-    if (!r.ok) throw new Error('Invalid password')
-    return r.json()
+    body: JSON.stringify({ email, password }),
   })
+  if (!res.ok) throw new Error('Invalid credentials')
+  return res.json()
+}
+
+export async function getMe() {
+  return fetchClient('/auth/me')
+}
 
 // ── Team ──────────────────────────────────────────────────
 export const getTeam = () => fetchClient('/team')
@@ -143,4 +147,66 @@ export const updateModelCredit = (id: number, credits: number, tier?: string) =>
 // ── Provider Quotas ──────────────────────────────────
 export const getProviderQuotas = (userId: string, source?: string) =>
   fetchClient(`/provider-quotas/${userId}${source ? `?source=${source}` : ''}`)
+
+// ── Roles ────────────────────────────────────────────
+export async function getRoles() {
+  return fetchClient('/roles')
+}
+
+export async function createRole(data: { name: string; description?: string }) {
+  return fetchClient('/roles', { method: 'POST', body: JSON.stringify(data) })
+}
+
+export async function updateRoleApi(id: number, data: { name?: string; description?: string }) {
+  return fetchClient(`/roles/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+}
+
+export async function deleteRoleApi(id: number) {
+  return fetchClient(`/roles/${id}`, { method: 'DELETE' })
+}
+
+export async function getPermissions() {
+  return fetchClient('/permissions')
+}
+
+export async function getRolePermissions(roleId: number) {
+  return fetchClient(`/roles/${roleId}/permissions`)
+}
+
+export async function setRolePermissions(roleId: number, permissionIds: number[]) {
+  return fetchClient(`/roles/${roleId}/permissions`, { method: 'PUT', body: JSON.stringify({ permissionIds }) })
+}
+
+// ── Projects ─────────────────────────────────────────
+export async function getProjects() {
+  return fetchClient('/projects')
+}
+
+export async function createProjectApi(data: { name: string; description?: string; githubRepoUrl?: string }) {
+  return fetchClient('/projects', { method: 'POST', body: JSON.stringify(data) })
+}
+
+export async function getProject(id: number) {
+  return fetchClient(`/projects/${id}`)
+}
+
+export async function updateProjectApi(id: number, data: any) {
+  return fetchClient(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+}
+
+export async function deleteProjectApi(id: number) {
+  return fetchClient(`/projects/${id}`, { method: 'DELETE' })
+}
+
+export async function getProjectMembersApi(projectId: number) {
+  return fetchClient(`/projects/${projectId}/members`)
+}
+
+export async function addProjectMemberApi(projectId: number, data: { userId: number; roleId?: number }) {
+  return fetchClient(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify(data) })
+}
+
+export async function removeProjectMemberApi(projectId: number, userId: number) {
+  return fetchClient(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' })
+}
 

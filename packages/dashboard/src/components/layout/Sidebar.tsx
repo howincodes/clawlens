@@ -34,7 +34,7 @@ export function Sidebar() {
     <aside className="w-64 border-r bg-card/50 backdrop-blur-sm flex flex-col hidden md:flex">
       <div className="h-16 flex items-center px-6 border-b">
         <Terminal className="w-6 h-6 mr-2 text-primary" />
-        <span className="font-bold text-lg tracking-tight">ClawLens</span>
+        <span className="font-bold text-lg tracking-tight">HowinLens</span>
       </div>
       
       <div className="flex-1 py-6 overflow-y-auto px-3 space-y-6">
