@@ -1,4 +1,4 @@
-import { eq, desc } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { getDb } from '../index.js';
 import { hookEvents, toolEvents, subagentEvents } from '../schema/index.js';
 
@@ -36,6 +36,20 @@ export async function recordToolEvent(params: {
 }) {
   const db = getDb();
   const [event] = await db.insert(toolEvents).values(params).returning();
+  return event;
+}
+
+export async function updateToolEventByToolUseId(
+  toolUseId: string,
+  source: string,
+  updates: { toolOutput?: string; success?: boolean },
+) {
+  const db = getDb();
+  const [event] = await db
+    .update(toolEvents)
+    .set(updates)
+    .where(and(eq(toolEvents.toolUseId, toolUseId), eq(toolEvents.source, source)))
+    .returning();
   return event;
 }
 

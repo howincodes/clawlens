@@ -1,21 +1,15 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import {
-  touchUserLastEvent,
-  updateUser,
-  getLimitsByUser,
-  getUserCreditUsage,
-  getPendingWatcherCommands,
-  markWatcherCommandDelivered,
-  saveWatcherLogs,
-  createSubscription,
-} from '../services/db.js';
+import { getPendingWatcherCommands, markWatcherCommandDelivered, saveWatcherLogs } from '../db/queries/watcher.js';
+import { touchUserLastEvent, updateUser, getUserCreditUsage } from '../db/queries/users.js';
+import { getLimitsByUser } from '../db/queries/limits.js';
+import { createSubscription } from '../db/queries/subscriptions.js';
 
 // ---------------------------------------------------------------------------
-// Debug logging — enabled by CLAWLENS_DEBUG=1
+// Debug logging — enabled by HOWINLENS_DEBUG=1
 // ---------------------------------------------------------------------------
 
-const DEBUG = process.env.CLAWLENS_DEBUG === '1' || process.env.CLAWLENS_DEBUG === 'true';
+const DEBUG = process.env.HOWINLENS_DEBUG === '1' || process.env.HOWINLENS_DEBUG === 'true';
 
 function debug(msg: string): void {
   if (DEBUG) console.log(`[watcher-api] ${msg}`);
@@ -37,7 +31,7 @@ export const watcherRouter = Router();
 // POST /sync — Poll fallback for watcher
 // ---------------------------------------------------------------------------
 
-watcherRouter.post('/sync', (req: Request, res: Response) => {
+watcherRouter.post('/sync', async (req: Request, res: Response) => {
   debug(`──── /sync ────`);
   try {
     const user = req.user!;
@@ -46,15 +40,15 @@ watcherRouter.post('/sync', (req: Request, res: Response) => {
     debug(`body keys: ${Object.keys(body).join(', ')}`);
 
     // 1. Update user's last_event_at
-    touchUserLastEvent(user.id);
+    await touchUserLastEvent(user.id);
     debug(`touched last_event_at`);
 
-    // 2. Update user's default_model and email if provided
-    const userUpdates: Record<string, string> = {};
+    // 2. Update user's defaultModel and email if provided
+    const userUpdates: Partial<Record<string, unknown>> = {};
 
-    if (body.model && body.model !== user.default_model) {
-      userUpdates.default_model = body.model;
-      debug(`will update default_model to "${body.model}"`);
+    if (body.model && body.model !== user.defaultModel) {
+      userUpdates.defaultModel = body.model;
+      debug(`will update defaultModel to "${body.model}"`);
     }
 
     if (body.subscription_email) {
@@ -69,12 +63,12 @@ watcherRouter.post('/sync', (req: Request, res: Response) => {
         const subType = lower.includes('max') ? 'max' : 'pro';
         debug(`watcher subscription update: raw=${body.subscription_type}, normalized=${subType}`);
         try {
-          const sub = createSubscription({
+          const sub = await createSubscription({
             email: body.subscription_email,
-            subscription_type: subType,
+            subscriptionType: subType,
           });
-          if (sub && !user.subscription_id) {
-            updateUser(user.id, { subscription_id: String(sub.id) });
+          if (sub && !user.subscriptionId) {
+            await updateUser(user.id, { subscriptionId: sub.id });
             debug(`linked subscription ${sub.id} to user`);
           }
         } catch (e: any) { debug(`subscription update failed: ${e.message}`); }
@@ -84,7 +78,7 @@ watcherRouter.post('/sync', (req: Request, res: Response) => {
     if (Object.keys(userUpdates).length > 0) {
       debug(`updating user: ${JSON.stringify(userUpdates)}`);
       try {
-        updateUser(user.id, userUpdates);
+        await updateUser(user.id, userUpdates as any);
         debug(`user updated OK`);
       } catch (e: any) {
         debug(`user update FAILED: ${e.message}`);
@@ -92,7 +86,7 @@ watcherRouter.post('/sync', (req: Request, res: Response) => {
     }
 
     // 3. Get user's limits
-    const limits = getLimitsByUser(user.id);
+    const limits = await getLimitsByUser(user.id);
     debug(`user has ${limits.length} limit(s)`);
 
     // 4. Calculate credit usage
@@ -102,7 +96,7 @@ watcherRouter.post('/sync', (req: Request, res: Response) => {
 
     const dailyCreditLimit = limits.find((l) => l.type === 'total_credits' && l.window === 'daily');
     if (dailyCreditLimit) {
-      creditUsed = getUserCreditUsage(user.id, 'daily');
+      creditUsed = await getUserCreditUsage(user.id, 'daily');
       creditLimit = dailyCreditLimit.value;
       creditPercent = creditLimit > 0 ? Math.round((creditUsed / creditLimit) * 100) : 0;
       debug(`credit usage: ${creditUsed}/${creditLimit} (${creditPercent}%)`);
@@ -111,11 +105,12 @@ watcherRouter.post('/sync', (req: Request, res: Response) => {
     }
 
     // 5. Get pending commands, mark each as delivered
-    const pendingCommands = getPendingWatcherCommands(user.id);
+    const pendingCommands = await getPendingWatcherCommands(user.id);
     debug(`pending commands: ${pendingCommands.length}`);
 
-    const commands = pendingCommands.map((cmd) => {
-      markWatcherCommandDelivered(cmd.id);
+    const commands = [];
+    for (const cmd of pendingCommands) {
+      await markWatcherCommandDelivered(cmd.id);
       debug(`marked command ${cmd.id} as delivered`);
 
       // Parse payload JSON and spread into command object
@@ -128,25 +123,25 @@ watcherRouter.post('/sync', (req: Request, res: Response) => {
         }
       }
 
-      return {
+      commands.push({
         id: cmd.id,
         type: cmd.command,
         ...parsedPayload,
-      };
-    });
+      });
+    }
 
     // 6. Parse user's notification preferences (default all ON)
     let notifications = { on_stop: true, on_block: true, on_credit_warning: true, on_kill: true, sound: true };
-    if (user.notification_config) {
-      try { notifications = { ...notifications, ...JSON.parse(user.notification_config) }; } catch {}
+    if (user.notificationConfig) {
+      try { notifications = { ...notifications, ...JSON.parse(user.notificationConfig) }; } catch {}
     }
 
     // 7. Build response
     const response = {
       status: user.status === 'active' ? 'active' : user.status,
-      poll_interval_ms: user.poll_interval || 30000,
-      antigravity_collection: (user as any).antigravity_collection == null ? true : (user as any).antigravity_collection !== 0,
-      antigravity_interval: (user as any).antigravity_interval || 120000,
+      poll_interval_ms: user.pollInterval || 30000,
+      antigravity_collection: user.antigravityCollection == null ? true : user.antigravityCollection,
+      antigravity_interval: user.antigravityInterval || 120000,
       limits: limits.map((l) => ({
         id: l.id,
         type: l.type,
@@ -176,7 +171,7 @@ watcherRouter.post('/sync', (req: Request, res: Response) => {
 // POST /logs — Log upload from watcher
 // ---------------------------------------------------------------------------
 
-watcherRouter.post('/logs', (req: Request, res: Response) => {
+watcherRouter.post('/logs', async (req: Request, res: Response) => {
   debug(`──── /logs ────`);
   try {
     const user = req.user!;
@@ -189,23 +184,23 @@ watcherRouter.post('/logs', (req: Request, res: Response) => {
 
     if (typeof body.hook_log === 'string') {
       hookLog = body.hook_log.slice(0, MAX_LOG_BYTES);
-      debug(`hook_log: ${hookLog.length} bytes (truncated from ${body.hook_log.length})`);
+      debug(`hook_log: ${hookLog!.length} bytes (truncated from ${body.hook_log.length})`);
     } else {
       debug(`hook_log: not provided or not a string`);
     }
 
     if (typeof body.watcher_log === 'string') {
       watcherLog = body.watcher_log.slice(0, MAX_LOG_BYTES);
-      debug(`watcher_log: ${watcherLog.length} bytes (truncated from ${body.watcher_log.length})`);
+      debug(`watcher_log: ${watcherLog!.length} bytes (truncated from ${body.watcher_log.length})`);
     } else {
       debug(`watcher_log: not provided or not a string`);
     }
 
     // 2. Save logs
-    saveWatcherLogs({
-      user_id: user.id,
-      hook_log: hookLog,
-      watcher_log: watcherLog,
+    await saveWatcherLogs({
+      userId: user.id,
+      hookLog,
+      watcherLog,
     });
     debug(`logs saved`);
 

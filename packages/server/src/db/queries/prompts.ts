@@ -81,6 +81,49 @@ export async function updateLastPromptModel(sessionId: string, model: string) {
 }
 
 /**
+ * Update the most recent prompt for a session (by source) that has no response yet,
+ * stamping it with the response text, model, and token counts.
+ * Used by the codex /stop handler.
+ */
+export async function updateLastPromptWithResponse(
+  sessionId: string,
+  source: string,
+  updates: {
+    response?: string;
+    model?: string;
+    inputTokens?: number;
+    cachedTokens?: number;
+    outputTokens?: number;
+    reasoningTokens?: number;
+  },
+) {
+  const db = getDb();
+  // Find the most recent prompt with no response for this session + source
+  const [latest] = await db
+    .select({ id: prompts.id })
+    .from(prompts)
+    .where(
+      and(
+        eq(prompts.sessionId, sessionId),
+        eq(prompts.source, source),
+        sql`${prompts.response} IS NULL`,
+      ),
+    )
+    .orderBy(desc(prompts.id))
+    .limit(1);
+
+  if (latest) {
+    const [updated] = await db
+      .update(prompts)
+      .set(updates)
+      .where(eq(prompts.id, latest.id))
+      .returning();
+    return updated;
+  }
+  return undefined;
+}
+
+/**
  * Check if a prompt with exact content already exists for a given session.
  * Used for deduplication during antigravity sync.
  */

@@ -1,20 +1,17 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import {
-  createSubscription,
-  recordHookEvent,
-  recordPrompt,
-  touchUserLastEvent,
-  getUserCreditUsage,
-  getUserModelCreditUsage,
+  createSession,
   getSessionById,
   incrementSessionPromptCount,
-  getLimitsByUser,
-  getDb,
-  updateUser,
-  getCreditCostFromDb,
-  upsertProviderQuota,
-} from '../services/db.js';
+  updateSessionModel,
+} from '../db/queries/sessions.js';
+import { recordPrompt, updateLastPromptWithResponse } from '../db/queries/prompts.js';
+import { recordHookEvent, recordToolEvent, updateToolEventByToolUseId } from '../db/queries/events.js';
+import { touchUserLastEvent, getUserCreditUsage, getUserModelCreditUsage, updateUser } from '../db/queries/users.js';
+import { getLimitsByUser } from '../db/queries/limits.js';
+import { createSubscription } from '../db/queries/subscriptions.js';
+import { getCreditCostFromDb, upsertProviderQuota } from '../db/queries/model-credits.js';
 import { broadcast } from '../services/websocket.js';
 import {
   CodexSessionStartEvent,
@@ -25,10 +22,10 @@ import {
 } from '../schemas/codex-events.js';
 
 // ---------------------------------------------------------------------------
-// Debug logging — enabled by CLAWLENS_DEBUG=1
+// Debug logging — enabled by HOWINLENS_DEBUG=1
 // ---------------------------------------------------------------------------
 
-const DEBUG = process.env.CLAWLENS_DEBUG === '1' || process.env.CLAWLENS_DEBUG === 'true';
+const DEBUG = process.env.HOWINLENS_DEBUG === '1' || process.env.HOWINLENS_DEBUG === 'true';
 
 function debug(msg: string): void {
   if (DEBUG) console.log(`[codex-api] ${msg}`);
@@ -49,17 +46,14 @@ function normalizeSubscriptionType(raw: string | undefined): string {
 
 /**
  * Ensure session exists — auto-create if SessionStart was missed or failed.
- * Uses direct INSERT with source='codex' columns.
+ * Uses source='codex'.
  */
-function ensureSession(sessionId: string | undefined, userId: string, model?: string, cwd?: string) {
+async function ensureSession(sessionId: string | undefined, userId: number, model?: string, cwd?: string) {
   if (!sessionId) return;
-  const existing = getSessionById(sessionId);
+  const existing = await getSessionById(sessionId);
   if (!existing) {
     try {
-      const db = getDb();
-      db.prepare(
-        `INSERT INTO sessions (id, user_id, model, cwd, source) VALUES (?, ?, ?, ?, 'codex')`,
-      ).run(sessionId, userId, model || 'gpt-5.4', cwd ?? null);
+      await createSession({ id: sessionId, userId, model: model || 'gpt-5.4', cwd, source: 'codex' });
     } catch {}
   }
 }
@@ -74,7 +68,7 @@ export const codexRouter = Router();
 // POST /session-start
 // ---------------------------------------------------------------------------
 
-codexRouter.post('/session-start', (req: Request, res: Response) => {
+codexRouter.post('/session-start', async (req: Request, res: Response) => {
   debug(`──── /session-start ────`);
   try {
     const user = req.user!;
@@ -90,13 +84,13 @@ codexRouter.post('/session-start', (req: Request, res: Response) => {
     // Check user status — killed
     if (user.status === 'killed') {
       debug(`user is KILLED — blocking session`);
-      recordHookEvent({
-        user_id: user.id,
-        session_id: data.session_id,
-        event_type: 'SessionStart',
+      await recordHookEvent({
+        userId: user.id,
+        sessionId: data.session_id,
+        eventType: 'SessionStart',
         payload: JSON.stringify(body),
       });
-      touchUserLastEvent(user.id);
+      await touchUserLastEvent(user.id);
       const resp = { decision: 'block', killed: true, hard: true };
       debug(`responding: ${JSON.stringify(resp)}`);
       res.json(resp);
@@ -106,13 +100,13 @@ codexRouter.post('/session-start', (req: Request, res: Response) => {
     // Check user status — paused
     if (user.status === 'paused') {
       debug(`user is PAUSED — blocking session`);
-      recordHookEvent({
-        user_id: user.id,
-        session_id: data.session_id,
-        event_type: 'SessionStart',
+      await recordHookEvent({
+        userId: user.id,
+        sessionId: data.session_id,
+        eventType: 'SessionStart',
         payload: JSON.stringify(body),
       });
-      touchUserLastEvent(user.id);
+      await touchUserLastEvent(user.id);
       const resp = { decision: 'block' };
       debug(`responding: ${JSON.stringify(resp)}`);
       res.json(resp);
@@ -120,28 +114,25 @@ codexRouter.post('/session-start', (req: Request, res: Response) => {
     }
 
     // Determine model
-    const model = body.model || user.default_model || 'gpt-5.4';
+    const model = body.model || user.defaultModel || 'gpt-5.4';
     debug(`resolved model: "${model}"`);
 
     // Create session with source='codex' and extra columns
-    debug(`creating session: id=${data.session_id}, user_id=${user.id}, model=${model}, source=codex`);
-    const db = getDb();
-    db.prepare(
-      `INSERT INTO sessions (id, user_id, model, cwd, source, cli_version, model_provider, reasoning_effort)
-       VALUES (?, ?, ?, ?, 'codex', ?, ?, ?)`,
-    ).run(
-      data.session_id,
-      user.id,
+    debug(`creating session: id=${data.session_id}, userId=${user.id}, model=${model}, source=codex`);
+    await createSession({
+      id: data.session_id,
+      userId: user.id,
       model,
-      data.cwd ?? null,
-      data.cli_version ?? null,
-      data.model_provider ?? null,
-      data.reasoning_effort ?? null,
-    );
+      cwd: data.cwd ?? undefined,
+      source: 'codex',
+      cliVersion: data.cli_version ?? undefined,
+      modelProvider: data.model_provider ?? undefined,
+      reasoningEffort: data.reasoning_effort ?? undefined,
+    });
     debug(`session created OK`);
 
     // ── Collect enriched data from client ──
-    const userUpdates: Record<string, string> = {};
+    const userUpdates: Partial<Record<string, unknown>> = {};
 
     // Update user email from subscription if we don't have it
     if (body.subscription_email && (!user.email || user.email === '')) {
@@ -152,7 +143,7 @@ codexRouter.post('/session-start', (req: Request, res: Response) => {
     // Apply user updates if any
     if (Object.keys(userUpdates).length > 0) {
       debug(`updating user: ${JSON.stringify(userUpdates)}`);
-      try { updateUser(user.id, userUpdates); debug(`user updated OK`); } catch (e: any) { debug(`user update FAILED: ${e.message}`); }
+      try { await updateUser(user.id, userUpdates as any); debug(`user updated OK`); } catch (e: any) { debug(`user update FAILED: ${e.message}`); }
     }
 
     // Handle subscription record
@@ -160,20 +151,20 @@ codexRouter.post('/session-start', (req: Request, res: Response) => {
       const subType = normalizeSubscriptionType(body.plan_type);
       console.log(`[codex-api] subscription: email=${body.subscription_email || user.email}, type=${subType}, plan=${body.plan_type}, org=${body.org_title || '(none)'}, source=codex`);
       try {
-        const sub = createSubscription({
+        const sub = await createSubscription({
           email: body.subscription_email || user.email || '',
-          subscription_type: subType,
-          plan_name: body.org_title || undefined,
+          subscriptionType: subType,
+          planName: body.org_title || undefined,
           source: 'codex',
-          account_id: body.account_id,
-          org_id: body.org_id,
-          auth_provider: body.auth_provider,
-          subscription_active_start: body.subscription_active_start,
-          subscription_active_until: body.subscription_active_until,
+          accountId: body.account_id,
+          orgId: body.org_id,
+          authProvider: body.auth_provider,
+          subscriptionActiveStart: body.subscription_active_start,
+          subscriptionActiveUntil: body.subscription_active_until,
         });
         console.log(`[codex-api] subscription created/updated: id=${sub?.id}, email=${sub?.email}`);
-        if (sub && !user.subscription_id) {
-          updateUser(user.id, { subscription_id: String(sub.id) });
+        if (sub && !user.subscriptionId) {
+          await updateUser(user.id, { subscriptionId: sub.id });
           console.log(`[codex-api] linked subscription ${sub.id} to user ${user.name}`);
         }
       } catch (e: any) { console.error(`[codex-api] subscription FAILED: ${e.message}`); }
@@ -182,14 +173,14 @@ codexRouter.post('/session-start', (req: Request, res: Response) => {
     }
 
     // Update last_event_at
-    touchUserLastEvent(user.id);
+    await touchUserLastEvent(user.id);
 
     // Record full hook event
     debug(`recording hook event`);
-    recordHookEvent({
-      user_id: user.id,
-      session_id: data.session_id,
-      event_type: 'SessionStart',
+    await recordHookEvent({
+      userId: user.id,
+      sessionId: data.session_id,
+      eventType: 'SessionStart',
       payload: JSON.stringify(body),
     });
 
@@ -217,7 +208,7 @@ codexRouter.post('/session-start', (req: Request, res: Response) => {
 // POST /prompt
 // ---------------------------------------------------------------------------
 
-codexRouter.post('/prompt', (req: Request, res: Response) => {
+codexRouter.post('/prompt', async (req: Request, res: Response) => {
   debug(`──── /prompt ────`);
   try {
     const user = req.user!;
@@ -232,14 +223,14 @@ codexRouter.post('/prompt', (req: Request, res: Response) => {
     if (user.status === 'killed') {
       debug(`user is KILLED — blocking prompt`);
       try {
-        recordHookEvent({
-          user_id: user.id,
-          session_id: data.session_id,
-          event_type: 'UserPromptSubmit',
+        await recordHookEvent({
+          userId: user.id,
+          sessionId: data.session_id,
+          eventType: 'UserPromptSubmit',
           payload: JSON.stringify(body),
         });
       } catch (e: any) { debug(`recording hook event FAILED: ${e.message}`); }
-      touchUserLastEvent(user.id);
+      await touchUserLastEvent(user.id);
       const resp = { decision: 'block', killed: true, hard: true };
       debug(`responding: ${JSON.stringify(resp)}`);
       res.json(resp);
@@ -250,14 +241,14 @@ codexRouter.post('/prompt', (req: Request, res: Response) => {
     if (user.status === 'paused') {
       debug(`user is PAUSED — blocking prompt`);
       try {
-        recordHookEvent({
-          user_id: user.id,
-          session_id: data.session_id,
-          event_type: 'UserPromptSubmit',
+        await recordHookEvent({
+          userId: user.id,
+          sessionId: data.session_id,
+          eventType: 'UserPromptSubmit',
           payload: JSON.stringify(body),
         });
       } catch (e: any) { debug(`recording hook event FAILED: ${e.message}`); }
-      touchUserLastEvent(user.id);
+      await touchUserLastEvent(user.id);
       const resp = { decision: 'block' };
       debug(`responding: ${JSON.stringify(resp)}`);
       res.json(resp);
@@ -266,27 +257,26 @@ codexRouter.post('/prompt', (req: Request, res: Response) => {
 
     // Ensure session exists
     debug(`ensuring session exists: session_id=${data.session_id}`);
-    ensureSession(data.session_id, user.id, user.default_model, data.cwd);
-    const session = getSessionById(data.session_id);
+    await ensureSession(data.session_id, user.id, user.defaultModel ?? undefined, data.cwd);
+    const session = await getSessionById(data.session_id);
     debug(`session lookup: ${session ? `found (model=${session.model})` : 'NOT FOUND'}`);
 
-    // Prefer body.model > session.model > user.default_model
-    const model = body.model || session?.model || user.default_model || 'gpt-5.4';
+    // Prefer body.model > session.model > user.defaultModel
+    const model = body.model || session?.model || user.defaultModel || 'gpt-5.4';
     debug(`resolved model: "${model}"`);
 
     // Update session model if the client reports a different one
     if (body.model && session && body.model !== session.model) {
       debug(`model changed mid-session: "${session.model}" → "${body.model}" — updating session`);
-      const db = getDb();
-      db.prepare('UPDATE sessions SET model = ? WHERE id = ?').run(body.model, data.session_id);
+      await updateSessionModel(data.session_id, body.model);
     }
 
     // Compute credit cost via DB lookup
-    const creditCost = getCreditCostFromDb(model, 'codex');
+    const creditCost = await getCreditCostFromDb(model, 'codex');
     debug(`credit cost for ${model}: ${creditCost}`);
 
     // Check credit limits
-    const limits = getLimitsByUser(user.id);
+    const limits = await getLimitsByUser(user.id);
     debug(`user has ${limits.length} limit rule(s)`);
     let blocked = false;
     let blockReason = '';
@@ -295,7 +285,7 @@ codexRouter.post('/prompt', (req: Request, res: Response) => {
       debug(`checking limit: type=${limit.type}, model=${limit.model || '(any)'}, window=${limit.window}, value=${limit.value}`);
       if (limit.type === 'total_credits') {
         const window = limit.window as 'daily' | 'hourly' | 'monthly';
-        const usage = getUserCreditUsage(user.id, window);
+        const usage = await getUserCreditUsage(user.id, window);
         debug(`  total_credits: usage=${usage}, limit=${limit.value}, next_cost=${creditCost}, would_exceed=${usage + creditCost > limit.value}`);
         if (usage + creditCost > limit.value) {
           blocked = true;
@@ -307,7 +297,7 @@ codexRouter.post('/prompt', (req: Request, res: Response) => {
         if (!limit.model) { debug(`  skipping per_model limit with no model`); continue; }
         const window = limit.window as 'daily' | 'hourly' | 'monthly';
         const limitModel = limit.model;
-        const usage = getUserModelCreditUsage(user.id, limitModel, window);
+        const usage = await getUserModelCreditUsage(user.id, limitModel, window);
         debug(`  per_model(${limitModel}): usage=${usage}, limit=${limit.value}, next_cost=${creditCost}, would_exceed=${usage + creditCost > limit.value}`);
         if (usage + creditCost > limit.value) {
           blocked = true;
@@ -317,8 +307,8 @@ codexRouter.post('/prompt', (req: Request, res: Response) => {
         }
       } else if (limit.type === 'time_of_day') {
         const currentHour = new Date().getHours();
-        const startHour = limit.start_hour ?? 0;
-        const endHour = limit.end_hour ?? 24;
+        const startHour = limit.startHour ?? 0;
+        const endHour = limit.endHour ?? 24;
         debug(`  time_of_day: current_hour=${currentHour}, blocked_range=${startHour}-${endHour}`);
         if (currentHour >= startHour && currentHour < endHour) {
           blocked = true;
@@ -331,20 +321,26 @@ codexRouter.post('/prompt', (req: Request, res: Response) => {
 
     if (blocked) {
       console.log(`[codex-api] prompt BLOCKED: user=${user.name}, reason="${blockReason}"`);
-      // Record blocked prompt with source/turn_id via direct INSERT
-      const db = getDb();
-      db.prepare(
-        `INSERT INTO prompts (session_id, user_id, prompt, model, credit_cost, blocked, block_reason, source, turn_id)
-         VALUES (?, ?, ?, ?, 0, 1, ?, 'codex', ?)`,
-      ).run(data.session_id, user.id, data.prompt ?? null, model, blockReason, data.turn_id ?? null);
+      // Record blocked prompt with source/turnId
+      await recordPrompt({
+        sessionId: data.session_id,
+        userId: user.id,
+        prompt: data.prompt ?? undefined,
+        model,
+        creditCost: 0,
+        blocked: true,
+        blockReason,
+        source: 'codex',
+        turnId: data.turn_id ?? undefined,
+      });
 
-      recordHookEvent({
-        user_id: user.id,
-        session_id: data.session_id,
-        event_type: 'UserPromptSubmit',
+      await recordHookEvent({
+        userId: user.id,
+        sessionId: data.session_id,
+        eventType: 'UserPromptSubmit',
         payload: JSON.stringify(body),
       });
-      touchUserLastEvent(user.id);
+      await touchUserLastEvent(user.id);
       broadcast({ type: 'prompt', user_id: user.id, user_name: user.name, prompt: data.prompt?.slice(0, 100), blocked: true, source: 'codex' });
       const resp = { decision: 'block', reason: blockReason };
       debug(`responding: ${JSON.stringify(resp)}`);
@@ -352,25 +348,29 @@ codexRouter.post('/prompt', (req: Request, res: Response) => {
       return;
     }
 
-    // Record prompt (allowed) with source/turn_id via direct INSERT
+    // Record prompt (allowed) with source/turnId
     console.log(`[codex-api] prompt ALLOWED: user=${user.name}, model=${model}, credits=${creditCost}`);
-    const db = getDb();
-    db.prepare(
-      `INSERT INTO prompts (session_id, user_id, prompt, model, credit_cost, source, turn_id)
-       VALUES (?, ?, ?, ?, ?, 'codex', ?)`,
-    ).run(data.session_id, user.id, data.prompt ?? null, model, creditCost, data.turn_id ?? null);
+    await recordPrompt({
+      sessionId: data.session_id,
+      userId: user.id,
+      prompt: data.prompt ?? undefined,
+      model,
+      creditCost,
+      source: 'codex',
+      turnId: data.turn_id ?? undefined,
+    });
 
     // Increment session prompt count and credits
-    incrementSessionPromptCount(data.session_id, creditCost);
+    await incrementSessionPromptCount(data.session_id, creditCost);
 
     // Update last_event_at
-    touchUserLastEvent(user.id);
+    await touchUserLastEvent(user.id);
 
     // Record hook event
-    recordHookEvent({
-      user_id: user.id,
-      session_id: data.session_id,
-      event_type: 'UserPromptSubmit',
+    await recordHookEvent({
+      userId: user.id,
+      sessionId: data.session_id,
+      eventType: 'UserPromptSubmit',
       payload: JSON.stringify(body),
     });
 
@@ -389,7 +389,7 @@ codexRouter.post('/prompt', (req: Request, res: Response) => {
 // POST /pre-tool-use
 // ---------------------------------------------------------------------------
 
-codexRouter.post('/pre-tool-use', (req: Request, res: Response) => {
+codexRouter.post('/pre-tool-use', async (req: Request, res: Response) => {
   debug(`──── /pre-tool-use ────`);
   try {
     const user = req.user!;
@@ -403,13 +403,13 @@ codexRouter.post('/pre-tool-use', (req: Request, res: Response) => {
     // Check user status — killed
     if (user.status === 'killed') {
       debug(`user is KILLED — denying tool use`);
-      recordHookEvent({
-        user_id: user.id,
-        session_id: data.session_id,
-        event_type: 'PreToolUse',
+      await recordHookEvent({
+        userId: user.id,
+        sessionId: data.session_id,
+        eventType: 'PreToolUse',
         payload: JSON.stringify(body),
       });
-      touchUserLastEvent(user.id);
+      await touchUserLastEvent(user.id);
       const resp = { decision: 'block', killed: true, hard: true };
       debug(`responding: ${JSON.stringify(resp)}`);
       res.json(resp);
@@ -419,41 +419,38 @@ codexRouter.post('/pre-tool-use', (req: Request, res: Response) => {
     // Check user status — paused
     if (user.status === 'paused') {
       debug(`user is PAUSED — denying tool use`);
-      recordHookEvent({
-        user_id: user.id,
-        session_id: data.session_id,
-        event_type: 'PreToolUse',
+      await recordHookEvent({
+        userId: user.id,
+        sessionId: data.session_id,
+        eventType: 'PreToolUse',
         payload: JSON.stringify(body),
       });
-      touchUserLastEvent(user.id);
+      await touchUserLastEvent(user.id);
       const resp = { decision: 'block' };
       debug(`responding: ${JSON.stringify(resp)}`);
       res.json(resp);
       return;
     }
 
-    // Record tool event with source/tool_use_id via direct INSERT
-    debug(`recording tool event: tool_name=${data.tool_name}`);
-    const db = getDb();
-    db.prepare(
-      `INSERT INTO tool_events (user_id, session_id, tool_name, tool_input, source, tool_use_id)
-       VALUES (?, ?, ?, ?, 'codex', ?)`,
-    ).run(
-      user.id,
-      data.session_id ?? null,
-      data.tool_name ?? 'unknown',
-      JSON.stringify(data.tool_input)?.slice(0, 500),
-      data.tool_use_id ?? null,
-    );
+    // Record tool event with source/toolUseId
+    debug(`recording tool event: toolName=${data.tool_name}`);
+    await recordToolEvent({
+      userId: user.id,
+      sessionId: data.session_id ?? undefined,
+      toolName: data.tool_name ?? 'unknown',
+      toolInput: JSON.stringify(data.tool_input)?.slice(0, 500),
+      source: 'codex',
+      toolUseId: data.tool_use_id ?? undefined,
+    });
 
     // Update last_event_at
-    touchUserLastEvent(user.id);
+    await touchUserLastEvent(user.id);
 
     // Record hook event
-    recordHookEvent({
-      user_id: user.id,
-      session_id: data.session_id,
-      event_type: 'PreToolUse',
+    await recordHookEvent({
+      userId: user.id,
+      sessionId: data.session_id,
+      eventType: 'PreToolUse',
       payload: JSON.stringify(body),
     });
 
@@ -472,7 +469,7 @@ codexRouter.post('/pre-tool-use', (req: Request, res: Response) => {
 // POST /post-tool-use
 // ---------------------------------------------------------------------------
 
-codexRouter.post('/post-tool-use', (req: Request, res: Response) => {
+codexRouter.post('/post-tool-use', async (req: Request, res: Response) => {
   debug(`──── /post-tool-use ────`);
   try {
     const user = req.user!;
@@ -483,25 +480,24 @@ codexRouter.post('/post-tool-use', (req: Request, res: Response) => {
     debug(`zod parse: ${parsed.success ? 'OK' : 'FAILED'}`);
     const data = parsed.success ? parsed.data : body;
 
-    // Update tool event via tool_use_id
-    debug(`updating tool event: tool_use_id=${data.tool_use_id}`);
-    const db = getDb();
-    const result = db.prepare(
-      `UPDATE tool_events SET tool_output = ?, success = 1 WHERE tool_use_id = ? AND source = 'codex'`,
-    ).run(
-      (data.tool_response ?? '').slice(0, 500),
-      data.tool_use_id ?? null,
-    );
-    debug(`tool update: changes=${result.changes}`);
+    // Update tool event via toolUseId
+    debug(`updating tool event: toolUseId=${data.tool_use_id}`);
+    if (data.tool_use_id) {
+      const result = await updateToolEventByToolUseId(data.tool_use_id, 'codex', {
+        toolOutput: (data.tool_response ?? '').slice(0, 500),
+        success: true,
+      });
+      debug(`tool update: ${result ? 'updated' : 'not found'}`);
+    }
 
     // Update last_event_at
-    touchUserLastEvent(user.id);
+    await touchUserLastEvent(user.id);
 
     // Record hook event
-    recordHookEvent({
-      user_id: user.id,
-      session_id: data.session_id,
-      event_type: 'PostToolUse',
+    await recordHookEvent({
+      userId: user.id,
+      sessionId: data.session_id,
+      eventType: 'PostToolUse',
       payload: JSON.stringify(body),
     });
 
@@ -518,7 +514,7 @@ codexRouter.post('/post-tool-use', (req: Request, res: Response) => {
 // POST /stop
 // ---------------------------------------------------------------------------
 
-codexRouter.post('/stop', (req: Request, res: Response) => {
+codexRouter.post('/stop', async (req: Request, res: Response) => {
   debug(`──── /stop ────`);
   try {
     const user = req.user!;
@@ -531,64 +527,57 @@ codexRouter.post('/stop', (req: Request, res: Response) => {
 
     // Ensure session exists + determine model
     debug(`ensuring session: ${data.session_id}`);
-    ensureSession(data.session_id, user.id, user.default_model);
-    const session = getSessionById(data.session_id);
+    await ensureSession(data.session_id, user.id, user.defaultModel ?? undefined);
+    const session = await getSessionById(data.session_id);
     debug(`session lookup: ${session ? `found (model=${session.model})` : 'NOT FOUND'}`);
-    const model = session?.model ?? user.default_model ?? 'gpt-5.4';
+    const model = session?.model ?? user.defaultModel ?? 'gpt-5.4';
 
     // Update the latest prompt with response + token counts
     debug(`updating last prompt with response and tokens (model=${model})`);
-    const db = getDb();
-    const result = db.prepare(
-      `UPDATE prompts SET response = ?, model = ?,
-         input_tokens = ?, cached_tokens = ?, output_tokens = ?, reasoning_tokens = ?
-       WHERE session_id = ? AND source = 'codex' AND response IS NULL
-       ORDER BY id DESC LIMIT 1`,
-    ).run(
-      data.last_assistant_message ?? null,
+    const result = await updateLastPromptWithResponse(data.session_id, 'codex', {
+      response: data.last_assistant_message ?? undefined,
       model,
-      data.input_tokens ?? null,
-      data.cached_tokens ?? null,
-      data.output_tokens ?? null,
-      data.reasoning_tokens ?? null,
-      data.session_id,
-    );
-    debug(`prompt update: changes=${result.changes}`);
+      inputTokens: data.input_tokens ?? undefined,
+      cachedTokens: data.cached_tokens ?? undefined,
+      outputTokens: data.output_tokens ?? undefined,
+      reasoningTokens: data.reasoning_tokens ?? undefined,
+    });
+    debug(`prompt update: ${result ? 'updated' : 'no matching prompt found'}`);
 
     // Upsert provider quota windows
     if (data.quota_primary_used_percent != null) {
       debug(`upserting primary quota: ${data.quota_primary_used_percent}%`);
-      upsertProviderQuota({
-        user_id: user.id,
+      await upsertProviderQuota({
+        userId: user.id,
         source: 'codex',
-        window_name: 'primary',
-        plan_type: data.quota_plan_type,
-        used_percent: data.quota_primary_used_percent,
-        window_minutes: data.quota_primary_window_minutes,
-        resets_at: data.quota_primary_resets_at,
+        windowName: 'primary',
+        planType: data.quota_plan_type,
+        usedPercent: data.quota_primary_used_percent,
+        windowMinutes: data.quota_primary_window_minutes,
+        resetsAt: data.quota_primary_resets_at,
       });
     }
     if (data.quota_secondary_used_percent != null) {
       debug(`upserting secondary quota: ${data.quota_secondary_used_percent}%`);
-      upsertProviderQuota({
-        user_id: user.id,
+      await upsertProviderQuota({
+        userId: user.id,
         source: 'codex',
-        window_name: 'secondary',
-        plan_type: data.quota_plan_type,
-        used_percent: data.quota_secondary_used_percent,
-        window_minutes: data.quota_secondary_window_minutes,
-        resets_at: data.quota_secondary_resets_at,
+        windowName: 'secondary',
+        planType: data.quota_plan_type,
+        usedPercent: data.quota_secondary_used_percent,
+        windowMinutes: data.quota_secondary_window_minutes,
+        resetsAt: data.quota_secondary_resets_at,
       });
     }
 
     // Update last_event_at
-    touchUserLastEvent(user.id);
+    await touchUserLastEvent(user.id);
 
     // Record hook event
-    recordHookEvent({
-      user_id: user.id,
-      session_id: data.session_id,
-      event_type: 'Stop',
+    await recordHookEvent({
+      userId: user.id,
+      sessionId: data.session_id,
+      eventType: 'Stop',
       payload: JSON.stringify(body),
     });
 
