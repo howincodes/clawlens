@@ -29,22 +29,6 @@ let pendingRawSyncs = new Map<string, RawSyncEntry>();
 const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 
 // ---------------------------------------------------------------------------
-// All known JSONL line types from Claude Code
-// ---------------------------------------------------------------------------
-
-const ALL_LINE_TYPES = new Set([
-  'user',
-  'assistant',
-  'system',
-  'file-history-snapshot',
-  'attachment',
-  'permission-mode',
-  'queue-operation',
-  'custom-title',
-  'last-prompt',
-]);
-
-// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -241,23 +225,17 @@ function processJsonlFile(filePath: string): void {
     // Queue raw content for bulk sync
     queueRawSync(filePath, sessionId, projectDir, newContent, lastNewline + 1, lines.length);
 
-    // Parse individual lines
+    // Parse individual lines — extract basic fields, send everything with a uuid.
+    // Server handles all filtering (meta, commands, thinking-only, etc.)
     for (const line of lines) {
       try {
         const parsed = JSON.parse(line);
-        const lineType = parsed.type as string;
+        if (!parsed.uuid || !parsed.type) continue;
 
-        if (!lineType || !ALL_LINE_TYPES.has(lineType)) {
-          // Unknown type — still include in raw sync, just skip structured parsing
-          continue;
-        }
-
-        const msg = parseJsonlLine(parsed, sessionId);
-        if (msg) {
-          pendingMessages.push(msg);
-        }
+        const msg = extractMessage(parsed, sessionId);
+        if (msg) pendingMessages.push(msg);
       } catch {
-        // Malformed JSON line — skip structured parsing, raw sync still captures it
+        // Malformed JSON line — raw sync still captures it
       }
     }
   } catch (err) {
@@ -266,17 +244,15 @@ function processJsonlFile(filePath: string): void {
 }
 
 /**
- * Parse a JSONL line into a structured message for the conversations endpoint.
- * Handles all Claude Code line types.
+ * Extract basic fields from any JSONL line. No filtering — server decides what to keep.
+ * Client just extracts content, model, tokens, and metadata.
  */
-function parseJsonlLine(parsed: any, sessionId: string): ParsedMessage | null {
-  const lineType = parsed.type as string;
-
-  const base: ParsedMessage = {
+function extractMessage(parsed: any, sessionId: string): ParsedMessage | null {
+  const msg: ParsedMessage = {
     uuid: parsed.uuid,
     parentUuid: parsed.parentUuid,
     sessionId: parsed.sessionId || sessionId,
-    type: lineType,
+    type: parsed.type,
     cwd: parsed.cwd,
     gitBranch: parsed.gitBranch,
     timestamp: parsed.timestamp,
@@ -284,98 +260,34 @@ function parseJsonlLine(parsed: any, sessionId: string): ParsedMessage | null {
     sourceType: 'jsonl',
   };
 
-  switch (lineType) {
-    case 'user': {
-      // Skip meta messages (slash commands, local-command output, system caveats)
-      if (parsed.isMeta) return null;
-      const content = parsed.message?.content;
-      const text = typeof content === 'string' ? content : '';
-      // Skip system/command XML tags — not real user prompts
-      if (text.startsWith('<local-command') || text.startsWith('<command-name')) return null;
-      base.messageContent = text;
-      return base;
-    }
+  // Pass isMeta flag so server can filter
+  if (parsed.isMeta) (msg as any).isMeta = true;
 
-    case 'assistant': {
-      const content = parsed.message?.content;
-      let textContent = '';
-      if (Array.isArray(content)) {
-        const textBlocks = content.filter((b: any) => b.type === 'text');
-        textContent = textBlocks.map((b: any) => b.text).join('\n').trim();
-      } else {
-        textContent = typeof content === 'string' ? content : '';
-      }
-
-      // Skip thinking-only assistant messages (no text content, only thinking/signature blocks).
-      // These are intermediate streaming chunks — the final response comes as a separate line.
-      if (!textContent) return null;
-
-      base.messageContent = textContent;
-      base.model = parsed.message?.model;
-      base.rawModel = parsed.message?.model;
-
-      const usage = parsed.message?.usage;
-      if (usage) {
-        base.inputTokens = usage.input_tokens;
-        base.outputTokens = usage.output_tokens;
-        base.cachedTokens = usage.cache_read_input_tokens || 0;
-        base.cacheCreationTokens = usage.cache_creation_input_tokens || 0;
-      }
-      return base;
-    }
-
-    case 'system': {
-      base.messageContent = typeof parsed.message === 'string'
-        ? parsed.message
-        : JSON.stringify(parsed.message);
-      return base;
-    }
-
-    case 'file-history-snapshot': {
-      // Contains file state at a point in time — store as-is
-      base.messageContent = JSON.stringify(parsed.files || parsed.snapshot || parsed);
-      return base;
-    }
-
-    case 'attachment': {
-      base.messageContent = JSON.stringify({
-        fileName: parsed.fileName,
-        fileType: parsed.fileType,
-        filePath: parsed.filePath,
-        size: parsed.size,
-      });
-      return base;
-    }
-
-    case 'permission-mode': {
-      base.messageContent = parsed.mode || parsed.permissionMode || JSON.stringify(parsed);
-      return base;
-    }
-
-    case 'queue-operation': {
-      base.messageContent = JSON.stringify({
-        operation: parsed.operation,
-        queueId: parsed.queueId,
-        position: parsed.position,
-      });
-      return base;
-    }
-
-    case 'custom-title': {
-      base.messageContent = parsed.title || parsed.customTitle || '';
-      return base;
-    }
-
-    case 'last-prompt': {
-      base.messageContent = typeof parsed.prompt === 'string'
-        ? parsed.prompt
-        : JSON.stringify(parsed.prompt || parsed.message);
-      return base;
-    }
-
-    default:
-      return null;
+  // Extract content based on message structure
+  const messageContent = parsed.message?.content;
+  if (typeof messageContent === 'string') {
+    msg.messageContent = messageContent;
+  } else if (Array.isArray(messageContent)) {
+    // Assistant content blocks — extract text, skip thinking/tool_use
+    const textBlocks = messageContent.filter((b: any) => b.type === 'text');
+    msg.messageContent = textBlocks.map((b: any) => b.text).join('\n').trim();
   }
+
+  // Model + tokens (from assistant messages)
+  if (parsed.message?.model) {
+    msg.model = parsed.message.model;
+    msg.rawModel = parsed.message.model;
+  }
+
+  const usage = parsed.message?.usage;
+  if (usage) {
+    msg.inputTokens = usage.input_tokens;
+    msg.outputTokens = usage.output_tokens;
+    msg.cachedTokens = usage.cache_read_input_tokens || 0;
+    msg.cacheCreationTokens = usage.cache_creation_input_tokens || 0;
+  }
+
+  return msg;
 }
 
 // ---------------------------------------------------------------------------
