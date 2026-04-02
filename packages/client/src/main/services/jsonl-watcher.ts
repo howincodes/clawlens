@@ -286,22 +286,31 @@ function parseJsonlLine(parsed: any, sessionId: string): ParsedMessage | null {
 
   switch (lineType) {
     case 'user': {
+      // Skip meta messages (slash commands, local-command output, system caveats)
+      if (parsed.isMeta) return null;
       const content = parsed.message?.content;
-      base.messageContent = typeof content === 'string'
-        ? content
-        : JSON.stringify(content);
+      const text = typeof content === 'string' ? content : '';
+      // Skip system/command XML tags — not real user prompts
+      if (text.startsWith('<local-command') || text.startsWith('<command-name')) return null;
+      base.messageContent = text;
       return base;
     }
 
     case 'assistant': {
       const content = parsed.message?.content;
+      let textContent = '';
       if (Array.isArray(content)) {
         const textBlocks = content.filter((b: any) => b.type === 'text');
-        base.messageContent = textBlocks.map((b: any) => b.text).join('\n');
+        textContent = textBlocks.map((b: any) => b.text).join('\n').trim();
       } else {
-        base.messageContent = typeof content === 'string' ? content : '';
+        textContent = typeof content === 'string' ? content : '';
       }
 
+      // Skip thinking-only assistant messages (no text content, only thinking/signature blocks).
+      // These are intermediate streaming chunks — the final response comes as a separate line.
+      if (!textContent) return null;
+
+      base.messageContent = textContent;
       base.model = parsed.message?.model;
       base.rawModel = parsed.message?.model;
 

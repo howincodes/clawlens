@@ -1001,10 +1001,10 @@ adminRouter.get('/messages', async (req: Request, res: Response) => {
       conditions.push(sql`u.user_id = ${parseInt(userId, 10)}`);
     }
     if (search) {
-      conditions.push(sql`(u.content ILIKE ${'%' + search + '%'} OR a.content ILIKE ${'%' + search + '%'})`);
+      conditions.push(sql`u.content ILIKE ${'%' + search + '%'}`);
     }
     if (model) {
-      conditions.push(sql`LOWER(COALESCE(a.model, u.model, '')) LIKE ${'%' + model.toLowerCase() + '%'}`);
+      conditions.push(sql`LOWER(COALESCE(u.model, '')) LIKE ${'%' + model.toLowerCase() + '%'}`);
     }
     if (provider) {
       conditions.push(sql`u.provider = ${provider}`);
@@ -1014,15 +1014,13 @@ adminRouter.get('/messages', async (req: Request, res: Response) => {
 
     // Count total user messages (prompts)
     const totalResult = await db.execute<{ count: number }>(sql`
-      SELECT COUNT(*) as count
-      FROM messages u
-      LEFT JOIN messages a ON a.parent_uuid = u.uuid AND a.type = 'assistant'
-      ${whereClause}
+      SELECT COUNT(*) as count FROM messages u ${whereClause}
     `);
 
-    // Fetch paired prompt+response data
-    // Left-join assistant response via parent_uuid. Use the assistant's model as the
-    // canonical model (it's the one that actually processed the request).
+    // Fetch paired prompt+response data.
+    // Find the nearest non-empty assistant response AFTER each user message in the
+    // same session. This handles the parentUuid chain going through thinking blocks,
+    // attachments, and system messages (not a direct user→assistant link).
     const data = await db.execute(sql`
       SELECT
         u.id, u.uuid, u.session_id, u.user_id, u.provider,
@@ -1035,7 +1033,17 @@ adminRouter.get('/messages', async (req: Request, res: Response) => {
         a.input_tokens, a.output_tokens, a.cached_tokens,
         a.reasoning_tokens, a.credit_cost
       FROM messages u
-      LEFT JOIN messages a ON a.parent_uuid = u.uuid AND a.type = 'assistant'
+      LEFT JOIN LATERAL (
+        SELECT m.content, m.model, m.input_tokens, m.output_tokens,
+               m.cached_tokens, m.reasoning_tokens, m.credit_cost
+        FROM messages m
+        WHERE m.session_id = u.session_id
+          AND m.type = 'assistant'
+          AND m.content IS NOT NULL AND m.content != ''
+          AND m.timestamp > u.timestamp
+        ORDER BY m.timestamp ASC
+        LIMIT 1
+      ) a ON true
       ${whereClause}
       ORDER BY u.timestamp DESC
       LIMIT ${limit} OFFSET ${offset}
