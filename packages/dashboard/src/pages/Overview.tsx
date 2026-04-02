@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getUsers, getProjects, getSubscriptionUsage, getSubscriptionCredentials, getMe } from '@/lib/api'
+import { getUsers, getProjects, getSubscriptionUsage, getSubscriptionCredentials, getMe, getRecentEvents } from '@/lib/api'
 import { Link } from 'react-router-dom'
 import RoleBadge from '@/components/RoleBadge'
 import UsageBar from '@/components/UsageBar'
@@ -10,6 +10,7 @@ export default function Overview() {
   const [projects, setProjects] = useState<any[]>([])
   const [credentials, setCredentials] = useState<any[]>([])
   const [usage, setUsage] = useState<any[]>([])
+  const [recentEvents, setRecentEvents] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -19,12 +20,14 @@ export default function Overview() {
       getProjects().catch(() => []),
       getSubscriptionCredentials().catch(() => []),
       getSubscriptionUsage().catch(() => []),
-    ]).then(([m, u, p, c, us]) => {
+      getRecentEvents(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()).catch(() => []),
+    ]).then(([m, u, p, c, us, events]) => {
       setMe(m)
       setUsers(Array.isArray(u) ? u : u?.data || u?.users || [])
       setProjects(Array.isArray(p) ? p : p?.data || [])
       setCredentials(Array.isArray(c) ? c : c?.data || [])
       setUsage(Array.isArray(us) ? us : us?.data || [])
+      setRecentEvents(Array.isArray(events) ? events : events?.data || [])
     }).finally(() => setLoading(false))
   }, [])
 
@@ -149,6 +152,25 @@ export default function Overview() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Recent Activity */}
+      <div className="bg-white border rounded-xl p-5 mt-6">
+        <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
+        {recentEvents.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-4">No recent activity</p>
+        ) : (
+          <div className="space-y-2">
+            {recentEvents.slice(0, 15).map((event: any, i: number) => (
+              <div key={i} className="flex items-center gap-3 text-sm py-1.5">
+                <span className="text-xs text-gray-400 font-mono w-16">{new Date(event.createdAt || event.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                <span className="text-gray-600">{event.eventType || event.event_type}</span>
+                <span className="text-gray-400">&mdash;</span>
+                <span className="text-gray-500 truncate">{event.userId || event.user_id}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

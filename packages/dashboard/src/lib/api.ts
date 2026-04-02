@@ -230,6 +230,10 @@ export async function getSubscriptionCredentials() {
   return fetchClient('/subscriptions/credentials');
 }
 
+export async function getSubscriptionCredentialDetail(id: number) {
+  return fetchClient(`/subscriptions/credentials/${id}`);
+}
+
 export async function createSubscriptionCredential(data: { email: string; accessToken?: string; refreshToken?: string; orgId?: string; subscriptionType?: string }) {
   return fetchClient('/subscriptions/credentials', { method: 'POST', body: JSON.stringify(data) });
 }

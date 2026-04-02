@@ -125,6 +125,11 @@ export default function TaskDetail() {
               {task.milestoneId && <span>Milestone #{task.milestoneId}</span>}
               <span>Created {new Date(task.createdAt).toLocaleDateString()}</span>
               {task.createdBy && <span>by {getUserName(task.createdBy) || `User #${task.createdBy}`}</span>}
+              {task.githubIssueUrl && (
+                <a href={task.githubIssueUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                  GitHub Issue #{task.githubIssueId}
+                </a>
+              )}
             </div>
             {task.description && <p className="text-gray-600 mb-4">{task.description}</p>}
             <div className="flex flex-wrap gap-3 items-center">

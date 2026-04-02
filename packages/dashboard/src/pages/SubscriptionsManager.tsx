@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getSubscriptionCredentials, createSubscriptionCredential, deleteSubscriptionCredential, getSubscriptionUsage, killUserCredential, rotateUserCredential, getSubscriptions, getProviderQuotas } from '../lib/api';
+import { getSubscriptionCredentials, createSubscriptionCredential, deleteSubscriptionCredential, getSubscriptionUsage, killUserCredential, rotateUserCredential, getSubscriptions, getProviderQuotas, getSubscriptionCredentialDetail } from '../lib/api';
 import { SourceFilter } from '@/components/SourceFilter';
 import { SourceBadge } from '@/components/SourceBadge';
 import { QuotaBar } from '@/components/QuotaBar';
@@ -55,6 +55,8 @@ export default function SubscriptionsManager() {
   const [subsLoading, setSubsLoading] = useState(true);
   const [subsSource, setSubsSource] = useState('');
   const [quotaMap, setQuotaMap] = useState<Map<string, any[]>>(new Map());
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [historyData, setHistoryData] = useState<any[]>([]);
 
   const loadData = async () => {
     setLoading(true);
@@ -134,6 +136,17 @@ export default function SubscriptionsManager() {
   const handleRotate = async (userId: number) => {
     await rotateUserCredential(userId);
     loadData();
+  };
+
+  const loadHistory = async (credId: number) => {
+    if (expandedId === credId) { setExpandedId(null); return; }
+    try {
+      const detail = await getSubscriptionCredentialDetail(credId);
+      setHistoryData(detail.usageHistory || []);
+    } catch {
+      setHistoryData([]);
+    }
+    setExpandedId(credId);
   };
 
   const getUsageColor = (pct: number) => {
@@ -250,6 +263,41 @@ export default function SubscriptionsManager() {
                       </div>
                     </div>
                   )}
+
+                  {/* Usage History */}
+                  <div className="p-4 border-t">
+                    <button onClick={() => loadHistory(cred.id)} className="text-xs text-blue-600 hover:underline">
+                      {expandedId === cred.id ? 'Hide History' : 'View History'}
+                    </button>
+
+                    {expandedId === cred.id && historyData.length > 0 && (
+                      <div className="mt-3 pt-3 border-t">
+                        <div className="text-xs text-gray-500 mb-2">Usage History (last {historyData.length} snapshots)</div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead><tr className="text-gray-500">
+                              <th className="text-left py-1">Time</th>
+                              <th className="text-right py-1">5h</th>
+                              <th className="text-right py-1">7d</th>
+                            </tr></thead>
+                            <tbody>
+                              {historyData.slice(0, 20).map((s: any, i: number) => (
+                                <tr key={i} className="border-t border-gray-100">
+                                  <td className="py-1">{new Date(s.recordedAt).toLocaleString()}</td>
+                                  <td className="text-right">{((s.fiveHourUtilization || 0) * 100).toFixed(0)}%</td>
+                                  <td className="text-right">{((s.sevenDayUtilization || 0) * 100).toFixed(0)}%</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {expandedId === cred.id && historyData.length === 0 && (
+                      <p className="text-xs text-gray-400 mt-2">No usage history available.</p>
+                    )}
+                  </div>
                 </div>
               );
             })}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { getAnalytics, getLeaderboard, getProjectAnalytics, getCosts, getProjects, getTasks, getSubscriptionUsage, getSubscriptionCredentials } from '@/lib/api'
 import UsageBar from '@/components/UsageBar'
 import { SourceFilter } from '@/components/SourceFilter'
@@ -594,6 +595,12 @@ export function Analytics() {
               </CardContent>
             </Card>
           )}
+
+          {/* Section 10: Team Overview */}
+          <div className="bg-white border rounded-xl p-5 mb-6">
+            <h2 className="text-lg font-semibold mb-4">Team Overview</h2>
+            <p className="text-sm text-gray-500">View detailed per-user activity and work hours on the <Link to="/activity" className="text-blue-600 hover:underline">Activity page</Link>. Per-project AI usage breakdown available on individual <Link to="/projects" className="text-blue-600 hover:underline">Project pages</Link>.</p>
+          </div>
         </>
       )}
     </div>

@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Copy, Check, Terminal } from "lucide-react"
-import { fetchClient, getRoles } from "@/lib/api"
+import { fetchClient, getRoles, getProjects, addProjectMemberApi } from "@/lib/api"
 
 export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSuccess: () => void }) {
   const [name, setName] = useState('')
@@ -13,12 +13,15 @@ export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSu
   const [selectedRole, setSelectedRole] = useState<number | ''>('')
   const [githubId, setGithubId] = useState('')
   const [roles, setRoles] = useState<any[]>([])
+  const [projects, setProjects] = useState<any[]>([])
+  const [selectedProjects, setSelectedProjects] = useState<number[]>([])
   const [loading, setLoading] = useState(false)
   const [installCode, setInstallCode] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
 
   useEffect(() => {
     getRoles().then(setRoles).catch(() => {})
+    getProjects().then(setProjects).catch(() => {})
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -37,6 +40,13 @@ export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSu
       })
       if (res?.auth_token || res?.install_code) {
         setInstallCode(res.auth_token || res.install_code)
+      }
+      // Assign new user to selected projects
+      if (res?.id || res?.user?.id) {
+        const newUserId = res.id || res.user.id;
+        for (const projectId of selectedProjects) {
+          await addProjectMemberApi(projectId, { userId: newUserId }).catch(() => {});
+        }
       }
       onSuccess()
     } catch (err) {
@@ -106,6 +116,21 @@ export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSu
               <div className="space-y-2">
                 <Label htmlFor="githubId">GitHub ID</Label>
                 <Input id="githubId" value={githubId} onChange={(e) => setGithubId(e.target.value)} placeholder="github-username (optional)" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Assign to Projects</label>
+                <div className="border rounded-lg p-2 max-h-32 overflow-y-auto space-y-1">
+                  {projects.map((p: any) => (
+                    <label key={p.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 px-2 py-1 rounded">
+                      <input type="checkbox" checked={selectedProjects.includes(p.id)} onChange={e => {
+                        if (e.target.checked) setSelectedProjects([...selectedProjects, p.id]);
+                        else setSelectedProjects(selectedProjects.filter(id => id !== p.id));
+                      }} />
+                      {p.name}
+                    </label>
+                  ))}
+                  {projects.length === 0 && <p className="text-xs text-gray-400 px-2">No projects yet</p>}
+                </div>
               </div>
             </CardContent>
             <CardFooter className="flex justify-end gap-2 bg-muted/20 border-t py-4">

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { getMe, getTeam, updateTeam, getModelCredits, updateModelCredit } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -624,6 +625,23 @@ export function Settings() {
           )}
         </CardContent>
       </Card>
+
+      {/* System Settings (admin only) */}
+      {me?.permissions?.includes('config.manage') && (
+        <div className="bg-white border rounded-xl p-5 mb-6">
+          <h2 className="text-lg font-semibold mb-4">System</h2>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Default Role for New Users</label>
+              <p className="text-xs text-gray-500 mb-2">Manage roles and permissions on the <Link to="/roles" className="text-blue-600 hover:underline">Roles page</Link>.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Work Schedule Defaults</label>
+              <p className="text-xs text-gray-500">Work schedule configuration will be available in Phase 3 (Attendance module).</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Danger Zone */}
       <Card className="border-red-200">
