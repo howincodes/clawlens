@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { getTask, updateTaskApi, addTaskComment, assignTask, changeTaskStatus, deleteTaskApi, getUsers, createTaskApi } from '../lib/api';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { getTask, updateTaskApi, addTaskComment, assignTask, changeTaskStatus, deleteTaskApi, getUsers, createTaskApi, getProjects } from '../lib/api';
 
 export default function TaskDetail() {
   const { id } = useParams();
@@ -13,12 +13,19 @@ export default function TaskDetail() {
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState({ title: '', description: '', priority: '', effort: '' });
   const [newSubtask, setNewSubtask] = useState('');
+  const [project, setProject] = useState<any>(null);
 
   const loadTask = async () => {
     const [t, u] = await Promise.all([getTask(taskId), getUsers()]);
     setTask(t);
     setUsers(u);
     setEditData({ title: t.title, description: t.description || '', priority: t.priority, effort: t.effort || '' });
+    if (t.projectId) {
+      getProjects().then(projs => {
+        const p = projs.find((p: any) => p.id === t.projectId);
+        setProject(p);
+      });
+    }
     setLoading(false);
   };
 
@@ -60,6 +67,12 @@ export default function TaskDetail() {
     loadTask();
   };
 
+  const getUserName = (id: number | null) => {
+    if (!id) return null;
+    const user = users.find((u: any) => u.id === id);
+    return user?.name || `User #${id}`;
+  };
+
   if (loading) return <div className="p-6 text-center text-gray-500">Loading...</div>;
   if (!task) return <div className="p-6 text-center text-gray-500">Task not found</div>;
 
@@ -67,6 +80,14 @@ export default function TaskDetail() {
   const priorities = ['low', 'medium', 'high', 'urgent'];
   const statusColors: Record<string, string> = { open: 'bg-gray-100 text-gray-700', in_progress: 'bg-yellow-100 text-yellow-700', done: 'bg-green-100 text-green-700', blocked: 'bg-red-100 text-red-700' };
   const priorityColors: Record<string, string> = { low: 'bg-gray-100 text-gray-700', medium: 'bg-blue-100 text-blue-700', high: 'bg-orange-100 text-orange-700', urgent: 'bg-red-100 text-red-700' };
+
+  const activityIcons: Record<string, string> = {
+    created: '\u{1F195}',
+    status_changed: '\u{1F504}',
+    assigned: '\u{1F464}',
+    commented: '\u{1F4AC}',
+    priority_changed: '\u{26A1}',
+  };
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -98,6 +119,12 @@ export default function TaskDetail() {
                 <button onClick={() => setEditing(true)} className="text-sm text-blue-600 hover:underline">Edit</button>
                 <button onClick={handleDelete} className="text-sm text-red-600 hover:underline">Delete</button>
               </div>
+            </div>
+            <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
+              {project && <Link to={`/projects/${project.id}`} className="text-blue-600 hover:underline">{project.name}</Link>}
+              {task.milestoneId && <span>Milestone #{task.milestoneId}</span>}
+              <span>Created {new Date(task.createdAt).toLocaleDateString()}</span>
+              {task.createdBy && <span>by {getUserName(task.createdBy) || `User #${task.createdBy}`}</span>}
             </div>
             {task.description && <p className="text-gray-600 mb-4">{task.description}</p>}
             <div className="flex flex-wrap gap-3 items-center">
@@ -158,7 +185,7 @@ export default function TaskDetail() {
           {task.activity?.map((a: any) => (
             <div key={a.id} className="flex items-center gap-2 text-sm text-gray-600">
               <span className="text-xs text-gray-400">{new Date(a.createdAt).toLocaleString()}</span>
-              <span>{a.action.replace('_', ' ')}</span>
+              <span>{activityIcons[a.action] || '\u{1F4DD}'} {a.action.replace('_', ' ')}</span>
               {a.oldValue && <span className="line-through text-gray-400">{a.oldValue}</span>}
               {a.newValue && <span className="font-medium">{a.newValue}</span>}
             </div>

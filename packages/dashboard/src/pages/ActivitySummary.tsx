@@ -1,24 +1,28 @@
 import { useState, useEffect } from 'react';
 import { getUserActivity, getUserActivityWindows } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
+import UserSelector from '../components/UserSelector';
 
 export default function ActivitySummary() {
   const { user } = useAuthStore();
   const [activity, setActivity] = useState<any>(null);
   const [windows, setWindows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedUser, setSelectedUser] = useState<number | null>(null);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
-    if (!user?.id) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const userId = selectedUser || user?.id;
+    if (!userId) return;
+    setLoading(true);
     Promise.all([
-      getUserActivity(user.id, new Date(today).toISOString()),
-      getUserActivityWindows(user.id, today),
+      getUserActivity(userId, new Date(selectedDate).toISOString()),
+      getUserActivityWindows(userId, selectedDate),
     ]).then(([act, wins]) => {
       setActivity(act);
       setWindows(wins);
     }).finally(() => setLoading(false));
-  }, [user?.id]);
+  }, [selectedUser, selectedDate, user?.id]);
 
   if (loading) return <div className="p-6 text-center text-gray-500">Loading...</div>;
 
@@ -33,7 +37,11 @@ export default function ActivitySummary() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Today's Activity</h1>
+      <div className="flex items-center gap-4 mb-6">
+        <h1 className="text-2xl font-bold">Activity</h1>
+        <UserSelector value={selectedUser} onChange={setSelectedUser} placeholder="All Users" allowAll />
+        <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white border rounded-lg p-4 text-center">
