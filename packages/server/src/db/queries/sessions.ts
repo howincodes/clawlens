@@ -112,6 +112,11 @@ export async function upsertAntigravitySession(params: {
   return session;
 }
 
+export async function updateSessionCwd(sessionId: string, cwd: string) {
+  const db = getDb();
+  await db.update(sessions).set({ cwd }).where(eq(sessions.id, sessionId));
+}
+
 export async function getRecentSessions(limit = 50) {
   const db = getDb();
   return db.select().from(sessions).orderBy(desc(sessions.startedAt)).limit(limit);

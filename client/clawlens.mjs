@@ -112,6 +112,7 @@ const EVENT_PATHS = {
   PostToolUseFailure: 'post-tool-failure',
   ConfigChange: 'config-change',
   FileChanged: 'file-changed',
+  CwdChanged: 'cwd-changed',
 };
 
 // ── Read stdin ───────────────────────────────────────

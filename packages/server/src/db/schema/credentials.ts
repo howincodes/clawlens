@@ -36,6 +36,19 @@ export const usageSnapshots = pgTable('usage_snapshots', {
   recordedAt: timestamp('recorded_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const usagePolls = pgTable('usage_polls', {
+  id: serial('id').primaryKey(),
+  credentialId: integer('credential_id').notNull().references(() => subscriptionCredentials.id, { onDelete: 'cascade' }),
+  fiveHourUtilization: real('five_hour_utilization'),
+  sevenDayUtilization: real('seven_day_utilization'),
+  opusWeeklyUtilization: real('opus_weekly_utilization'),
+  sonnetWeeklyUtilization: real('sonnet_weekly_utilization'),
+  fiveHourResetsAt: timestamp('five_hour_resets_at', { withTimezone: true }),
+  sevenDayResetsAt: timestamp('seven_day_resets_at', { withTimezone: true }),
+  assignedUserIds: text('assigned_user_ids'),
+  polledAt: timestamp('polled_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const heartbeats = pgTable('heartbeats', {
   id: serial('id').primaryKey(),
   userId: integer('user_id').notNull().references(() => users.id).unique(),

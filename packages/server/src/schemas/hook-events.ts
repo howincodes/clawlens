@@ -147,6 +147,18 @@ export const FileChangedEvent = HookBase.extend({
 export type FileChangedPayload = z.infer<typeof FileChangedEvent>;
 
 // ---------------------------------------------------------------------------
+// CwdChanged
+// ---------------------------------------------------------------------------
+
+export const CwdChangedEvent = HookBase.extend({
+  hook_event_name: z.literal('CwdChanged'),
+  cwd: z.string().optional(),
+  previous_cwd: z.string().optional(),
+});
+
+export type CwdChangedPayload = z.infer<typeof CwdChangedEvent>;
+
+// ---------------------------------------------------------------------------
 // Discriminated union of all hook events
 // ---------------------------------------------------------------------------
 
@@ -162,6 +174,7 @@ export const HookEvent = z.discriminatedUnion('hook_event_name', [
   SubagentStartEvent,
   ConfigChangeEvent,
   FileChangedEvent,
+  CwdChangedEvent,
 ]);
 
 export type HookEventPayload = z.infer<typeof HookEvent>;
@@ -182,6 +195,7 @@ export const HOOK_EVENT_NAMES = [
   'SubagentStart',
   'ConfigChange',
   'FileChanged',
+  'CwdChanged',
 ] as const;
 
 export type HookEventName = (typeof HOOK_EVENT_NAMES)[number];

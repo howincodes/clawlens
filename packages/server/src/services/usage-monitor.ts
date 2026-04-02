@@ -3,6 +3,8 @@ import https from 'node:https';
 import {
   getActiveSubscriptionCredentials,
   recordUsageSnapshot,
+  recordUsagePoll,
+  getAssignmentsByCredential,
   getActiveAssignment,
   releaseCredentialFromUser,
   assignCredentialToUser,
@@ -146,6 +148,20 @@ async function pollAllSubscriptions() {
         sevenDayResetsAt: usage.sevenDayResetsAt ?? undefined,
         opusWeeklyUtilization: usage.opusWeeklyUtilization,
         sonnetWeeklyUtilization: usage.sonnetWeeklyUtilization,
+      });
+
+      // Record usage poll with assigned user IDs
+      const assignments = await getAssignmentsByCredential(cred.id);
+      const activeUserIds = assignments.filter(a => a.status === 'active').map(a => a.userId).join(',');
+      await recordUsagePoll({
+        credentialId: cred.id,
+        fiveHourUtilization: usage.fiveHourUtilization,
+        sevenDayUtilization: usage.sevenDayUtilization,
+        opusWeeklyUtilization: usage.opusWeeklyUtilization,
+        sonnetWeeklyUtilization: usage.sonnetWeeklyUtilization,
+        fiveHourResetsAt: usage.fiveHourResetsAt ?? undefined,
+        sevenDayResetsAt: usage.sevenDayResetsAt ?? undefined,
+        assignedUserIds: activeUserIds,
       });
 
       // Auto-start session reset if 5h drops to 0% (Phase 1, Item 7)

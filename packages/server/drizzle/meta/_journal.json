@@ -36,6 +36,13 @@
       "when": 1775101250976,
       "tag": "0004_married_dakota_north",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1775121433140,
+      "tag": "0005_smooth_dragon_lord",
+      "breakpoints": true
     }
   ]
 }

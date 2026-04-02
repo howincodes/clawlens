@@ -4,6 +4,7 @@ import {
   subscriptionCredentials,
   credentialAssignments,
   usageSnapshots,
+  usagePolls,
   heartbeats,
   watchEvents,
   conversationMessages,
@@ -174,6 +175,33 @@ export async function getUsageSnapshots(credentialId: number, limit = 50) {
     .from(usageSnapshots)
     .where(eq(usageSnapshots.credentialId, credentialId))
     .orderBy(desc(usageSnapshots.recordedAt))
+    .limit(limit);
+}
+
+// ---------------------------------------------------------------------------
+// Usage Polls (with user tracking)
+// ---------------------------------------------------------------------------
+
+export async function recordUsagePoll(params: {
+  credentialId: number;
+  fiveHourUtilization?: number;
+  sevenDayUtilization?: number;
+  opusWeeklyUtilization?: number;
+  sonnetWeeklyUtilization?: number;
+  fiveHourResetsAt?: Date;
+  sevenDayResetsAt?: Date;
+  assignedUserIds: string;
+}) {
+  const db = getDb();
+  const [result] = await db.insert(usagePolls).values(params).returning();
+  return result;
+}
+
+export async function getUsagePolls(credentialId: number, limit = 100) {
+  const db = getDb();
+  return db.select().from(usagePolls)
+    .where(eq(usagePolls.credentialId, credentialId))
+    .orderBy(desc(usagePolls.polledAt))
     .limit(limit);
 }
 

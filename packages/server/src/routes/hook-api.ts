@@ -35,6 +35,7 @@ import {
   SubagentStartEvent,
   ConfigChangeEvent,
   FileChangedEvent,
+  CwdChangedEvent,
 } from '../schemas/hook-events.js';
 
 // ---------------------------------------------------------------------------
@@ -836,6 +837,51 @@ hookRouter.post('/file-changed', async (req: Request, res: Response) => {
   } catch (err: any) {
     debug(`ERROR: ${err.stack || err.message}`);
     console.error('[hook-api] file-changed error:', err);
+    res.json({});
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /cwd-changed
+// ---------------------------------------------------------------------------
+
+hookRouter.post('/cwd-changed', async (req: Request, res: Response) => {
+  debug(`──── /cwd-changed ────`);
+  try {
+    const user = req.user!;
+    const body = req.body;
+    debug(`user: id=${user.id}, name=${user.name}`);
+    debug(`body.cwd=${body.cwd || '(none)'}, body.previous_cwd=${body.previous_cwd || '(none)'}`);
+
+    const parsed = CwdChangedEvent.safeParse(body);
+    debug(`zod parse: ${parsed.success ? 'OK' : 'FAILED'}`);
+    const data = parsed.success ? parsed.data : body;
+
+    await touchUserLastEvent(user.id);
+    await recordHookEvent({
+      userId: user.id,
+      sessionId: data.session_id,
+      eventType: 'CwdChanged',
+      payload: JSON.stringify(body),
+      source: 'claude_code',
+    });
+
+    // Update session cwd if we have a session
+    if (data.session_id && data.cwd) {
+      try {
+        const { updateSessionCwd } = await import('../db/queries/sessions.js');
+        await updateSessionCwd(data.session_id, data.cwd);
+        debug(`updated session cwd to "${data.cwd}"`);
+      } catch (e: any) {
+        debug(`failed to update session cwd: ${e.message}`);
+      }
+    }
+
+    debug(`responding: {} (OK)`);
+    res.json({});
+  } catch (err: any) {
+    debug(`ERROR: ${err.stack || err.message}`);
+    console.error('[hook-api] cwd-changed error:', err);
     res.json({});
   }
 });

@@ -1,0 +1,13 @@
+[Unit]
+Description=HowinLens Client
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node %h/.howinlens/client/main.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=default.target
