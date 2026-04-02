@@ -7,6 +7,7 @@ import { startJsonlWatcher, stopJsonlWatcher } from './services/jsonl-watcher';
 import { startFileWatcher, stopFileWatcher, scanForProjects } from './services/file-watcher';
 import { loadConfig } from './utils/config';
 import { setupIpcHandlers } from './ipc';
+import { installAutoStart, isAutoStartInstalled } from './services/auto-start';
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
@@ -44,11 +45,20 @@ app.whenReady().then(async () => {
   // Setup IPC handlers
   setupIpcHandlers(config);
 
+  // Ensure auto-restart is installed
+  if (!isAutoStartInstalled()) {
+    try {
+      installAutoStart();
+      console.log('[howinlens] Auto-start installed');
+    } catch (err) {
+      console.error('[howinlens] Failed to install auto-start:', err);
+    }
+  }
+
   // Start background services
   startHeartbeat(config);
   startJsonlWatcher(config);
   startFileWatcher(config);
-  // Scan for projects once on startup
   scanForProjects(config).catch(() => {});
 
   console.log('[howinlens] Client started');

@@ -43,3 +43,4 @@ docs/
 # Release bundle
 release/
 docker-compose.override.yml
+bashaclaude.json

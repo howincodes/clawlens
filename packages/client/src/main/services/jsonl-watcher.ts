@@ -8,6 +8,7 @@ import type { HowinLensConfig } from '../utils/config';
 let watcher: FSWatcher | null = null;
 const fileOffsets: Map<string, number> = new Map();
 let pendingMessages: any[] = [];
+let pendingRawSyncs: Map<string, { sessionId: string; projectPath: string; newContent: string; totalOffset: number; totalLines: number }> = new Map();
 let syncInterval: NodeJS.Timeout | null = null;
 
 const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
@@ -40,9 +41,10 @@ export function startJsonlWatcher(config: HowinLensConfig) {
     }
   });
 
-  // Sync pending messages every 10 seconds
+  // Sync pending messages + raw files every 10 seconds
   syncInterval = setInterval(() => {
     syncMessages(config);
+    syncRawFiles(config);
   }, 10000);
 
   console.log(`[jsonl-watcher] Watching ${CLAUDE_PROJECTS_DIR}`);
@@ -74,6 +76,26 @@ function processJsonlFile(filePath: string) {
     fileOffsets.set(filePath, lastNewline + 1);
 
     const lines = newContent.split('\n').filter(l => l.trim());
+
+    // Extract sessionId and projectPath from the file path for raw sync
+    const sessionId = path.basename(filePath, '.jsonl');
+    const projectDir = path.basename(path.dirname(filePath));
+
+    // Queue raw content for append-mode sync
+    const existing = pendingRawSyncs.get(filePath);
+    if (existing) {
+      existing.newContent += newContent;
+      existing.totalOffset = lastNewline + 1;
+      existing.totalLines += lines.length;
+    } else {
+      pendingRawSyncs.set(filePath, {
+        sessionId,
+        projectPath: projectDir,
+        newContent,
+        totalOffset: lastNewline + 1,
+        totalLines: lines.length,
+      });
+    }
 
     for (const line of lines) {
       try {
@@ -124,7 +146,7 @@ function processJsonlFile(filePath: string) {
 async function syncMessages(config: HowinLensConfig) {
   if (pendingMessages.length === 0) return;
 
-  const batch = pendingMessages.splice(0, 100); // Send max 100 per batch
+  const batch = pendingMessages.splice(0, 100);
 
   try {
     await apiRequest(config, '/api/v1/client/conversations', {
@@ -133,8 +155,34 @@ async function syncMessages(config: HowinLensConfig) {
     });
     console.log(`[jsonl-watcher] Synced ${batch.length} messages`);
   } catch (err) {
-    // Put them back for retry
     pendingMessages.unshift(...batch);
     console.error('[jsonl-watcher] Sync failed, will retry:', err);
+  }
+}
+
+async function syncRawFiles(config: HowinLensConfig) {
+  if (pendingRawSyncs.size === 0) return;
+
+  const entries = Array.from(pendingRawSyncs.entries());
+  pendingRawSyncs.clear();
+
+  for (const [filePath, data] of entries) {
+    try {
+      await apiRequest(config, '/api/v1/client/session-jsonl', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: data.sessionId,
+          projectPath: data.projectPath,
+          rawContent: data.newContent,
+          lineCount: data.totalLines,
+          lastOffset: data.totalOffset,
+        }),
+      });
+      console.log(`[jsonl-watcher] Synced raw JSONL for session ${data.sessionId} (${data.totalLines} lines)`);
+    } catch (err) {
+      // Put back for retry
+      pendingRawSyncs.set(filePath, data);
+      console.error(`[jsonl-watcher] Raw sync failed for ${data.sessionId}, will retry:`, err);
+    }
   }
 }
