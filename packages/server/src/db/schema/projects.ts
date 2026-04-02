@@ -6,12 +6,19 @@ export const projects = pgTable('projects', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 200 }).notNull(),
   description: text('description'),
-  githubRepoUrl: varchar('github_repo_url', { length: 500 }),
-  githubWebhookId: varchar('github_webhook_id', { length: 100 }),
   status: varchar('status', { length: 20 }).default('active').notNull(),
   createdBy: integer('created_by').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const projectRepositories = pgTable('project_repositories', {
+  id: serial('id').primaryKey(),
+  projectId: integer('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  githubRepoUrl: varchar('github_repo_url', { length: 500 }).notNull(),
+  label: varchar('label', { length: 50 }),
+  githubWebhookId: varchar('github_webhook_id', { length: 100 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const projectMembers = pgTable('project_members', {

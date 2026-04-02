@@ -107,7 +107,6 @@ export default function ProjectDetail() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold">{project.name}</h1>
         {project.description && <p className="text-gray-600 mt-1">{project.description}</p>}
-        {project.githubRepoUrl && <a href={project.githubRepoUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline">{project.githubRepoUrl}</a>}
       </div>
 
       <div className="flex gap-1 mb-6 border-b">

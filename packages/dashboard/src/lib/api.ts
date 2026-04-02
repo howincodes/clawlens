@@ -182,7 +182,7 @@ export async function getProjects() {
   return fetchClient('/projects')
 }
 
-export async function createProjectApi(data: { name: string; description?: string; githubRepoUrl?: string }) {
+export async function createProjectApi(data: { name: string; description?: string }) {
   return fetchClient('/projects', { method: 'POST', body: JSON.stringify(data) })
 }
 
@@ -208,6 +208,20 @@ export async function addProjectMemberApi(projectId: number, data: { userId: num
 
 export async function removeProjectMemberApi(projectId: number, userId: number) {
   return fetchClient(`/projects/${projectId}/members/${userId}`, { method: 'DELETE' })
+}
+
+// ── Project Repositories ──
+
+export async function getProjectRepositories(projectId: number) {
+  return fetchClient(`/projects/${projectId}/repositories`);
+}
+
+export async function addProjectRepositoryApi(projectId: number, data: { githubRepoUrl: string; label?: string }) {
+  return fetchClient(`/projects/${projectId}/repositories`, { method: 'POST', body: JSON.stringify(data) });
+}
+
+export async function removeProjectRepositoryApi(id: number) {
+  return fetchClient(`/repositories/${id}`, { method: 'DELETE' });
 }
 
 // ── Subscription Credentials ──

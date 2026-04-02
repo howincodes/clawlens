@@ -1,11 +1,10 @@
 import { eq, and, desc } from 'drizzle-orm';
 import { getDb } from '../index.js';
-import { projects, projectMembers } from '../schema/index.js';
+import { projects, projectMembers, projectRepositories } from '../schema/index.js';
 
 export async function createProject(params: {
   name: string;
   description?: string;
-  githubRepoUrl?: string;
   createdBy?: number;
 }) {
   const db = getDb();
@@ -26,7 +25,7 @@ export async function getAllProjects() {
 
 export async function updateProject(
   id: number,
-  params: Partial<{ name: string; description: string; githubRepoUrl: string; status: string }>,
+  params: Partial<{ name: string; description: string; status: string }>,
 ) {
   const db = getDb();
   const [project] = await db
@@ -73,5 +72,24 @@ export async function removeProjectMember(projectId: number, userId: number): Pr
       ),
     )
     .returning();
+  return result.length > 0;
+}
+
+// ── Project Repositories ──
+
+export async function addProjectRepository(params: { projectId: number; githubRepoUrl: string; label?: string }) {
+  const db = getDb();
+  const [repo] = await db.insert(projectRepositories).values(params).returning();
+  return repo;
+}
+
+export async function getProjectRepositories(projectId: number) {
+  const db = getDb();
+  return db.select().from(projectRepositories).where(eq(projectRepositories.projectId, projectId)).orderBy(projectRepositories.createdAt);
+}
+
+export async function removeProjectRepository(id: number): Promise<boolean> {
+  const db = getDb();
+  const result = await db.delete(projectRepositories).where(eq(projectRepositories.id, id)).returning();
   return result.length > 0;
 }

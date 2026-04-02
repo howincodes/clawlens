@@ -14,7 +14,7 @@ import { createWatcherCommand, markWatcherCommandDelivered, getLatestWatcherLogs
 import { getModelCredits, getProviderQuotas } from '../db/queries/model-credits.js';
 import { getSubscriptions } from '../db/queries/subscriptions.js';
 import { getAllRoles, getRoleById, createRole, updateRole, deleteRole, getAllPermissions, getRolePermissions, setRolePermissions, getUserRoles, assignUserRole, removeUserRole, getUserPermissionKeys } from '../db/queries/roles.js';
-import { getAllProjects, getProjectById, createProject, updateProject, deleteProject, getProjectMembers, addProjectMember, removeProjectMember } from '../db/queries/projects.js';
+import { getAllProjects, getProjectById, createProject, updateProject, deleteProject, getProjectMembers, addProjectMember, removeProjectMember, addProjectRepository, getProjectRepositories, removeProjectRepository } from '../db/queries/projects.js';
 import {
   createTask, getTaskById, getTasksByProject, updateTask, deleteTask, getSubtasks,
   addTaskComment, getTaskComments, recordTaskActivity, getTaskActivity,
@@ -1617,6 +1617,39 @@ adminRouter.delete('/projects/:id/members/:userId', async (req: Request, res: Re
     res.json({ success: true });
   } catch (err) {
     console.error('[admin-api] remove project member error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── Project Repositories ──
+
+adminRouter.get('/projects/:id/repositories', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const repos = await getProjectRepositories(parseInt(req.params.id as string));
+    res.json(repos);
+  } catch (err) {
+    console.error('[admin-api] list repositories error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.post('/projects/:id/repositories', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const repo = await addProjectRepository({ projectId: parseInt(req.params.id as string), ...req.body });
+    res.json(repo);
+  } catch (err) {
+    console.error('[admin-api] add repository error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+adminRouter.delete('/repositories/:id', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const deleted = await removeProjectRepository(parseInt(req.params.id as string));
+    if (!deleted) return res.status(404).json({ error: 'Repository not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[admin-api] remove repository error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
