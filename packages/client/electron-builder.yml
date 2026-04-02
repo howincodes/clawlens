@@ -26,6 +26,7 @@ linux:
     - target: deb
   icon: assets/icon.png
   category: Development
+  maintainer: Howincloud <dev@howincloud.com>
 
 win:
   target:

@@ -2,6 +2,8 @@
   "name": "@howinlens/client",
   "version": "0.3.0",
   "description": "HowinLens Desktop Client",
+  "author": "Howincloud <dev@howincloud.com>",
+  "homepage": "https://howinlens.howincloud.com",
   "main": "dist/main/index.js",
   "bin": {
     "howinlens": "dist/cli/index.js"
