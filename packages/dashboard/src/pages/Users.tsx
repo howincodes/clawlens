@@ -27,7 +27,9 @@ import {
 } from 'lucide-react'
 import { AddUserModal } from '@/components/AddUserModal'
 import { ConfirmActionModal } from '@/components/ConfirmActionModal'
-import { format } from 'date-fns'
+import RoleBadge from '@/components/RoleBadge'
+import WatchStatusIndicator from '@/components/WatchStatusIndicator'
+import { format, formatDistanceToNow } from 'date-fns'
 
 function normalizeModel(model: string): string {
   if (!model) return '-'
@@ -52,6 +54,7 @@ export function UsersPage() {
   } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<any | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [roleFilter, setRoleFilter] = useState('')
 
   const loadData = useCallback(async () => {
     try {
@@ -101,10 +104,16 @@ export function UsersPage() {
     }
   }
 
-  const filteredUsers = users.filter((u: any) =>
-    (u.name || '').toLowerCase().includes(search.toLowerCase()) ||
-    (u.slug || '').toLowerCase().includes(search.toLowerCase())
-  )
+  const availableRoles = Array.from(new Set(users.map((u: any) => u.role).filter(Boolean)))
+
+  const filteredUsers = users.filter((u: any) => {
+    const matchesSearch =
+      (u.name || '').toLowerCase().includes(search.toLowerCase()) ||
+      (u.slug || '').toLowerCase().includes(search.toLowerCase()) ||
+      (u.email || '').toLowerCase().includes(search.toLowerCase())
+    const matchesRole = !roleFilter || u.role === roleFilter
+    return matchesSearch && matchesRole
+  })
 
   if (loading) {
     return (
@@ -138,13 +147,23 @@ export function UsersPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search by name..."
+            placeholder="Search by name or email..."
             className="pl-9 bg-muted/50"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <div className="flex items-center gap-2">
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            className="h-9 rounded-md border border-input bg-muted/50 px-3 text-sm"
+          >
+            <option value="">All Roles</option>
+            {availableRoles.map((role: string) => (
+              <option key={role} value={role}>{role}</option>
+            ))}
+          </select>
           <SourceFilter value={source} onChange={setSource} />
           <Button onClick={() => setShowAddModal(true)}>
             <Plus className="w-4 h-4 mr-2" />
@@ -170,13 +189,15 @@ export function UsersPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
-                    <TableHead>Slug</TableHead>
+                    <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Watch</TableHead>
+                    <TableHead>GitHub</TableHead>
                     <TableHead className="text-right">Prompts</TableHead>
                     <TableHead className="text-right">Credits</TableHead>
                     <TableHead className="text-right">Sessions</TableHead>
                     <TableHead className="text-right">Top Model</TableHead>
-                    <TableHead className="text-right">Created</TableHead>
+                    <TableHead className="text-right">Last Active</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -186,15 +207,20 @@ export function UsersPage() {
                     return (
                       <TableRow key={user.id} className={idx % 2 === 0 ? 'bg-muted/30' : ''}>
                         <TableCell>
-                          <Link
-                            to={`/users/${user.id}`}
-                            className="font-medium hover:underline text-primary"
-                          >
-                            {user.name}
-                          </Link>
+                          <div className="flex flex-col">
+                            <Link
+                              to={`/users/${user.id}`}
+                              className="font-medium hover:underline text-primary"
+                            >
+                              {user.name}
+                            </Link>
+                            {user.email && (
+                              <span className="text-xs text-muted-foreground">{user.email}</span>
+                            )}
+                          </div>
                         </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          {user.slug}
+                        <TableCell>
+                          {user.role ? <RoleBadge role={user.role} /> : <span className="text-xs text-muted-foreground">-</span>}
                         </TableCell>
                         <TableCell>
                           <Badge
@@ -208,6 +234,12 @@ export function UsersPage() {
                           >
                             {user.status}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <WatchStatusIndicator status={user.watcher_connected ? 'on' : 'off'} showText={false} />
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {user.githubId || '-'}
                         </TableCell>
                         <TableCell className="text-right">
                           {Number(stats.prompts || 0).toLocaleString()}
@@ -223,9 +255,9 @@ export function UsersPage() {
                             {normalizeModel(String(stats.top_model || ''))}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right text-xs text-muted-foreground">
-                          {user.created_at
-                            ? format(new Date(user.created_at), 'MMM d, yyyy')
+                        <TableCell className="text-right text-xs text-muted-foreground" title={user.last_active ? format(new Date(user.last_active), 'MMM d, yyyy HH:mm') : undefined}>
+                          {user.last_active
+                            ? formatDistanceToNow(new Date(user.last_active), { addSuffix: true })
                             : '-'}
                         </TableCell>
                         <TableCell className="text-right">

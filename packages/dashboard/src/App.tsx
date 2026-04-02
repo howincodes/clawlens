@@ -17,6 +17,7 @@ import SubscriptionsManager from './pages/SubscriptionsManager'
 import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
 import ActivitySummary from './pages/ActivitySummary'
+import Roles from './pages/Roles'
 
 export default function App() {
   const token = useAuthStore((s) => s.token)
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/summaries" element={<Navigate to="/ai" replace />} />
         <Route path="/prompts" element={<PromptsBrowser />} />
         <Route path="/audit-log" element={<AuditLog />} />
+        <Route path="/roles" element={<Roles />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

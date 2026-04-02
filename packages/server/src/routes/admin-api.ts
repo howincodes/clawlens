@@ -165,6 +165,10 @@ adminRouter.get('/users', async (_req: Request, res: Response) => {
       `);
       const topModelResult = topModelResults[0];
 
+      // Get user roles
+      const userRolesList = await getUserRoles(user.id);
+      const primaryRole = userRolesList[0]?.roles?.name ?? null;
+
       return {
         ...user,
         prompt_count: Number(ccStats?.prompt_count ?? 0),
@@ -176,6 +180,7 @@ adminRouter.get('/users', async (_req: Request, res: Response) => {
         top_model: topModelResult?.model || user.defaultModel || null,
         last_active: user.lastEventAt,
         watcher_connected: isWatcherConnected(user.id) || isWatcherRecentlyActive(user),
+        role: primaryRole,
       };
     }));
 
@@ -192,16 +197,29 @@ adminRouter.get('/users', async (_req: Request, res: Response) => {
 
 adminRouter.post('/users', async (req: Request, res: Response) => {
   try {
-    const { name, slug, email, limits: limitsInput } = req.body;
+    const { name, slug, email, password, roleId, githubId, limits: limitsInput } = req.body;
 
     const userSlug = slug || name.toLowerCase().replace(/\s+/g, '_');
     const authToken = `clwt_${userSlug}_${randomBytes(8).toString('hex')}`;
+
+    let passwordHash: string | undefined;
+    if (password) {
+      const bcrypt = await import('bcryptjs');
+      passwordHash = await bcrypt.default.hash(password, 12);
+    }
 
     const user = await createUser({
       name,
       authToken,
       email: email || '',
+      passwordHash,
+      githubId: githubId || undefined,
     });
+
+    // Assign role if provided
+    if (roleId) {
+      await assignUserRole(user.id, roleId, undefined, (req as any).admin?.sub);
+    }
 
     // Create limits if provided
     if (limitsInput && Array.isArray(limitsInput)) {

@@ -1,23 +1,25 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Copy, Check, Terminal } from "lucide-react"
-import { fetchClient } from "@/lib/api"
+import { fetchClient, getRoles } from "@/lib/api"
 
 export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSuccess: () => void }) {
   const [name, setName] = useState('')
-  const [slug, setSlug] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [selectedRole, setSelectedRole] = useState<number | ''>('')
+  const [githubId, setGithubId] = useState('')
+  const [roles, setRoles] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [installCode, setInstallCode] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
 
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value
-    setName(val)
-    setSlug(val.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''))
-  }
+  useEffect(() => {
+    getRoles().then(setRoles).catch(() => {})
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -25,7 +27,13 @@ export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSu
     try {
       const res = await fetchClient('/users', {
         method: 'POST',
-        body: JSON.stringify({ name, slug })
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+          roleId: selectedRole || undefined,
+          githubId: githubId || undefined,
+        })
       })
       if (res?.auth_token || res?.install_code) {
         setInstallCode(res.auth_token || res.install_code)
@@ -71,17 +79,38 @@ export function AddUserModal({ onClose, onSuccess }: { onClose: () => void, onSu
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Display Name</Label>
-                <Input id="name" value={name} onChange={handleNameChange} placeholder="Alice" required />
+                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Alice" required />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="slug">Slug Identifier</Label>
-                <Input id="slug" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="alice" required />
-                <p className="text-xs text-muted-foreground">Lowercase, no spaces. Used in install codes.</p>
+                <Label htmlFor="email">Email</Label>
+                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="alice@example.com" required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimum 8 characters" required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="role">Role</Label>
+                <select
+                  id="role"
+                  value={selectedRole}
+                  onChange={(e) => setSelectedRole(e.target.value ? Number(e.target.value) : '')}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="">Select a role (optional)</option>
+                  {roles.map((r: any) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="githubId">GitHub ID</Label>
+                <Input id="githubId" value={githubId} onChange={(e) => setGithubId(e.target.value)} placeholder="github-username (optional)" />
               </div>
             </CardContent>
             <CardFooter className="flex justify-end gap-2 bg-muted/20 border-t py-4">
               <Button type="button" variant="ghost" onClick={onClose} disabled={loading}>Cancel</Button>
-              <Button type="submit" disabled={loading || !name || !slug}>{loading ? 'Creating...' : 'Create User'}</Button>
+              <Button type="submit" disabled={loading || !name || !email || !password}>{loading ? 'Creating...' : 'Create User'}</Button>
             </CardFooter>
           </form>
         ) : (
