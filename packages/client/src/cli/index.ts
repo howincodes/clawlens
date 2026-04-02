@@ -76,10 +76,10 @@ async function cmdWatchOn(config: Config) {
   if (result?.ok) {
     console.log('🟢 On Watch — tracking active');
     if (result.credential) {
-      // Write credentials
+      // Write credentials (full payload with tokens + oauthAccount)
       const { writeCredentials } = await import('../main/services/credentials.js');
-      await writeCredentials(result.credential.accessToken, result.credential.refreshToken);
-      console.log(`   Account: ${result.credential.subscriptionType}`);
+      await writeCredentials(result.credential);
+      console.log(`   Account: ${result.credential.oauthAccount?.emailAddress || result.credential.claudeAiOauth?.subscriptionType}`);
     }
   } else {
     console.error('Failed to go On Watch');

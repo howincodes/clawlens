@@ -6,17 +6,33 @@ files:
   - dist/**/*
   - assets/**/*
   - "!node_modules/**/*"
+
+# Auto-updater — publish to GitHub Releases
+publish:
+  provider: github
+  owner: howincloud
+  repo: howinlens
+
 mac:
   target:
     - target: dmg
       arch: [universal]
   icon: assets/icon.png
+  category: public.app-category.developer-tools
+
 linux:
   target:
     - target: AppImage
     - target: deb
   icon: assets/icon.png
+  category: Development
+
 win:
   target:
     - target: nsis
   icon: assets/icon.png
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true

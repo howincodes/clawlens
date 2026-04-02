@@ -15,6 +15,46 @@ import { updateUser } from '../db/queries/users.js';
 import { getProjectById } from '../db/queries/projects.js';
 import { getLatestUsageSnapshot } from '../db/queries/credentials.js';
 import { generateStatuslineConfig } from '../services/statusline.js';
+import { decrypt, isEncryptionConfigured } from '../services/encryption.js';
+
+/**
+ * Build the full credential payload (tokens + oauthAccount) from a credential row.
+ * Decrypts encrypted tokens if encryption is configured, falls back to plaintext columns.
+ */
+function buildCredentialPayload(credential: any) {
+  let accessToken = credential.accessToken;
+  let refreshToken = credential.refreshToken;
+
+  // Prefer encrypted tokens (Phase 1)
+  if (isEncryptionConfigured()) {
+    if (credential.encryptedAccessToken) {
+      try { accessToken = decrypt(credential.encryptedAccessToken); } catch {}
+    }
+    if (credential.encryptedRefreshToken) {
+      try { refreshToken = decrypt(credential.encryptedRefreshToken); } catch {}
+    }
+  }
+
+  return {
+    claudeAiOauth: {
+      accessToken,
+      refreshToken,
+      expiresAt: credential.expiresAt ? new Date(credential.expiresAt).getTime() : Date.now() + 28800000,
+      scopes: credential.scopes
+        ? credential.scopes.split(' ')
+        : ['user:file_upload', 'user:inference', 'user:mcp_servers', 'user:profile', 'user:sessions:claude_code'],
+      subscriptionType: credential.subscriptionType || 'team',
+      rateLimitTier: credential.rateLimitTier || 'default_raven',
+    },
+    oauthAccount: {
+      accountUuid: credential.accountUuid || '',
+      emailAddress: credential.email || '',
+      organizationUuid: credential.orgId || '',
+      displayName: credential.displayName || '',
+      organizationName: credential.organizationName || '',
+    },
+  };
+}
 
 export const clientRouter: RouterType = Router();
 
@@ -64,12 +104,7 @@ clientRouter.post('/watch/on', async (req: Request, res: Response) => {
     res.json({
       ok: true,
       watchStatus: 'on',
-      credential: credential ? {
-        accessToken: credential.accessToken,
-        refreshToken: credential.refreshToken,
-        expiresAt: credential.expiresAt,
-        subscriptionType: credential.subscriptionType,
-      } : null,
+      credential: credential ? buildCredentialPayload(credential) : null,
     });
   } catch (err) {
     console.error('[client-api] watch/on error:', err);
@@ -151,14 +186,7 @@ clientRouter.get('/credential', async (req: Request, res: Response) => {
     }
 
     res.json({
-      credential: {
-        accessToken: credential.accessToken,
-        refreshToken: credential.refreshToken,
-        expiresAt: credential.expiresAt,
-        orgId: credential.orgId,
-        subscriptionType: credential.subscriptionType,
-        rateLimitTier: credential.rateLimitTier,
-      },
+      credential: buildCredentialPayload(credential),
     });
   } catch (err) {
     console.error('[client-api] credential error:', err);

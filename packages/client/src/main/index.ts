@@ -1,13 +1,14 @@
-import { app, Tray } from 'electron';
+import { app } from 'electron';
 
 import { createTray, updateTrayState } from './tray';
-import { createWindow, getWindow } from './window';
-import { startHeartbeat, stopHeartbeat } from './services/heartbeat';
-import { startJsonlWatcher, stopJsonlWatcher } from './services/jsonl-watcher';
-import { startFileWatcher, stopFileWatcher, scanForProjects } from './services/file-watcher';
+import { createWindow, loadDashboard, getWindow } from './window';
+import { startAllServices, stopAllServices } from './services/service-manager';
+import { setNotificationsEnabled } from './services/notifications';
 import { loadConfig } from './utils/config';
 import { setupIpcHandlers } from './ipc';
-import { installAutoStart, isAutoStartInstalled } from './services/auto-start';
+import { installAutoStart, isAutoStartInstalled, uninstallAutoStart } from './services/auto-start';
+import { checkForUpdates } from './services/updater';
+import { setupPageHtml } from './pages/setup';
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
@@ -15,63 +16,71 @@ if (!gotTheLock) {
   app.quit();
 }
 
-let tray: Tray | null = null;
-
 app.whenReady().then(async () => {
   const config = loadConfig();
 
+  // Setup IPC handlers first (needed by setup wizard)
+  setupIpcHandlers(config);
+
   if (!config.serverUrl || !config.authToken) {
-    // Show setup window if not configured
+    // Show setup wizard
     const win = createWindow(true);
-    win.loadURL('data:text/html,' + encodeURIComponent(`
-      <html><body style="font-family:system-ui;padding:40px;text-align:center">
-        <h2>HowinLens Setup</h2>
-        <p>Edit config at ~/.howinlens/config.json</p>
-        <pre style="text-align:left;background:#f5f5f5;padding:20px;border-radius:8px">
-{
-  "serverUrl": "https://your-server.com",
-  "authToken": "your-auth-token"
-}</pre>
-        <p style="color:#666;margin-top:20px">Then restart the app.</p>
-      </body></html>
-    `));
+    win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(setupPageHtml));
+    win.show();
+
+    // When the setup completes, the page reloads — re-evaluate config
+    win.webContents.on('did-finish-load', () => {
+      const freshConfig = loadConfig();
+      if (freshConfig.serverUrl && freshConfig.authToken) {
+        Object.assign(config, freshConfig);
+        win.close();
+        startApp(config);
+      }
+    });
+
     return;
   }
 
+  startApp(config);
+});
+
+async function startApp(config: ReturnType<typeof loadConfig>): Promise<void> {
   // Create tray
-  tray = createTray();
+  createTray();
   updateTrayState('off');
 
-  // Setup IPC handlers
-  setupIpcHandlers(config);
+  // Apply preferences
+  setNotificationsEnabled(config.notificationsEnabled !== false);
 
-  // Ensure auto-restart is installed
-  if (!isAutoStartInstalled()) {
-    try {
-      installAutoStart();
-      console.log('[howinlens] Auto-start installed');
-    } catch (err) {
-      console.error('[howinlens] Failed to install auto-start:', err);
+  // Ensure auto-start matches config preference
+  if (config.autoStart !== false) {
+    if (!isAutoStartInstalled()) {
+      try {
+        installAutoStart();
+        console.log('[howinlens] Auto-start installed');
+      } catch (err) {
+        console.error('[howinlens] Failed to install auto-start:', err);
+      }
     }
+  } else {
+    try { uninstallAutoStart(); } catch {}
   }
 
-  // Start background services
-  startHeartbeat(config);
-  startJsonlWatcher(config);
-  startFileWatcher(config);
-  scanForProjects(config).catch(() => {});
+  // Start all background services via service manager
+  await startAllServices(config);
+
+  // Check for updates (non-blocking)
+  checkForUpdates();
 
   console.log('[howinlens] Client started');
-});
+}
 
 app.on('window-all-closed', () => {
   // Don't quit when all windows are closed — keep running in tray
 });
 
-app.on('before-quit', () => {
-  stopHeartbeat();
-  stopJsonlWatcher();
-  stopFileWatcher();
+app.on('before-quit', async () => {
+  await stopAllServices();
 });
 
 // macOS: re-create window when clicking dock icon
@@ -81,7 +90,17 @@ app.on('activate', () => {
     const config = loadConfig();
     if (config.serverUrl) {
       const w = createWindow();
-      w.loadURL(`${config.serverUrl}/client/dashboard`);
+      loadDashboard(w, config.serverUrl);
     }
+  }
+});
+
+// Second instance: focus the existing window
+app.on('second-instance', () => {
+  const win = getWindow();
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
   }
 });
