@@ -209,7 +209,7 @@ export async function upsertMessageByUuid(params: {
       ${params.inputTokens ?? null}, ${params.outputTokens ?? null},
       ${params.cachedTokens ?? null}, ${params.cacheCreationTokens ?? null},
       ${params.creditCost ?? 0}, ${params.cwd ?? null}, ${params.gitBranch ?? null},
-      ${params.sourceType}, ${params.timestamp ?? new Date()}, NOW()
+      ${params.sourceType}, ${(params.timestamp ?? new Date()).toISOString()}, NOW()
     )
     ON CONFLICT (uuid) WHERE uuid IS NOT NULL DO NOTHING
   `);

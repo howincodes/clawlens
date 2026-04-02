@@ -8,7 +8,7 @@ export const messages = pgTable('messages', {
   uuid: varchar('uuid', { length: 255 }),         // JSONL message UUID — natural dedup key
   parentUuid: varchar('parent_uuid', { length: 255 }), // Conversation threading from JSONL
   provider: varchar('provider', { length: 50 }).notNull(), // 'claude-code' | 'codex' | 'antigravity'
-  sessionId: varchar('session_id', { length: 255 }).references(() => sessions.id),
+  sessionId: varchar('session_id', { length: 255 }), // JSONL session UUID — no FK (sessions table uses numeric IDs)
   userId: integer('user_id').notNull().references(() => users.id),
   type: varchar('type', { length: 20 }).notNull(), // 'user' | 'assistant'
   content: text('content'),
