@@ -168,12 +168,12 @@ adminRouter.get('/users', async (_req: Request, res: Response) => {
       const { passwordHash: _, ...safeUser } = user;
 
       try {
-        // Claude Code only (exclude Antigravity sessions)
+        // Claude Code only — count user prompts (not assistant responses)
         const [ccStats] = await db.execute<{ prompt_count: number; total_credits: number }>(sql`
           SELECT COUNT(*) as prompt_count,
                  COALESCE(SUM(credit_cost), 0) as total_credits
           FROM messages
-          WHERE user_id = ${user.id} AND blocked = false
+          WHERE user_id = ${user.id} AND type = 'user' AND blocked = false
           AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')
         `);
 
@@ -519,32 +519,41 @@ adminRouter.get('/users/:id/messages', async (req: Request, res: Response) => {
 
     const db = getDb();
 
-    let totalResult;
-    let data;
+    // Only show user prompts, paired with assistant responses (same as main /messages)
+    const providerCondition = provider ? sql`AND u.provider = ${provider}` : sql``;
 
-    if (provider) {
-      totalResult = await db.execute<{ count: number }>(sql`
-        SELECT COUNT(*) as count FROM messages WHERE user_id = ${user.id} AND provider = ${provider}
-      `);
-      data = await db.execute(sql`
-        SELECT id, session_id, user_id, content, model, credit_cost,
-               blocked, block_reason, timestamp, turn_id,
-               input_tokens, output_tokens, cached_tokens, reasoning_tokens, provider
-        FROM messages WHERE user_id = ${user.id} AND provider = ${provider}
-        ORDER BY timestamp DESC LIMIT ${limit} OFFSET ${offset}
-      `);
-    } else {
-      totalResult = await db.execute<{ count: number }>(sql`
-        SELECT COUNT(*) as count FROM messages WHERE user_id = ${user.id}
-      `);
-      data = await db.execute(sql`
-        SELECT id, session_id, user_id, content, model, credit_cost,
-               blocked, block_reason, timestamp, turn_id,
-               input_tokens, output_tokens, cached_tokens, reasoning_tokens, provider
-        FROM messages WHERE user_id = ${user.id}
-        ORDER BY timestamp DESC LIMIT ${limit} OFFSET ${offset}
-      `);
-    }
+    const totalResult = await db.execute<{ count: number }>(sql`
+      SELECT COUNT(*) as count FROM messages u
+      WHERE u.user_id = ${user.id} AND u.type = 'user' ${providerCondition}
+    `);
+
+    const data = await db.execute(sql`
+      SELECT
+        u.id, u.uuid, u.session_id, u.user_id, u.provider,
+        u.content AS content,
+        u.cwd AS project_dir,
+        u.blocked, u.block_reason,
+        u.timestamp,
+        COALESCE(a.model, u.model) AS model,
+        a.content AS response,
+        a.input_tokens, a.output_tokens, a.cached_tokens,
+        a.reasoning_tokens, a.credit_cost
+      FROM messages u
+      LEFT JOIN LATERAL (
+        SELECT m.content, m.model, m.input_tokens, m.output_tokens,
+               m.cached_tokens, m.reasoning_tokens, m.credit_cost
+        FROM messages m
+        WHERE m.session_id = u.session_id
+          AND m.type = 'assistant'
+          AND m.content IS NOT NULL AND m.content != ''
+          AND m.timestamp > u.timestamp
+        ORDER BY m.timestamp ASC
+        LIMIT 1
+      ) a ON true
+      WHERE u.user_id = ${user.id} AND u.type = 'user' ${providerCondition}
+      ORDER BY u.timestamp DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `);
 
     const total = Number(totalResult[0]?.count ?? 0);
     res.json({ data, total, page, limit });

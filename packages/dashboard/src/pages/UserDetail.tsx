@@ -2011,8 +2011,8 @@ export function UserDetail() {
                           {normalizeModel(p.model || '')}
                         </Badge>
                         {(() => {
-                          const pSession = data?.sessions?.find((s: any) => s.id === p.session_id)
-                          const projName = pSession?.cwd ? extractProjectName(pSession.cwd) : null
+                          const cwd = p.project_dir || p.cwd;
+                          const projName = cwd ? extractProjectName(cwd) : null;
                           return projName && projName !== 'unknown' ? (
                             <Badge variant="outline" className="text-[10px]">
                               <Folder className="w-3 h-3 mr-1 inline" /> {projName}
@@ -2052,9 +2052,13 @@ export function UserDetail() {
                         </span>
                       )}
                     </div>
-                    {isExpanded && (p.response || p.response_text) && (
-                      <div className="text-xs border-l-2 border-primary pl-2 text-muted-foreground whitespace-pre-wrap max-h-64 overflow-y-auto">
-                        {p.response || p.response_text}
+                    {(p.response || p.response_text) && (
+                      <div className="text-xs border-l-2 border-primary pl-2 text-muted-foreground whitespace-pre-wrap max-h-24 overflow-y-auto">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider block mb-0.5">Response</span>
+                        {isExpanded
+                          ? (p.response || p.response_text)
+                          : (p.response || p.response_text || '').slice(0, 150) + ((p.response || '').length > 150 ? '...' : '')
+                        }
                       </div>
                     )}
                     {isExpanded && p.tools_used && p.tools_used.length > 0 && (
