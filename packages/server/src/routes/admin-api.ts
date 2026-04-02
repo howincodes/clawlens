@@ -988,37 +988,57 @@ adminRouter.get('/messages', async (req: Request, res: Response) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = (page - 1) * limit;
-    const userId = req.query.user_id as string | undefined;
-    const search = req.query.search as string | undefined;
-    const provider = req.query.provider as string | undefined;
+    const userId = req.query.userId as string || req.query.user_id as string || '';
+    const search = req.query.search as string || '';
+    const model = req.query.model as string || '';
+    const provider = req.query.provider as string || req.query.source as string || '';
 
     const db = getDb();
 
-    // Build dynamic conditions
-    const conditions: ReturnType<typeof sql>[] = [];
+    // Build conditions — only query user messages (prompts), join assistant responses
+    const conditions: ReturnType<typeof sql>[] = [sql`u.type = 'user'`];
     if (userId) {
-      conditions.push(sql`p.user_id = ${parseInt(userId, 10)}`);
+      conditions.push(sql`u.user_id = ${parseInt(userId, 10)}`);
     }
     if (search) {
-      conditions.push(sql`p.content ILIKE ${'%' + search + '%'}`);
+      conditions.push(sql`(u.content ILIKE ${'%' + search + '%'} OR a.content ILIKE ${'%' + search + '%'})`);
+    }
+    if (model) {
+      conditions.push(sql`LOWER(COALESCE(a.model, u.model, '')) LIKE ${'%' + model.toLowerCase() + '%'}`);
     }
     if (provider) {
-      conditions.push(sql`p.provider = ${provider}`);
+      conditions.push(sql`u.provider = ${provider}`);
     }
 
-    const whereClause = conditions.length > 0
-      ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
-      : sql``;
+    const whereClause = sql`WHERE ${sql.join(conditions, sql` AND `)}`;
 
+    // Count total user messages (prompts)
     const totalResult = await db.execute<{ count: number }>(sql`
-      SELECT COUNT(*) as count FROM messages p ${whereClause}
+      SELECT COUNT(*) as count
+      FROM messages u
+      LEFT JOIN messages a ON a.parent_uuid = u.uuid AND a.type = 'assistant'
+      ${whereClause}
     `);
 
+    // Fetch paired prompt+response data
+    // Left-join assistant response via parent_uuid. Use the assistant's model as the
+    // canonical model (it's the one that actually processed the request).
     const data = await db.execute(sql`
-      SELECT p.id, p.session_id, p.user_id, p.content, p.model, p.credit_cost,
-             p.blocked, p.block_reason, p.timestamp, p.turn_id,
-             p.input_tokens, p.output_tokens, p.cached_tokens, p.reasoning_tokens, p.provider
-      FROM messages p ${whereClause} ORDER BY p.timestamp DESC LIMIT ${limit} OFFSET ${offset}
+      SELECT
+        u.id, u.uuid, u.session_id, u.user_id, u.provider,
+        u.content AS content,
+        u.cwd AS project_dir,
+        u.blocked, u.block_reason,
+        u.timestamp,
+        COALESCE(a.model, u.model) AS model,
+        a.content AS response,
+        a.input_tokens, a.output_tokens, a.cached_tokens,
+        a.reasoning_tokens, a.credit_cost
+      FROM messages u
+      LEFT JOIN messages a ON a.parent_uuid = u.uuid AND a.type = 'assistant'
+      ${whereClause}
+      ORDER BY u.timestamp DESC
+      LIMIT ${limit} OFFSET ${offset}
     `);
 
     res.json({ data, total: Number(totalResult[0]?.count ?? 0), page, limit });

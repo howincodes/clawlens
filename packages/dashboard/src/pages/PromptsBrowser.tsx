@@ -45,12 +45,15 @@ function parseServerDate(dateStr: string): Date {
 
 function getModelShortName(model: string): string {
   if (!model) return 'Unknown'
-  if (model.startsWith('AG-')) return model  // Keep full AG- name
-  const lower = model.toLowerCase()
+  // Strip ANSI escape codes that Claude Code embeds in model names (e.g. "[1m]")
+  const clean = model.replace(/\[[\d;]*m\]?/g, '').trim()
+  if (!clean) return 'Unknown'
+  if (clean.startsWith('AG-')) return clean
+  const lower = clean.toLowerCase()
   if (lower.includes('opus')) return 'Opus'
   if (lower.includes('sonnet')) return 'Sonnet'
   if (lower.includes('haiku')) return 'Haiku'
-  return model
+  return clean
 }
 
 export function PromptsBrowser() {
