@@ -91,7 +91,14 @@ export function isWatcherConnected(): boolean {
 // ---------------------------------------------------------------------------
 
 function connect(config: HowinLensConfig): void {
-  if (stopped) return;
+  if (stopped) {
+    console.log('[watcher-ws] connect() called but stopped=true, skipping');
+    return;
+  }
+
+  console.log('[watcher-ws] Connecting... serverUrl=%s, token=%s',
+    config.serverUrl,
+    config.authToken ? `${config.authToken.substring(0, 8)}...${config.authToken.substring(config.authToken.length - 4)}` : 'MISSING');
 
   // Build WebSocket URL from the HTTP server URL
   const wsUrl = config.serverUrl
@@ -99,37 +106,47 @@ function connect(config: HowinLensConfig): void {
     .replace(/^http:\/\//, 'ws://')
     + `/ws/watcher?token=${encodeURIComponent(config.authToken)}`;
 
+  console.log('[watcher-ws] Full URL: %s', wsUrl);
   setState('connecting');
-  console.log(`[watcher-ws] Connecting to ${config.serverUrl}/ws/watcher`);
 
   ws = new WebSocket(wsUrl);
 
   ws.on('open', () => {
     reconnectAttempts = 0;
     setState('connected');
-    console.log('[watcher-ws] Connected');
+    console.log('[watcher-ws] ✓ Connected (open event fired)');
   });
 
   ws.on('message', (raw: WebSocket.Data) => {
+    console.log('[watcher-ws] Received message, type=%s, length=%d', typeof raw, raw.toString().length);
     handleMessage(raw);
   });
 
   ws.on('close', (code: number, reason: Buffer) => {
-    console.log(`[watcher-ws] Disconnected — code=${code}, reason=${reason.toString()}`);
+    console.log('[watcher-ws] ✗ Disconnected — code=%d, reason=%s', code, reason.toString() || '(empty)');
     ws = null;
     setState('disconnected');
     scheduleReconnect(config);
   });
 
   ws.on('error', (err: Error) => {
-    // Don't log ECONNREFUSED on every retry — it's expected when the server is down
-    if ((err as any).code !== 'ECONNREFUSED') {
-      console.error('[watcher-ws] Error:', err.message);
+    const errCode = (err as any).code;
+    if (errCode === 'ECONNREFUSED') {
+      console.log('[watcher-ws] ⚠ Connection refused (server likely down) — will retry');
+    } else {
+      console.error('[watcher-ws] ✗ Error [%s]: %s', errCode || 'UNKNOWN', err.message);
     }
+  });
+
+  ws.on('unexpected-response', (req: any, res: any) => {
+    console.error('[watcher-ws] ✗ Unexpected HTTP response: %d %s', res.statusCode, res.statusMessage);
+    console.error('[watcher-ws]   Headers: %O', res.headers);
+    console.error('[watcher-ws]   Body: %s', res.toString().substring(0, 200));
   });
 
   // Respond to server pings to keep the connection alive
   ws.on('ping', () => {
+    console.log('[watcher-ws] ⟳ Pong sent');
     ws?.pong();
   });
 }

@@ -4,9 +4,10 @@ import {
   upsertHeartbeat, getHeartbeat, getLatestWatchEvent, recordWatchEvent,
   getActiveAssignment, assignCredentialToUser, releaseCredentialFromUser,
   getLeastUsedCredential, getSubscriptionCredentialById,
-  recordConversationMessages, getConversationsByUser,
   upsertSessionRawJsonl,
 } from '../db/queries/credentials.js';
+import { upsertMessageByUuid } from '../db/queries/messages.js';
+import { getCreditCostFromDb } from '../db/queries/model-credits.js';
 import { getTasksByUser, getTaskById, updateTask } from '../db/queries/tasks.js';
 import { getProjectDirectories, linkProjectDirectory, getProjectDirectoryByPath } from '../db/queries/tracking.js';
 import { recordFileEvents } from '../db/queries/tracking.js';
@@ -194,37 +195,52 @@ clientRouter.get('/credential', async (req: Request, res: Response) => {
   }
 });
 
-// POST /conversations — sync JSONL conversation data
+// POST /conversations — sync JSONL conversation data into unified messages table
 clientRouter.post('/conversations', async (req: Request, res: Response) => {
   try {
     const user = req.user!;
-    const { messages } = req.body;
+    const { messages: msgs } = req.body;
 
-    if (!Array.isArray(messages) || messages.length === 0) {
+    if (!Array.isArray(msgs) || msgs.length === 0) {
       return res.json({ ok: true, synced: 0 });
     }
 
-    const valid = messages.every((m: any) => m.type && typeof m.type === 'string');
-    if (!valid) {
-      return res.status(400).json({ error: 'Each message must have a type field' });
+    // Only process messages that have a uuid (user/assistant lines)
+    const withUuid = msgs.filter((m: any) => m.uuid && m.type && typeof m.type === 'string');
+    if (withUuid.length === 0) {
+      return res.json({ ok: true, synced: 0 });
     }
 
-    const enriched = messages.map((m: any) => ({
-      userId: user.id,
-      sessionId: m.sessionId,
-      type: m.type,
-      messageContent: m.messageContent || m.content,
-      model: m.model,
-      inputTokens: m.inputTokens,
-      outputTokens: m.outputTokens,
-      cachedTokens: m.cachedTokens,
-      cwd: m.cwd,
-      gitBranch: m.gitBranch,
-      timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
-    }));
+    let synced = 0;
+    for (const m of withUuid) {
+      // Calculate credit cost for rate-limiting (assistant messages carry the model+tokens)
+      const model = m.model || m.rawModel;
+      const creditCost = model ? await getCreditCostFromDb(model, m.provider || 'claude-code') : 0;
 
-    await recordConversationMessages(enriched);
-    res.json({ ok: true, synced: enriched.length });
+      await upsertMessageByUuid({
+        uuid: m.uuid,
+        parentUuid: m.parentUuid,
+        provider: m.provider || 'claude-code',
+        sessionId: m.sessionId,
+        userId: user.id,
+        type: m.type,
+        content: m.messageContent || m.content,
+        model,
+        rawModel: m.rawModel,
+        inputTokens: m.inputTokens,
+        outputTokens: m.outputTokens,
+        cachedTokens: m.cachedTokens,
+        cacheCreationTokens: m.cacheCreationTokens,
+        creditCost,
+        cwd: m.cwd,
+        gitBranch: m.gitBranch,
+        sourceType: m.sourceType || 'jsonl',
+        timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
+      });
+      synced++;
+    }
+
+    res.json({ ok: true, synced });
   } catch (err) {
     console.error('[client-api] conversations error:', err);
     res.status(500).json({ error: 'Internal server error' });

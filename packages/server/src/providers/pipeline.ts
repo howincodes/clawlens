@@ -208,6 +208,33 @@ export async function processPrompt(
   }
 
   if (blocked) {
+    // Providers with localFiles (Claude Code): JSONL watcher handles messages.
+    // Hooks-only providers (Codex): hooks must write to messages.
+    // Blocked prompts never appear in JSONL, so hooks-only providers record them.
+    if (!adapter.capabilities.localFiles) {
+      await recordMessage({
+        provider: slug,
+        sessionId: data.sessionId,
+        userId: user.id,
+        type: 'user',
+        content: data.prompt,
+        model,
+        creditCost: 0,
+        blocked: true,
+        blockReason,
+        sourceType: 'hook',
+        turnId: data.turnId,
+      });
+    }
+    await recordHookEvent({ userId: user.id, sessionId: data.sessionId, eventType: 'UserPromptSubmit', payload: JSON.stringify(body), source: slug });
+    await touchUserLastEvent(user.id);
+    broadcast({ type: 'prompt', user_id: user.id, user_name: user.name, prompt: data.prompt?.slice(0, 100), blocked: true, source: slug });
+    return adapter.formatPromptBlock(blockReason);
+  }
+
+  // Record allowed prompt — only for hooks-only providers (Codex).
+  // Claude Code messages are recorded by the JSONL watcher.
+  if (!adapter.capabilities.localFiles) {
     await recordMessage({
       provider: slug,
       sessionId: data.sessionId,
@@ -215,30 +242,11 @@ export async function processPrompt(
       type: 'user',
       content: data.prompt,
       model,
-      creditCost: 0,
-      blocked: true,
-      blockReason,
+      creditCost,
       sourceType: 'hook',
       turnId: data.turnId,
     });
-    await recordHookEvent({ userId: user.id, sessionId: data.sessionId, eventType: 'UserPromptSubmit', payload: JSON.stringify(body), source: slug });
-    await touchUserLastEvent(user.id);
-    broadcast({ type: 'prompt', user_id: user.id, user_name: user.name, prompt: data.prompt?.slice(0, 100), blocked: true, source: slug });
-    return adapter.formatPromptBlock(blockReason);
   }
-
-  // Record allowed prompt
-  await recordMessage({
-    provider: slug,
-    sessionId: data.sessionId,
-    userId: user.id,
-    type: 'user',
-    content: data.prompt,
-    model,
-    creditCost,
-    sourceType: 'hook',
-    turnId: data.turnId,
-  });
 
   await incrementSessionPromptCount(data.sessionId, creditCost);
   await touchUserLastEvent(user.id);

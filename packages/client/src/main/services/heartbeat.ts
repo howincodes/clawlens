@@ -21,13 +21,14 @@ let onStateChange: HeartbeatStateCallback | null = null;
 // ---------------------------------------------------------------------------
 
 export function startHeartbeat(config: HowinLensConfig): void {
+  console.log('[heartbeat] Starting heartbeat to %s/api/v1/client/heartbeat', config.serverUrl);
   // Send immediately
   sendHeartbeat(config);
 
   // Schedule with adaptive interval
   scheduleNext(config);
 
-  console.log('[heartbeat] Started (30s interval)');
+  console.log('[heartbeat] ✓ Started (30s base interval, adaptive backoff on failures)');
 }
 
 export function stopHeartbeat(): void {

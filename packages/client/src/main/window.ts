@@ -65,6 +65,22 @@ export function createWindow(isSetup = false): BrowserWindow {
 
   const bounds = isSetup ? defaultBounds : loadBounds(defaultBounds);
 
+  // Setup window needs direct IPC (no sandbox), dashboard needs security hardening
+  const webPreferences = isSetup
+    ? {
+        // Setup wizard: allow nodeIntegration so ipcRenderer.invoke() works with data: URLs
+        nodeIntegration: true,
+        contextIsolation: false,
+        sandbox: false,
+      }
+    : {
+        // Dashboard: secure sandbox with preload
+        preload: path.join(__dirname, '../preload/index.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      };
+
   mainWindow = new BrowserWindow({
     ...bounds,
     show: false,
@@ -73,12 +89,30 @@ export function createWindow(isSetup = false): BrowserWindow {
     skipTaskbar: false,
     title: 'HowinLens',
     backgroundColor: '#0f1117',
-    webPreferences: {
-      preload: path.join(__dirname, '../preload/index.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
+    webPreferences,
   });
+
+  // Set CSP headers for dashboard windows (not setup window)
+  if (!isSetup) {
+    mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self'; " +
+            "script-src 'self'; " +
+            "style-src 'self' 'unsafe-inline'; " +
+            "img-src 'self' data: https:; " +
+            "font-src 'self' data:; " +
+            "connect-src 'self' https:; " +
+            "frame-ancestors 'none'; " +
+            "base-uri 'self'; " +
+            "form-action 'self'"
+          ],
+        },
+      });
+    });
+  }
 
   // Save position/size on move and resize
   if (!isSetup) {

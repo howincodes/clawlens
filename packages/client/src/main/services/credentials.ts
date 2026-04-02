@@ -50,31 +50,42 @@ export interface CredentialPayload {
 export async function writeCredentials(payload: CredentialPayload): Promise<void> {
   const { claudeAiOauth, oauthAccount } = payload;
 
+  console.log('[credentials] Writing credentials...');
+  console.log('[credentials]   Email: %s', oauthAccount.emailAddress);
+  console.log('[credentials]   Org: %s', oauthAccount.organizationName);
+  console.log('[credentials]   Token expires: %s', new Date(claudeAiOauth.expiresAt).toISOString());
+
   // Build the credential JSON in Claude Code's expected format
   const creds = { claudeAiOauth };
   const credsJson = JSON.stringify(creds, null, 2);
 
   // Ensure ~/.claude/ directory exists
   if (!fs.existsSync(CLAUDE_DIR)) {
+    console.log('[credentials] Creating directory: %s', CLAUDE_DIR);
     fs.mkdirSync(CLAUDE_DIR, { recursive: true });
   }
 
   // --- Step 1: Write credential tokens ---
   const platform = process.platform;
+  console.log('[credentials] Platform: %s', platform);
 
   if (platform === 'darwin') {
     // macOS: write to Keychain (primary) + file (fallback)
+    console.log('[credentials] Writing to Keychain (primary)...');
     writeToKeychain(credsJson);
+    console.log('[credentials] Writing to file fallback: %s', CRED_PATH);
     writeToFile(credsJson);
   } else {
     // Linux / Windows: file only
+    console.log('[credentials] Writing to file: %s', CRED_PATH);
     writeToFile(credsJson);
   }
 
   // --- Step 2: Write oauthAccount metadata to ~/.claude.json ---
+  console.log('[credentials] Writing oauthAccount to: %s', CLAUDE_JSON_PATH);
   writeOAuthAccount(oauthAccount);
 
-  console.log(`[credentials] Written — email=${oauthAccount.emailAddress}, expires=${new Date(claudeAiOauth.expiresAt).toISOString()}`);
+  console.log(`[credentials] ✓ Written — email=${oauthAccount.emailAddress}, expires=${new Date(claudeAiOauth.expiresAt).toISOString()}`);
 }
 
 // ---------------------------------------------------------------------------

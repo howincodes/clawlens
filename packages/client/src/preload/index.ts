@@ -7,15 +7,16 @@ contextBridge.exposeInMainWorld('howinlens', {
   watchOff: () => ipcRenderer.invoke('watch-off'),
   setActiveTask: (taskId: number | null) => ipcRenderer.invoke('set-active-task', taskId),
 
-  // Config
+  // Config & Setup
   getConfig: () => ipcRenderer.invoke('get-config'),
+  getFullConfig: () => ipcRenderer.invoke('get-full-config'),
   saveConfig: (config: { serverUrl: string; authToken: string; autoStart?: boolean; notificationsEnabled?: boolean }) =>
     ipcRenderer.invoke('save-config', config),
   verifyConnection: (serverUrl: string, authToken: string) =>
     ipcRenderer.invoke('verify-connection', serverUrl, authToken),
+  setupComplete: () => ipcRenderer.invoke('setup-complete'),
 
   // Settings
-  getFullConfig: () => ipcRenderer.invoke('get-full-config'),
   openSettings: () => ipcRenderer.invoke('open-settings'),
 
   // Events from main process

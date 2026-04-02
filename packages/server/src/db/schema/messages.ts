@@ -5,6 +5,8 @@ import { projects } from './projects.js';
 
 export const messages = pgTable('messages', {
   id: serial('id').primaryKey(),
+  uuid: varchar('uuid', { length: 255 }),         // JSONL message UUID — natural dedup key
+  parentUuid: varchar('parent_uuid', { length: 255 }), // Conversation threading from JSONL
   provider: varchar('provider', { length: 50 }).notNull(), // 'claude-code' | 'codex' | 'antigravity'
   sessionId: varchar('session_id', { length: 255 }).references(() => sessions.id),
   userId: integer('user_id').notNull().references(() => users.id),
@@ -15,6 +17,7 @@ export const messages = pgTable('messages', {
   inputTokens: integer('input_tokens'),
   outputTokens: integer('output_tokens'),
   cachedTokens: integer('cached_tokens'),
+  cacheCreationTokens: integer('cache_creation_tokens'),
   reasoningTokens: integer('reasoning_tokens'),
   creditCost: real('credit_cost').default(0),
   cwd: text('cwd'),

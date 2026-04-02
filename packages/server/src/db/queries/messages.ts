@@ -170,3 +170,48 @@ export async function messageExistsForSession(sessionId: string, content: string
     .limit(1);
   return !!existing;
 }
+
+/**
+ * Insert a JSONL-sourced message with uuid-based deduplication.
+ * ON CONFLICT (uuid) DO NOTHING — idempotent for watcher restarts.
+ */
+export async function upsertMessageByUuid(params: {
+  uuid: string;
+  parentUuid?: string;
+  provider: string;
+  sessionId?: string;
+  userId: number;
+  type: string;
+  content?: string;
+  model?: string;
+  rawModel?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedTokens?: number;
+  cacheCreationTokens?: number;
+  creditCost?: number;
+  cwd?: string;
+  gitBranch?: string;
+  sourceType: string;
+  timestamp?: Date;
+}) {
+  const db = getDb();
+  const result = await db.execute(sql`
+    INSERT INTO messages (
+      uuid, parent_uuid, provider, session_id, user_id, type, content,
+      model, raw_model, input_tokens, output_tokens, cached_tokens,
+      cache_creation_tokens, credit_cost, cwd, git_branch,
+      source_type, timestamp, synced_at
+    ) VALUES (
+      ${params.uuid}, ${params.parentUuid ?? null}, ${params.provider},
+      ${params.sessionId ?? null}, ${params.userId}, ${params.type},
+      ${params.content ?? null}, ${params.model ?? null}, ${params.rawModel ?? null},
+      ${params.inputTokens ?? null}, ${params.outputTokens ?? null},
+      ${params.cachedTokens ?? null}, ${params.cacheCreationTokens ?? null},
+      ${params.creditCost ?? 0}, ${params.cwd ?? null}, ${params.gitBranch ?? null},
+      ${params.sourceType}, ${params.timestamp ?? new Date()}, NOW()
+    )
+    ON CONFLICT (uuid) WHERE uuid IS NOT NULL DO NOTHING
+  `);
+  return result;
+}

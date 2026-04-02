@@ -39,19 +39,26 @@ const MAX_RESTART_ATTEMPTS = 5;
  * Start all background services with health monitoring.
  */
 export async function startAllServices(config: HowinLensConfig): Promise<void> {
+  console.log('[service-manager] Starting all services...');
+  console.log('[service-manager]   serverUrl=%s', config.serverUrl);
+  console.log('[service-manager]   authToken=%s', config.authToken ? `${config.authToken.substring(0, 8)}...` : 'MISSING');
   activeConfig = config;
 
   for (const svc of services) {
+    console.log('[service-manager] Starting service: %s (critical=%s)', svc.name, svc.critical);
     await startService(svc, config);
   }
 
   // Scan for projects (non-critical, fire-and-forget)
-  scanForProjects(config).catch(() => {});
+  scanForProjects(config).catch(err => {
+    console.log('[service-manager] scanForProjects failed: %s', err.message);
+  });
 
   // Start health monitor
   healthCheckInterval = setInterval(() => healthCheck(), HEALTH_CHECK_INTERVAL_MS);
+  console.log('[service-manager] Health check monitor started (interval=%dms)', HEALTH_CHECK_INTERVAL_MS);
 
-  console.log(`[service-manager] All ${services.length} services started`);
+  console.log('[service-manager] ✓ All %d services started', services.length);
 }
 
 /**

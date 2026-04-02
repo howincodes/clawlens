@@ -12,12 +12,15 @@ import type { HowinLensConfig } from '../utils/config';
 
 let watcher: FSWatcher | null = null;
 let syncInterval: ReturnType<typeof setInterval> | null = null;
+let debouncedSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let retryCount = 0;
 const MAX_RETRY_DELAY_MS = 60_000;
-const BASE_SYNC_INTERVAL_MS = 10_000;
+const BASE_SYNC_INTERVAL_MS = 5_000;      // 5s fallback (was 10s)
+const DEBOUNCE_SYNC_MS = 500;             // 500ms debounced sync on file change
 
 // Track read offsets per file so we only process new lines
 const fileOffsets = new Map<string, number>();
+const OFFSETS_PATH = path.join(os.homedir(), '.howinlens', 'offsets.json');
 
 // Batches waiting to be synced (in-memory, overflow goes to offline queue)
 let pendingMessages: ParsedMessage[] = [];
@@ -46,6 +49,8 @@ const ALL_LINE_TYPES = new Set([
 // ---------------------------------------------------------------------------
 
 interface ParsedMessage {
+  uuid?: string;
+  parentUuid?: string;
   sessionId: string;
   type: string;
   messageContent?: string;
@@ -55,9 +60,12 @@ interface ParsedMessage {
   outputTokens?: number;
   cachedTokens?: number;
   cacheCreationTokens?: number;
+  creditCost?: number;
   cwd?: string;
   gitBranch?: string;
   timestamp?: string;
+  provider?: string;
+  sourceType?: string;
 }
 
 interface RawSyncEntry {
@@ -73,20 +81,24 @@ interface RawSyncEntry {
 // ---------------------------------------------------------------------------
 
 export function startJsonlWatcher(config: HowinLensConfig): void {
+  console.log('[jsonl-watcher] Starting to watch %s', CLAUDE_PROJECTS_DIR);
+
   if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
-    console.log('[jsonl-watcher] ~/.claude/projects/ not found, skipping');
+    console.log('[jsonl-watcher] ✗ %s does not exist, skipping initialization', CLAUDE_PROJECTS_DIR);
     return;
   }
 
   // Load offline queue from disk (events from previous session)
   loadQueue();
+  console.log('[jsonl-watcher] Offline queue loaded');
 
   // Watch each project hash directory directly instead of deep glob.
   // This avoids the glob issue on some systems and is more efficient.
   const projectDirs = discoverProjectDirs();
+  console.log('[jsonl-watcher] Discovered %d project directories: %s', projectDirs.length, projectDirs.slice(0, 3).join(', ') + (projectDirs.length > 3 ? '...' : ''));
 
   if (projectDirs.length === 0) {
-    console.log('[jsonl-watcher] No project directories found, will re-scan periodically');
+    console.log('[jsonl-watcher] ⚠ No project directories found, will re-scan periodically');
   }
 
   // Watch the projects root for new project directories
@@ -102,9 +114,13 @@ export function startJsonlWatcher(config: HowinLensConfig): void {
     },
   });
 
+  // Load persisted offsets from last session
+  loadOffsets();
+
   watcher.on('change', (filePath: string) => {
     if (filePath.endsWith('.jsonl')) {
       processJsonlFile(filePath);
+      triggerDebouncedSync(config);
     }
   });
 
@@ -129,7 +145,58 @@ export function stopJsonlWatcher(): void {
     clearInterval(syncInterval);
     syncInterval = null;
   }
+  if (debouncedSyncTimer) {
+    clearTimeout(debouncedSyncTimer);
+    debouncedSyncTimer = null;
+  }
+  // Persist offsets before shutdown
+  saveOffsets();
   console.log('[jsonl-watcher] Stopped');
+}
+
+// ---------------------------------------------------------------------------
+// Debounced sync — triggers ~500ms after last file change
+// ---------------------------------------------------------------------------
+
+function triggerDebouncedSync(config: HowinLensConfig): void {
+  if (debouncedSyncTimer) return; // already scheduled
+  debouncedSyncTimer = setTimeout(async () => {
+    debouncedSyncTimer = null;
+    await syncMessages(config);
+    await syncRawFiles(config);
+    saveOffsets();
+  }, DEBOUNCE_SYNC_MS);
+}
+
+// ---------------------------------------------------------------------------
+// Offset persistence — survive restarts without re-processing
+// ---------------------------------------------------------------------------
+
+function loadOffsets(): void {
+  try {
+    if (fs.existsSync(OFFSETS_PATH)) {
+      const raw = fs.readFileSync(OFFSETS_PATH, 'utf-8');
+      const saved = JSON.parse(raw) as Record<string, number>;
+      for (const [filePath, offset] of Object.entries(saved)) {
+        fileOffsets.set(filePath, offset);
+      }
+      console.log('[jsonl-watcher] Loaded %d persisted offsets', Object.keys(saved).length);
+    }
+  } catch {
+    console.log('[jsonl-watcher] No persisted offsets found, starting fresh');
+  }
+}
+
+function saveOffsets(): void {
+  try {
+    const dir = path.dirname(OFFSETS_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const obj: Record<string, number> = {};
+    for (const [filePath, offset] of fileOffsets.entries()) {
+      obj[filePath] = offset;
+    }
+    fs.writeFileSync(OFFSETS_PATH, JSON.stringify(obj));
+  } catch {}
 }
 
 // ---------------------------------------------------------------------------
@@ -206,11 +273,15 @@ function parseJsonlLine(parsed: any, sessionId: string): ParsedMessage | null {
   const lineType = parsed.type as string;
 
   const base: ParsedMessage = {
+    uuid: parsed.uuid,
+    parentUuid: parsed.parentUuid,
     sessionId: parsed.sessionId || sessionId,
     type: lineType,
     cwd: parsed.cwd,
     gitBranch: parsed.gitBranch,
     timestamp: parsed.timestamp,
+    provider: 'claude-code',
+    sourceType: 'jsonl',
   };
 
   switch (lineType) {

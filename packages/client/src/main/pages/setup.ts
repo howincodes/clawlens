@@ -176,6 +176,9 @@ export const setupPageHtml = `
   </div>
 
   <script>
+    // Setup window has nodeIntegration enabled, so use ipcRenderer directly
+    const { ipcRenderer } = require('electron');
+
     const steps = [1, 2, 3];
     let currentStep = 1;
 
@@ -201,6 +204,7 @@ export const setupPageHtml = `
 
     // Step 1 → 2
     document.getElementById('btn-next-1').addEventListener('click', () => {
+      console.log('[setup] Step 1: Continue clicked');
       const url = document.getElementById('server-url').value.trim();
       hideError(1);
       if (!url) return showError(1, 'Please enter a server URL');
@@ -209,17 +213,20 @@ export const setupPageHtml = `
       } catch {
         return showError(1, 'Invalid URL format');
       }
+      console.log('[setup] URL validated, moving to step 2');
       goToStep(2);
       document.getElementById('auth-token').focus();
     });
 
     // Step 2 → back to 1
     document.getElementById('btn-back-2').addEventListener('click', () => {
+      console.log('[setup] Back to step 1');
       goToStep(1);
     });
 
     // Step 2 → verify → 3
     document.getElementById('btn-verify').addEventListener('click', async () => {
+      console.log('[setup] Verify clicked');
       const serverUrl = document.getElementById('server-url').value.trim().replace(/\\/$/, '');
       const authToken = document.getElementById('auth-token').value.trim();
       hideError(2);
@@ -230,11 +237,15 @@ export const setupPageHtml = `
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span> Verifying...';
 
+      console.log('[setup] Invoking verify-connection:', serverUrl);
       try {
-        const result = await window.howinlens.verifyConnection(serverUrl, authToken);
+        const result = await ipcRenderer.invoke('verify-connection', serverUrl, authToken);
+        console.log('[setup] verify-connection result:', result);
         if (result.ok) {
           // Save config
-          await window.howinlens.saveConfig({ serverUrl, authToken });
+          console.log('[setup] Saving config...');
+          await ipcRenderer.invoke('save-config', { serverUrl, authToken });
+          console.log('[setup] Config saved, moving to step 3');
           document.getElementById('connected-info').textContent =
             'Logged in as ' + (result.userName || 'user') + '. HowinLens will run in the background.';
           goToStep(3);
@@ -242,6 +253,7 @@ export const setupPageHtml = `
           showError(2, result.error || 'Connection failed');
         }
       } catch (err) {
+        console.error('[setup] Error:', err);
         showError(2, 'Could not reach the server. Check the URL and try again.');
       } finally {
         btn.disabled = false;
@@ -251,8 +263,20 @@ export const setupPageHtml = `
 
     // Step 3 → start
     document.getElementById('btn-start').addEventListener('click', async () => {
-      // Reload the app — main process will detect config and start services
-      window.location.reload();
+      console.log('[setup] Start clicked');
+      const btn = document.getElementById('btn-start');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Starting...';
+
+      try {
+        console.log('[setup] Invoking setup-complete');
+        await ipcRenderer.invoke('setup-complete');
+        console.log('[setup] Setup complete invoked');
+      } catch (err) {
+        console.error('[setup] Setup complete failed:', err);
+        btn.disabled = false;
+        btn.innerHTML = 'Start HowinLens';
+      }
     });
 
     // Enter key navigation
@@ -262,6 +286,8 @@ export const setupPageHtml = `
     document.getElementById('auth-token').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') document.getElementById('btn-verify').click();
     });
+
+    console.log('[setup] Page loaded and listeners attached');
   </script>
 </body>
 </html>

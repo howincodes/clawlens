@@ -67,13 +67,11 @@ function installLaunchd(): boolean {
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <false/>
     <key>StandardErrorPath</key>
     <string>${logsDir}/stderr.log</string>
     <key>StandardOutPath</key>
     <string>${logsDir}/stdout.log</string>
-    <key>ThrottleInterval</key>
-    <integer>10</integer>
 </dict>
 </plist>`;
 

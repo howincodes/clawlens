@@ -2046,7 +2046,7 @@ export function UserDetail() {
                     <div
                       className={`font-mono text-xs bg-muted/30 p-2 rounded mb-2 whitespace-pre-wrap ${isExpanded ? '' : 'max-h-16 overflow-hidden'}`}
                     >
-                      {p.prompt || p.prompt_text || (
+                      {p.content || p.prompt || p.prompt_text || (
                         <span className="italic text-muted-foreground">
                           Prompt text not collected
                         </span>

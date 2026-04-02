@@ -236,7 +236,7 @@ export function PromptsBrowser() {
                 const id = String(p.id || '')
                 const modelShort = getModelShortName(String(p.model || ''))
                 const modelColorClass = getModelBadgeColor(modelShort)
-                const promptText = String(p.prompt || p.prompt_text || '')
+                const promptText = String(p.content || p.prompt || p.prompt_text || '')
                 const responseText = String(p.response || p.response_text || '')
                 const isPromptExpanded = expandedPrompts.has(id)
                 const isResponseExpanded = expandedResponses.has(id)

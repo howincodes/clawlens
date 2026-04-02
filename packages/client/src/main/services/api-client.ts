@@ -15,6 +15,9 @@ export async function apiRequest(
   options?: RequestInit,
 ): Promise<any> {
   const url = `${config.serverUrl}${path}`;
+  const tokenHint = config.authToken ? `${config.authToken.substring(0, 8)}...${config.authToken.substring(config.authToken.length - 4)}` : 'MISSING';
+
+  console.log('[api-client] %s %s (auth=%s)', options?.method || 'GET', path, tokenHint);
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -27,9 +30,11 @@ export async function apiRequest(
         },
       });
 
+      console.log('[api-client]   → %d %s (attempt %d)', res.status, res.statusText, attempt + 1);
+
       // Don't retry client errors (4xx) — they won't change on retry
       if (res.status >= 400 && res.status < 500) {
-        console.error(`[api-client] ${path} failed: ${res.status} (not retrying)`);
+        console.error(`[api-client] ✗ ${path} failed: ${res.status} ${res.statusText} (not retrying 4xx)`);
         return null;
       }
 
@@ -37,27 +42,26 @@ export async function apiRequest(
       if (!res.ok) {
         if (attempt < MAX_RETRIES) {
           const delay = BASE_DELAY_MS * Math.pow(2, attempt);
-          console.warn(`[api-client] ${path} returned ${res.status}, retrying in ${delay}ms (${attempt + 1}/${MAX_RETRIES})`);
+          console.warn(`[api-client] ⚠ ${path} returned ${res.status}, retrying in ${delay}ms (${attempt + 1}/${MAX_RETRIES})`);
           await sleep(delay);
           continue;
         }
-        console.error(`[api-client] ${path} failed: ${res.status} after ${MAX_RETRIES} retries`);
+        console.error(`[api-client] ✗ ${path} failed: ${res.status} after ${MAX_RETRIES} retries`);
         return null;
       }
 
+      console.log('[api-client] ✓ %s success', path);
       return res.json();
     } catch (err: any) {
+      const errMsg = err.code || err.message || 'Unknown error';
       // Network error (ECONNREFUSED, DNS failure, timeout, etc.)
       if (attempt < MAX_RETRIES) {
         const delay = BASE_DELAY_MS * Math.pow(2, attempt);
-        // Only log on first failure to avoid noise
-        if (attempt === 0) {
-          console.warn(`[api-client] ${path} network error, retrying (${err.code || err.message})`);
-        }
+        console.warn(`[api-client] ⚠ ${path} network error: ${errMsg} (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
         await sleep(delay);
         continue;
       }
-      console.error(`[api-client] ${path} failed after ${MAX_RETRIES} retries: ${err.message}`);
+      console.error(`[api-client] ✗ ${path} failed after ${MAX_RETRIES} retries: ${errMsg}`);
       return null;
     }
   }
