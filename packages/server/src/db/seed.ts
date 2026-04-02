@@ -188,7 +188,7 @@ export async function seedDatabase() {
         userId: adminUser.id,
         roleId: adminRole.id,
         projectId: 0,
-      });
+      }).onConflictDoNothing();
     }
 
     console.log(`Created admin user: ${adminEmail}`);

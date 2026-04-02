@@ -165,58 +165,77 @@ adminRouter.get('/users', async (_req: Request, res: Response) => {
     const db = getDb();
 
     const enriched = await Promise.all(users.map(async (user) => {
-      // Claude Code only (exclude Antigravity sessions)
-      const [ccStats] = await db.execute<{ prompt_count: number; total_credits: number }>(sql`
-        SELECT COUNT(*) as prompt_count,
-               COALESCE(SUM(credit_cost), 0) as total_credits
-        FROM prompts
-        WHERE user_id = ${user.id} AND blocked = false
-        AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')
-      `);
+      const { passwordHash: _, ...safeUser } = user;
 
-      // Antigravity only
-      const [agStats] = await db.execute<{ ag_prompt_count: number }>(sql`
-        SELECT COUNT(*) as ag_prompt_count
-        FROM prompts
-        WHERE user_id = ${user.id} AND blocked = false
-        AND session_id IN (SELECT id FROM sessions WHERE source = 'antigravity')
-      `);
+      try {
+        // Claude Code only (exclude Antigravity sessions)
+        const [ccStats] = await db.execute<{ prompt_count: number; total_credits: number }>(sql`
+          SELECT COUNT(*) as prompt_count,
+                 COALESCE(SUM(credit_cost), 0) as total_credits
+          FROM prompts
+          WHERE user_id = ${user.id} AND blocked = false
+          AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')
+        `);
 
-      // Codex only
-      const [codexStats] = await db.execute<{ prompts: number; credits: number }>(sql`
-        SELECT COUNT(*) as prompts, COALESCE(SUM(credit_cost), 0) as credits
-        FROM prompts WHERE user_id = ${user.id} AND source = 'codex' AND blocked = false
-      `);
+        // Antigravity only
+        const [agStats] = await db.execute<{ ag_prompt_count: number }>(sql`
+          SELECT COUNT(*) as ag_prompt_count
+          FROM prompts
+          WHERE user_id = ${user.id} AND blocked = false
+          AND session_id IN (SELECT id FROM sessions WHERE source = 'antigravity')
+        `);
 
-      const [sessionStats] = await db.execute<{ session_count: number }>(sql`
-        SELECT COUNT(*) as session_count FROM sessions WHERE user_id = ${user.id}
-      `);
+        // Codex only
+        const [codexStats] = await db.execute<{ prompts: number; credits: number }>(sql`
+          SELECT COUNT(*) as prompts, COALESCE(SUM(credit_cost), 0) as credits
+          FROM prompts WHERE user_id = ${user.id} AND source = 'codex' AND blocked = false
+        `);
 
-      // Get most-used model
-      const topModelResults = await db.execute<{ model: string; cnt: number }>(sql`
-        SELECT model, COUNT(*) as cnt FROM prompts
-        WHERE user_id = ${user.id} AND blocked = false AND model IS NOT NULL
-        GROUP BY model ORDER BY cnt DESC LIMIT 1
-      `);
-      const topModelResult = topModelResults[0];
+        const [sessionStats] = await db.execute<{ session_count: number }>(sql`
+          SELECT COUNT(*) as session_count FROM sessions WHERE user_id = ${user.id}
+        `);
 
-      // Get user roles
-      const userRolesList = await getUserRoles(user.id);
-      const primaryRole = userRolesList[0]?.roles?.name ?? null;
+        // Get most-used model
+        const topModelResults = await db.execute<{ model: string; cnt: number }>(sql`
+          SELECT model, COUNT(*) as cnt FROM prompts
+          WHERE user_id = ${user.id} AND blocked = false AND model IS NOT NULL
+          GROUP BY model ORDER BY cnt DESC LIMIT 1
+        `);
+        const topModelResult = topModelResults[0];
 
-      return {
-        ...user,
-        prompt_count: Number(ccStats?.prompt_count ?? 0),
-        total_credits: Number(ccStats?.total_credits ?? 0),
-        ag_prompt_count: Number(agStats?.ag_prompt_count ?? 0),
-        codex_prompts: Number(codexStats?.prompts ?? 0),
-        codex_credits: Number(codexStats?.credits ?? 0),
-        session_count: Number(sessionStats?.session_count ?? 0),
-        top_model: topModelResult?.model || user.defaultModel || null,
-        last_active: user.lastEventAt,
-        watcher_connected: isWatcherConnected(user.id) || isWatcherRecentlyActive(user),
-        role: primaryRole,
-      };
+        // Get user roles
+        const userRolesList = await getUserRoles(user.id);
+        const primaryRole = userRolesList[0]?.roles?.name ?? null;
+
+        return {
+          ...safeUser,
+          prompt_count: Number(ccStats?.prompt_count ?? 0),
+          total_credits: Number(ccStats?.total_credits ?? 0),
+          ag_prompt_count: Number(agStats?.ag_prompt_count ?? 0),
+          codex_prompts: Number(codexStats?.prompts ?? 0),
+          codex_credits: Number(codexStats?.credits ?? 0),
+          session_count: Number(sessionStats?.session_count ?? 0),
+          top_model: topModelResult?.model || user.defaultModel || null,
+          last_active: user.lastEventAt,
+          watcher_connected: isWatcherConnected(user.id) || isWatcherRecentlyActive(user),
+          role: primaryRole,
+        };
+      } catch (enrichErr) {
+        console.error(`[admin-api] enrichment error for user ${user.id}:`, enrichErr);
+        return {
+          ...safeUser,
+          prompt_count: 0,
+          total_credits: 0,
+          ag_prompt_count: 0,
+          codex_prompts: 0,
+          codex_credits: 0,
+          session_count: 0,
+          top_model: user.defaultModel || null,
+          last_active: user.lastEventAt,
+          watcher_connected: false,
+          role: null,
+        };
+      }
     }));
 
     res.json({ data: enriched });
@@ -273,9 +292,10 @@ adminRouter.post('/users', async (req: Request, res: Response) => {
     }
 
     const serverUrl = process.env.SERVER_URL || 'http://localhost:3000';
+    const { passwordHash: _ph, ...userWithoutPassword } = user;
 
     res.status(201).json({
-      user,
+      user: userWithoutPassword,
       auth_token: authToken,
       install_instructions: {
         curl: `curl -fsSL https://raw.githubusercontent.com/howincodes/howinlens/main/scripts/install.sh | bash`,
@@ -355,8 +375,10 @@ adminRouter.get('/users/:id', async (req: Request, res: Response) => {
       device.id = `${device.hostname}-${device.platform}`;
     }
 
+    const { passwordHash: _ph, ...safeUser } = user;
+
     res.json({
-      ...user,
+      ...safeUser,
       devices,
       limits,
       recent_prompts: prompts,
@@ -429,7 +451,8 @@ adminRouter.put('/users/:id', async (req: Request, res: Response) => {
       }
     }
 
-    res.json(updated);
+    const { passwordHash: _ph, ...safeUpdated } = updated;
+    res.json(safeUpdated);
   } catch (err) {
     console.error('[admin-api] update user error:', err);
     res.status(500).json({ error: 'Internal server error' });
