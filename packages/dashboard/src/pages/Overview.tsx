@@ -1,723 +1,158 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect } from 'react'
+import { getUsers, getProjects, getSubscriptionUsage, getSubscriptionCredentials, getMe } from '@/lib/api'
 import { Link } from 'react-router-dom'
-import { getUsers, getSubscriptions, getAnalytics, getLeaderboard, updateUser, getRecentEvents, getUserProfiles } from '@/lib/api'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { useWSStore, useWSEvent } from '@/hooks/useWebSockets'
-import {
-  Loader2,
-  Users,
-  Activity,
-  MessageSquare,
-  Coins,
-  Play,
-  Pause,
-  Trash,
-  Plus,
-  RefreshCw,
-  AlertCircle,
-} from 'lucide-react'
-import { AddUserModal } from '@/components/AddUserModal'
-import { SourceBadge } from '@/components/SourceBadge'
-import { ConfirmActionModal } from '@/components/ConfirmActionModal'
-import { formatDistanceToNow } from 'date-fns'
+import RoleBadge from '@/components/RoleBadge'
+import UsageBar from '@/components/UsageBar'
 
-// ── Helpers ───────────────────────────────────────────────
-
-/** Normalize event type names from different sources (WS broadcast, DB, polling) to canonical form. */
-function canonicalEventType(type: string): string {
-  switch (type) {
-    // WS broadcast names
-    case 'session_start':
-    case 'SessionStart':
-    case 'session_started':
-      return 'session_started'
-    case 'prompt':
-    case 'UserPromptSubmit':
-    case 'prompt_submitted':
-      return 'prompt_submitted'
-    case 'tool_use':
-    case 'PreToolUse':
-    case 'tool_used':
-      return 'tool_used'
-    case 'stop':
-    case 'Stop':
-    case 'turn_completed':
-      return 'turn_completed'
-    case 'StopFailure':
-    case 'tool_failed':
-      return 'tool_failed'
-    case 'SessionEnd':
-    case 'session_ended':
-      return 'session_ended'
-    case 'PostToolUse':
-      return 'tool_used'
-    case 'SubagentStart':
-      return 'tool_used'
-    case 'connected':
-      return 'connected'
-    case 'session_end':
-      return 'session_ended'
-    case 'hook_event':
-      return 'hook_event'
-    default:
-      return type
-  }
-}
-
-function eventColor(type: string): string {
-  switch (canonicalEventType(type)) {
-    case 'prompt_submitted':
-      return 'text-blue-500'
-    case 'prompt_blocked':
-      return 'text-yellow-600'
-    case 'turn_completed':
-      return 'text-green-500'
-    case 'session_started':
-    case 'session_ended':
-      return 'text-muted-foreground'
-    case 'tool_used':
-      return 'text-purple-500'
-    case 'tool_failed':
-      return 'text-red-500'
-    case 'rate_limit_hit':
-      return 'text-red-600'
-    case 'user_killed':
-      return 'text-red-600'
-    case 'user_paused':
-      return 'text-yellow-600'
-    default:
-      return 'text-muted-foreground'
-  }
-}
-
-function eventBgClass(type: string): string {
-  switch (canonicalEventType(type)) {
-    case 'prompt_submitted':
-      return 'border-l-blue-500'
-    case 'prompt_blocked':
-      return 'border-l-yellow-500'
-    case 'turn_completed':
-      return 'border-l-green-500'
-    case 'session_started':
-    case 'session_ended':
-      return 'border-l-gray-400'
-    case 'tool_used':
-      return 'border-l-purple-500'
-    case 'tool_failed':
-      return 'border-l-red-400'
-    case 'rate_limit_hit':
-    case 'user_killed':
-      return 'border-l-red-600'
-    case 'user_paused':
-      return 'border-l-yellow-600'
-    default:
-      return 'border-l-gray-300'
-  }
-}
-
-function eventDescription(evt: { type: string; payload: Record<string, unknown> }): string {
-  const p = evt.payload
-  switch (canonicalEventType(evt.type)) {
-    case 'prompt_submitted':
-      return `submitted a prompt${p.model ? ` via ${normalizeModel(p.model as string)}` : ''}`
-    case 'prompt_blocked':
-      return `prompt was blocked${p.reason ? `: ${p.reason}` : ''}`
-    case 'turn_completed':
-      return `completed a turn${p.model ? ` on ${normalizeModel(p.model as string)}` : ''}`
-    case 'session_started':
-      return `started a session${p.project_dir || p.cwd ? ` in ${p.project_dir || p.cwd}` : ''}`
-    case 'session_ended':
-      return `ended a session`
-    case 'tool_used':
-      return `used tool ${p.tool_name || p.tool || 'unknown'}`
-    case 'tool_failed':
-      return `tool failed: ${p.tool_name || p.tool || 'unknown'}`
-    case 'rate_limit_hit':
-      return `hit rate limit${p.limit_type ? ` (${p.limit_type})` : ''}`
-    case 'user_killed':
-      return `was killed`
-    case 'user_paused':
-      return `was paused`
-    case 'connected':
-      return `system connected`
-    case 'hook_event':
-      return `hook event${p.event_type ? `: ${String(p.event_type).replace(/_/g, ' ')}` : ''}`
-    default:
-      return evt.type.replace(/_/g, ' ')
-  }
-}
-
-function normalizeModel(model: string): string {
-  if (!model) return 'Unknown'
-  if (model.startsWith('AG-')) return model  // Keep full AG- name
-  const lower = model.toLowerCase()
-  if (lower.includes('opus')) return 'Opus'
-  if (lower.includes('sonnet')) return 'Sonnet'
-  if (lower.includes('haiku')) return 'Haiku'
-  return model
-}
-
-function avatarColor(name: string): string {
-  const colors = [
-    'bg-blue-500/20 text-blue-600',
-    'bg-purple-500/20 text-purple-600',
-    'bg-green-500/20 text-green-600',
-    'bg-orange-500/20 text-orange-600',
-    'bg-pink-500/20 text-pink-600',
-    'bg-cyan-500/20 text-cyan-600',
-    'bg-rose-500/20 text-rose-600',
-    'bg-teal-500/20 text-teal-600',
-  ]
-  let hash = 0
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  }
-  return colors[Math.abs(hash) % colors.length]
-}
-
-// ── Component ─────────────────────────────────────────────
-export function Overview() {
-  const [showAddModal, setShowAddModal] = useState(false)
+export default function Overview() {
+  const [me, setMe] = useState<any>(null)
   const [users, setUsers] = useState<any[]>([])
-  const [subscriptions, setSubscriptions] = useState<any[]>([])
-  const [analytics, setAnalytics] = useState<any>(null)
-  const [leaderMap, setLeaderMap] = useState<Map<string, any>>(new Map())
-  const [profileMap, setProfileMap] = useState<Map<string, any>>(new Map())
+  const [projects, setProjects] = useState<any[]>([])
+  const [credentials, setCredentials] = useState<any[]>([])
+  const [usage, setUsage] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [confirmAction, setConfirmAction] = useState<{
-    user: any
-    action: 'killed' | 'paused' | 'active'
-  } | null>(null)
-  const [expandedSub, setExpandedSub] = useState<string | null>(null)
-  const events = useWSStore((s) => s.events)
-  const wsStatus = useWSStore((s) => s.status)
 
-  const feedSeeded = useRef(false)
-
-  const loadData = useCallback(async () => {
-    try {
-      setError(null)
-      const [usersRes, subsRes, analyticsRes, leaderRes] = await Promise.all([
-        getUsers(),
-        getSubscriptions(),
-        getAnalytics(1),
-        getLeaderboard(30).catch(() => ({ data: [] })),
-      ])
-      setUsers(usersRes?.data || usersRes?.users || [])
-      setSubscriptions(subsRes?.data || subsRes?.subscriptions || [])
-      setAnalytics(analyticsRes?.overview || {})
-      const lMap = new Map()
-      for (const entry of leaderRes?.data || leaderRes?.leaderboard || []) {
-        lMap.set(String(entry.user_id || entry.id), entry)
-      }
-      setLeaderMap(lMap)
-
-      // Fetch AI profiles
-      try {
-        const profilesRes = await getUserProfiles()
-        const pMap = new Map()
-        for (const p of profilesRes?.data || []) {
-          pMap.set(String(p.user_id), p.profile)
-        }
-        setProfileMap(pMap)
-      } catch {
-        // profiles are best-effort
-      }
-
-      // Seed Live Feed with recent events on first load
-      if (!feedSeeded.current) {
-        feedSeeded.current = true
-        try {
-          const since = new Date(Date.now() - 3600000).toISOString()
-          const eventsRes = await getRecentEvents(since)
-          if (Array.isArray(eventsRes?.data)) {
-            const wsStore = useWSStore.getState()
-            // Add oldest first so newest end up at top
-            for (const evt of eventsRes.data.reverse()) {
-              wsStore.addEvent({
-                type: evt.event_type || evt.type || 'hook_event',
-                payload: {
-                  ...evt,
-                  type: evt.event_type || evt.type,
-                  user_name: evt.user_name || 'Unknown',
-                },
-                timestamp: new Date(evt.created_at).getTime(),
-              })
-            }
-          }
-        } catch {
-          // Seeding is best-effort
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load overview data', err)
-      setError('Failed to load dashboard data. Please try again.')
-    } finally {
-      setLoading(false)
-    }
+  useEffect(() => {
+    Promise.all([
+      getMe().catch(() => null),
+      getUsers().catch(() => []),
+      getProjects().catch(() => []),
+      getSubscriptionCredentials().catch(() => []),
+      getSubscriptionUsage().catch(() => []),
+    ]).then(([m, u, p, c, us]) => {
+      setMe(m)
+      setUsers(Array.isArray(u) ? u : u?.data || u?.users || [])
+      setProjects(Array.isArray(p) ? p : p?.data || [])
+      setCredentials(Array.isArray(c) ? c : c?.data || [])
+      setUsage(Array.isArray(us) ? us : us?.data || [])
+    }).finally(() => setLoading(false))
   }, [])
 
-  // Initial load
-  useEffect(() => {
-    loadData()
-  }, [loadData])
-
-  // Auto-refresh every 30s
+  // Auto-refresh usage every 30s
   useEffect(() => {
     const interval = setInterval(() => {
-      loadData()
+      getSubscriptionUsage().then((us) => setUsage(Array.isArray(us) ? us : us?.data || [])).catch(() => {})
     }, 30000)
     return () => clearInterval(interval)
-  }, [loadData])
-
-  // Debounced refresh on WS events — coalesce rapid bursts into a single loadData() call
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const debouncedLoadData = useCallback(() => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current)
-    debounceTimer.current = setTimeout(() => {
-      loadData()
-    }, 500)
-  }, [loadData])
-
-  useEffect(() => {
-    return () => {
-      if (debounceTimer.current) clearTimeout(debounceTimer.current)
-    }
   }, [])
 
-  // Refresh on relevant WS events (debounced)
-  useWSEvent('prompt_submitted', debouncedLoadData)
-  useWSEvent('turn_completed', debouncedLoadData)
-  useWSEvent('session_started', debouncedLoadData)
-  useWSEvent('session_ended', debouncedLoadData)
-  useWSEvent('user_killed', debouncedLoadData)
-  useWSEvent('user_paused', debouncedLoadData)
+  if (loading) return <div className="p-6 text-center text-gray-500">Loading...</div>
 
-  const handleQuickAction = useCallback(
-    async (user: any, action: 'killed' | 'paused' | 'active') => {
-      try {
-        await updateUser(user.id, { status: action })
-        loadData()
-      } catch (_err) {
-        // ConfirmActionModal handles its own errors
-      }
-    },
-    [loadData]
-  )
-
-
-  // ── Loading state ─────────────────────────────────────
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  // ── Error state ───────────────────────────────────────
-  if (error && users.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <AlertCircle className="w-12 h-12 text-destructive" />
-        <p className="text-muted-foreground">{error}</p>
-        <Button onClick={loadData} variant="outline">
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Retry
-        </Button>
-      </div>
-    )
-  }
-
-  const totalUsers = analytics?.total_users ?? users.length
-  const activeNow = analytics?.active_now ?? users.filter((u: any) => u.status === 'active').length
-  const promptsToday = analytics?.prompts_today ?? analytics?.total_prompts ?? 0
-  const agPromptsToday = analytics?.ag_prompts ?? 0
-  const costToday = analytics?.cost_today ?? analytics?.total_credits ?? 0
-
-  const displayEvents = events.slice(0, 50)
+  const onWatchCount = users.filter((u: any) => u.status === 'active').length
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">Overview</h1>
-        <p className="text-muted-foreground">Monitor your team's Claude usage in real-time.</p>
+    <div className="p-6 max-w-7xl mx-auto">
+      {/* Welcome */}
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Welcome back{me?.user?.name ? `, ${me.user.name}` : ''}</h1>
+          <p className="text-sm text-gray-500 mt-1">HowinLens Dashboard</p>
+        </div>
+        {me?.roles?.[0] && <RoleBadge role={me.roles[0].roleName || 'Admin'} />}
       </div>
 
-      {/* Stats Row */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Users</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalUsers}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Now</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{activeNow}</div>
-            <p className="text-xs text-muted-foreground">Users with recent sessions</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">CC Prompts Today</CardTitle>
-            <MessageSquare className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{promptsToday}</div>
-            {agPromptsToday > 0 && (
-              <p className="text-xs text-muted-foreground">AG: {agPromptsToday}</p>
-            )}
-            {agPromptsToday === 0 && (
-              <p className="text-xs text-muted-foreground">Claude Code</p>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Credits Today</CardTitle>
-            <Coins className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{Number(costToday)} credits</div>
-            <p className="text-xs text-muted-foreground">Claude Code</p>
-          </CardContent>
-        </Card>
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="bg-white border rounded-xl p-4">
+          <div className="text-sm text-gray-500 mb-1">Users</div>
+          <div className="text-2xl font-bold text-gray-900">{users.length}</div>
+        </div>
+        <div className="bg-white border rounded-xl p-4">
+          <div className="text-sm text-gray-500 mb-1">Projects</div>
+          <div className="text-2xl font-bold text-gray-900">{projects.length}</div>
+        </div>
+        <div className="bg-white border rounded-xl p-4">
+          <div className="text-sm text-gray-500 mb-1">Subscriptions</div>
+          <div className="text-2xl font-bold text-gray-900">{credentials.length}</div>
+        </div>
+        <div className="bg-white border rounded-xl p-4">
+          <div className="text-sm text-gray-500 mb-1">Active Users</div>
+          <div className="text-2xl font-bold text-green-600">{onWatchCount}</div>
+        </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
-        {/* Main Content */}
-        <div className="space-y-6 md:col-span-2">
-          {/* Subscriptions */}
-          {subscriptions.length > 0 ? (
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold tracking-tight mb-4">Subscriptions</h2>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {subscriptions.map((sub: any) => (
-                  <Card
-                    key={sub.id || sub.email}
-                    className="cursor-pointer hover:border-primary/50 transition-colors group"
-                    onClick={() => setExpandedSub(expandedSub === sub.email ? null : sub.email)}
-                  >
-                    <CardHeader className="p-4 bg-muted/30">
-                      <div className="flex justify-between items-start">
-                        <CardTitle className="text-sm font-medium truncate pr-2">
-                          {sub.email}
-                        </CardTitle>
-                        <Badge
-                          variant={
-                            (sub.subscription_type || sub.type || '').toLowerCase() === 'max'
-                              ? 'default'
-                              : 'secondary'
-                          }
-                          className="text-[10px] uppercase"
-                        >
-                          {sub.subscription_type || sub.type || 'PRO'}
-                        </Badge>
-                      </div>
-                      <CardDescription className="text-xs">
-                        {sub.user_count ?? sub.users?.length ?? 0} users &bull;{' '}
-                        {sub.total_credits ?? Number(sub.total_cost || sub.cost || 0)} credits
-                      </CardDescription>
-                    </CardHeader>
-                    {expandedSub === sub.email ? (
-                      <CardContent className="px-4 py-2 border-t text-xs max-h-40 overflow-y-auto">
-                        {sub.users?.map((u: any) => (
-                          <div
-                            key={u.id}
-                            className="flex justify-between py-1 border-b last:border-0 border-muted"
-                          >
-                            <span>{u.name}</span>
-                            <span className="text-muted-foreground flex gap-2">
-                              <span>{u.prompts ?? u.usage?.prompts ?? u.prompt_count ?? 0} prompts</span>
-                              <span>{u.credits ?? 0} credits</span>
-                            </span>
-                          </div>
-                        ))}
-                        {(!sub.users || sub.users.length === 0) && (
-                          <span className="text-muted-foreground italic">No Active Users</span>
-                        )}
-                      </CardContent>
-                    ) : (
-                      <CardContent className="px-4 py-2 border-t text-xs text-muted-foreground group-hover:bg-muted/10">
-                        Click to expand users...
-                      </CardContent>
-                    )}
-                  </Card>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold tracking-tight mb-4">Subscriptions</h2>
-              <Card>
-                <CardContent className="p-6 text-center text-sm text-muted-foreground">
-                  No subscriptions linked yet
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {/* Users */}
-          <div className="flex items-center justify-between mb-4 mt-8">
-            <h2 className="text-xl font-semibold tracking-tight">Active Users</h2>
-            <Button size="sm" onClick={() => setShowAddModal(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Add User
-            </Button>
+      {/* Subscription Usage */}
+      {credentials.length > 0 && (
+        <div className="bg-white border rounded-xl p-5 mb-8">
+          <h2 className="text-lg font-semibold mb-4">Subscription Usage</h2>
+          <div className="space-y-4">
+            {credentials.map((cred: any) => {
+              const credUsage = usage.find((u: any) => u.id === cred.id)
+              return (
+                <div key={cred.id} className="flex items-center gap-4">
+                  <div className="w-48 truncate">
+                    <div className="font-medium text-sm">{cred.email}</div>
+                    <div className="text-xs text-gray-500">{cred.subscriptionType || 'pro'} &bull; {cred.activeUsers || 0} users</div>
+                  </div>
+                  <div className="flex-1 grid grid-cols-2 gap-3">
+                    <UsageBar value={credUsage?.usage?.fiveHourUtilization || 0} label="5-Hour" size="sm" />
+                    <UsageBar value={credUsage?.usage?.sevenDayUtilization || 0} label="7-Day" size="sm" />
+                  </div>
+                </div>
+              )
+            })}
           </div>
+        </div>
+      )}
 
-          {users.length === 0 ? (
-            <Card>
-              <CardContent className="p-8 text-center text-sm text-muted-foreground">
-                No users yet. Click "Add User" to create your first developer profile.
-              </CardContent>
-            </Card>
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* Users Quick View */}
+        <div className="bg-white border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Users</h2>
+            <Link to="/users" className="text-sm text-blue-600 hover:underline">View all</Link>
+          </div>
+          <div className="space-y-2">
+            {users.slice(0, 8).map((user: any) => (
+              <Link key={user.id} to={`/users/${user.id}`} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 transition-colors">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-sm font-medium text-gray-600">
+                    {user.name?.charAt(0)?.toUpperCase() || '?'}
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium">{user.name}</div>
+                    <div className="text-xs text-gray-500">{user.email}</div>
+                  </div>
+                </div>
+                <div className="text-xs text-gray-500">
+                  {user.status === 'active' ? '\u{1F7E2}' : user.status === 'killed' ? '\u{1F534}' : '\u26AB'}
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* Projects Quick View */}
+        <div className="bg-white border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Projects</h2>
+            <Link to="/projects" className="text-sm text-blue-600 hover:underline">View all</Link>
+          </div>
+          {projects.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <p>No projects yet</p>
+              <Link to="/projects" className="text-sm text-blue-600 hover:underline mt-2 inline-block">Create your first project</Link>
+            </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {users.map((user: any) => {
-                const stats = leaderMap.get(String(user.id)) || {}
-                const userProfile = profileMap.get(String(user.id))
-
-                return (
-                  <Card
-                    key={user.id}
-                    className="overflow-hidden flex flex-col hover:border-primary/50 transition-colors"
-                  >
-                    <CardHeader className="p-4 pb-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div
-                            className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs uppercase ${avatarColor(user.name || 'U')}`}
-                          >
-                            {user.name?.substring(0, 2) || 'U'}
-                          </div>
-                          <Link
-                            to={`/users/${user.id}`}
-                            className="font-semibold text-lg hover:underline truncate mr-2"
-                          >
-                            {user.name}
-                          </Link>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          {/* Watcher connection indicator */}
-                          {user.watcher_connected === true && (
-                            <span className="w-2 h-2 rounded-full bg-green-500 inline-block" title="Watcher connected" />
-                          )}
-                          {user.watcher_connected === false && user.last_active && (
-                            <span className="w-2 h-2 rounded-full bg-red-500 inline-block" title="Watcher disconnected" />
-                          )}
-                          {userProfile?.productivity?.score && (
-                            <span className={`text-xs font-bold ${
-                              userProfile.productivity.score >= 70 ? 'text-green-600' :
-                              userProfile.productivity.score >= 40 ? 'text-yellow-600' : 'text-red-600'
-                            }`}>
-                              {userProfile.productivity.score}
-                            </span>
-                          )}
-                          <Badge
-                            variant={
-                              user.status === 'active'
-                                ? 'success'
-                                : user.status === 'paused'
-                                  ? 'warning'
-                                  : 'destructive'
-                            }
-                          >
-                            {user.status}
-                          </Badge>
-                        </div>
-                      </div>
-                      <CardDescription className="text-xs">
-                        {user.subscription_email || user.email || 'No subscription linked'}
-                      </CardDescription>
-                    </CardHeader>
-                    {/* AI Profile Summary */}
-                    {userProfile && (
-                      <div className="px-4 pb-2 space-y-1">
-                        <div className="text-xs text-muted-foreground">{userProfile.role_estimate}</div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          Focus: {userProfile.current_focus}
-                        </div>
-                      </div>
-                    )}
-                    <Link to={`/users/${user.id}`} className="flex-1">
-                      <CardContent className="p-4 pt-2">
-                        <div className="grid grid-cols-3 gap-3">
-                          <div className="text-center p-2 bg-muted/30 rounded">
-                            <div className="text-lg font-bold">{Number(stats.prompts ?? user.prompt_count ?? 0)}</div>
-                            <div className="text-[10px] text-muted-foreground">CC Prompts</div>
-                          </div>
-                          <div className="text-center p-2 bg-muted/30 rounded">
-                            <div className="text-lg font-bold">{Number(stats.ag_prompts ?? user.ag_prompt_count ?? 0)}</div>
-                            <div className="text-[10px] text-muted-foreground">AG Prompts</div>
-                          </div>
-                          <div className="text-center p-2 bg-muted/30 rounded">
-                            <div className="text-lg font-bold">{Number(stats.codex_prompts ?? 0)}</div>
-                            <div className="text-[10px] text-muted-foreground">Codex Prompts</div>
-                          </div>
-                          <div className="text-center p-2 bg-muted/30 rounded">
-                            <div className="text-lg font-bold">{Number(stats.credits ?? stats.cost_usd ?? stats.cost ?? 0)}</div>
-                            <div className="text-[10px] text-muted-foreground">CC Credits</div>
-                          </div>
-                          <div className="text-center p-2 bg-muted/30 rounded">
-                            <div className="text-lg font-bold">{Number(stats.codex_credits ?? 0)}</div>
-                            <div className="text-[10px] text-muted-foreground">Codex Credits</div>
-                          </div>
-                          <div className="text-center p-2 bg-muted/30 rounded">
-                            <div className="text-lg font-bold">{Number(stats.sessions ?? user.session_count ?? 0)}</div>
-                            <div className="text-[10px] text-muted-foreground">Sessions</div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Link>
-                    <div className="p-4 border-t flex justify-between items-center bg-muted/10 mt-auto">
-                      <div className="text-xs flex flex-col gap-1">
-                        <span className="text-muted-foreground">
-                          Model:{' '}
-                          <span className="font-medium text-foreground">
-                            {normalizeModel(user.default_model || '')}
-                          </span>
-                        </span>
-                        <span className="text-muted-foreground">
-                          Credits:{' '}
-                          <span className="font-medium text-foreground">
-                            {Number(stats.credits ?? stats.cost_usd ?? stats.cost ?? 0)} credits
-                          </span>
-                        </span>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-green-600 hover:text-green-700"
-                          title="Resume"
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            setConfirmAction({ user, action: 'active' })
-                          }}
-                        >
-                          <Play className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-yellow-600 hover:text-yellow-700"
-                          title="Pause"
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            setConfirmAction({ user, action: 'paused' })
-                          }}
-                        >
-                          <Pause className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-destructive hover:text-destructive"
-                          title="Kill"
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            setConfirmAction({ user, action: 'killed' })
-                          }}
-                        >
-                          <Trash className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </Card>
-                )
-              })}
+            <div className="space-y-2">
+              {projects.slice(0, 8).map((project: any) => (
+                <Link key={project.id} to={`/projects/${project.id}`} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 transition-colors">
+                  <div>
+                    <div className="text-sm font-medium">{project.name}</div>
+                    {project.description && <div className="text-xs text-gray-500 line-clamp-1">{project.description}</div>}
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${project.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                    {project.status}
+                  </span>
+                </Link>
+              ))}
             </div>
           )}
         </div>
-
-        {/* Sidebar Feed */}
-        <div className="space-y-6 h-full flex flex-col">
-          <Card className="flex-1 flex flex-col max-h-[800px]">
-            <CardHeader className="p-4 pb-2 border-b">
-              <CardTitle className="text-lg flex items-center justify-between">
-                Live Feed
-                <span className="flex items-center gap-2">
-                  <span
-                    className={`text-xs font-normal ${wsStatus === 'connected' ? 'text-green-500' : wsStatus === 'reconnecting' ? 'text-yellow-500' : 'text-red-500'}`}
-                  >
-                    {wsStatus}
-                  </span>
-                  <span className="relative flex h-2 w-2">
-                    <span
-                      className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${wsStatus === 'connected' ? 'bg-green-400' : wsStatus === 'reconnecting' ? 'bg-yellow-400' : 'bg-red-400'}`}
-                    ></span>
-                    <span
-                      className={`relative inline-flex rounded-full h-2 w-2 ${wsStatus === 'connected' ? 'bg-green-500' : wsStatus === 'reconnecting' ? 'bg-yellow-500' : 'bg-red-500'}`}
-                    ></span>
-                  </span>
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0 flex-1 overflow-y-auto">
-              {displayEvents.length === 0 ? (
-                <div className="p-8 text-center text-sm text-muted-foreground">
-                  No recent events. Activity will appear here in real-time.
-                </div>
-              ) : (
-                <div className="divide-y">
-                  {displayEvents.map((evt, i) => (
-                    <div
-                      key={i}
-                      className={`p-3 text-sm hover:bg-muted/50 transition-colors border-l-2 ${eventBgClass(evt.type)}`}
-                    >
-                      <div className="flex justify-between items-start mb-1">
-                        <span className="font-semibold text-xs">
-                          {(evt.payload.user_name as string) ||
-                            (evt.payload.user_slug as string) ||
-                            'System'}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground whitespace-nowrap ml-2">
-                          {formatDistanceToNow(new Date(evt.timestamp), { addSuffix: true })}
-                        </span>
-                      </div>
-                      <div className={`text-xs leading-tight ${eventColor(evt.type)} flex items-center gap-1.5`}>
-                        <SourceBadge source={(evt.payload.source as string) || 'claude_code'} />
-                        {eventDescription(evt)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
       </div>
-
-      {showAddModal && (
-        <AddUserModal onClose={() => setShowAddModal(false)} onSuccess={loadData} />
-      )}
-      {confirmAction && (
-        <ConfirmActionModal
-          user={confirmAction.user}
-          action={confirmAction.action}
-          onClose={() => setConfirmAction(null)}
-          onSuccess={() => {
-            setConfirmAction(null)
-            handleQuickAction(confirmAction.user, confirmAction.action)
-            loadData()
-          }}
-        />
-      )}
     </div>
   )
 }
+
+// Keep backward-compatible named export
+export { Overview }

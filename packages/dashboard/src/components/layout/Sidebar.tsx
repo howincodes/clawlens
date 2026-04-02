@@ -1,17 +1,18 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
-  CreditCard,
   Users,
+  FolderKanban,
+  CheckSquare,
+  KeyRound,
+  Activity,
   BarChart3,
   Brain,
   Search,
-  Settings,
+  Shield,
   ShieldAlert,
+  Settings,
   Terminal,
-  CheckSquare,
-  KeyRound,
-  Activity
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWSStore } from '@/hooks/useWebSockets'
@@ -19,18 +20,19 @@ import { useWSStore } from '@/hooks/useWebSockets'
 const navItems = [
   { path: '/', label: 'Overview', icon: LayoutDashboard },
   { path: '/users', label: 'Users', icon: Users },
-  { path: '/subscriptions', label: 'Subscriptions', icon: CreditCard },
+  { path: '/projects', label: 'Projects', icon: FolderKanban },
+  { path: '/tasks', label: 'Tasks', icon: CheckSquare },
+  { path: '/subscriptions', label: 'Subscriptions', icon: KeyRound },
+  { path: '/activity', label: 'Activity', icon: Activity },
   { path: '/analytics', label: 'Analytics', icon: BarChart3 },
   { path: '/ai', label: 'AI Intelligence', icon: Brain },
-  { path: '/tasks', label: 'Tasks', icon: CheckSquare },
-  { path: '/activity', label: 'Activity', icon: Activity },
-  { path: '/prompts', label: 'Prompts Browser', icon: Search },
-  { path: '/subscriptions-manager', label: 'Sub Manager', icon: KeyRound },
+  { path: '/prompts', label: 'Prompts', icon: Search },
+  { path: '/roles', label: 'Roles', icon: Shield },
 ]
 
 const adminItems = [
-  { path: '/settings', label: 'Settings', icon: Settings },
   { path: '/audit-log', label: 'Audit Log', icon: ShieldAlert },
+  { path: '/settings', label: 'Settings', icon: Settings },
 ]
 
 export function Sidebar() {

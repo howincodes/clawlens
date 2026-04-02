@@ -5,9 +5,7 @@ import { useAuthStore } from './store/authStore'
 
 import { Overview } from './pages/Overview'
 import { UserDetail } from './pages/UserDetail'
-import { Subscriptions } from './pages/Subscriptions'
 import { Analytics } from './pages/Analytics'
-import { Summaries } from './pages/Summaries'
 import { AIIntelligence } from './pages/AIIntelligence'
 import { PromptsBrowser } from './pages/PromptsBrowser'
 import { Settings } from './pages/Settings'
@@ -16,6 +14,7 @@ import { UsersPage } from './pages/Users'
 import Tasks from './pages/Tasks'
 import TaskDetail from './pages/TaskDetail'
 import SubscriptionsManager from './pages/SubscriptionsManager'
+import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
 import ActivitySummary from './pages/ActivitySummary'
 
@@ -29,18 +28,19 @@ export default function App() {
         <Route path="/" element={<Overview />} />
         <Route path="/users" element={<UsersPage />} />
         <Route path="/users/:id" element={<UserDetail />} />
-        <Route path="/subscriptions" element={<Subscriptions />} />
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/ai" element={<AIIntelligence />} />
-        <Route path="/summaries" element={<Summaries />} />
-        <Route path="/prompts" element={<PromptsBrowser />} />
-        <Route path="/settings" element={<Settings />} />
+        <Route path="/projects" element={<Projects />} />
+        <Route path="/projects/:id" element={<ProjectDetail />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/tasks/:id" element={<TaskDetail />} />
+        <Route path="/subscriptions" element={<SubscriptionsManager />} />
+        <Route path="/subscriptions-manager" element={<Navigate to="/subscriptions" replace />} />
         <Route path="/activity" element={<ActivitySummary />} />
-        <Route path="/subscriptions-manager" element={<SubscriptionsManager />} />
-        <Route path="/projects/:id" element={<ProjectDetail />} />
+        <Route path="/analytics" element={<Analytics />} />
+        <Route path="/ai" element={<AIIntelligence />} />
+        <Route path="/summaries" element={<Navigate to="/ai" replace />} />
+        <Route path="/prompts" element={<PromptsBrowser />} />
         <Route path="/audit-log" element={<AuditLog />} />
+        <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
