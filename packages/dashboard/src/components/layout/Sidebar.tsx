@@ -10,7 +10,8 @@ import {
   ShieldAlert,
   Terminal,
   CheckSquare,
-  KeyRound
+  KeyRound,
+  Activity
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWSStore } from '@/hooks/useWebSockets'
@@ -22,6 +23,7 @@ const navItems = [
   { path: '/analytics', label: 'Analytics', icon: BarChart3 },
   { path: '/ai', label: 'AI Intelligence', icon: Brain },
   { path: '/tasks', label: 'Tasks', icon: CheckSquare },
+  { path: '/activity', label: 'Activity', icon: Activity },
   { path: '/prompts', label: 'Prompts Browser', icon: Search },
   { path: '/subscriptions-manager', label: 'Sub Manager', icon: KeyRound },
 ]

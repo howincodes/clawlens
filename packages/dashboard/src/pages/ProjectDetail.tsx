@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { getProject, getProjectMembersApi, getUsers, addProjectMemberApi, removeProjectMemberApi, getTasks, getMilestones, submitRequirement, getRequirementSuggestions, approveRequirementSuggestions } from '../lib/api';
 
 export default function ProjectDetail() {
@@ -125,7 +125,7 @@ export default function ProjectDetail() {
           ) : tasks.map((task: any) => (
             <div key={task.id} className="bg-white border rounded-lg p-3 flex items-center justify-between">
               <div>
-                <span className="font-medium">{task.title}</span>
+                <Link to={`/tasks/${task.id}`} className="font-medium text-blue-600 hover:underline">{task.title}</Link>
                 <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${task.status === 'done' ? 'bg-green-100 text-green-700' : task.status === 'in_progress' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>{task.status}</span>
                 <span className="ml-2 text-xs text-gray-500">{task.priority}</span>
               </div>

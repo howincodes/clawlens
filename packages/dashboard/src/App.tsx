@@ -14,8 +14,10 @@ import { Settings } from './pages/Settings'
 import { AuditLog } from './pages/AuditLog'
 import { UsersPage } from './pages/Users'
 import Tasks from './pages/Tasks'
+import TaskDetail from './pages/TaskDetail'
 import SubscriptionsManager from './pages/SubscriptionsManager'
 import ProjectDetail from './pages/ProjectDetail'
+import ActivitySummary from './pages/ActivitySummary'
 
 export default function App() {
   const token = useAuthStore((s) => s.token)
@@ -34,6 +36,8 @@ export default function App() {
         <Route path="/prompts" element={<PromptsBrowser />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/tasks" element={<Tasks />} />
+        <Route path="/tasks/:id" element={<TaskDetail />} />
+        <Route path="/activity" element={<ActivitySummary />} />
         <Route path="/subscriptions-manager" element={<SubscriptionsManager />} />
         <Route path="/projects/:id" element={<ProjectDetail />} />
         <Route path="/audit-log" element={<AuditLog />} />

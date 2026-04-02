@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { getTasks, getProjects, createTaskApi, changeTaskStatus, deleteTaskApi } from '../lib/api';
 
 export default function Tasks() {
@@ -120,7 +121,7 @@ export default function Tasks() {
             <div key={task.id} className="bg-white border rounded-lg p-4 flex items-center justify-between hover:shadow-sm transition-shadow">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="font-medium">{task.title}</span>
+                  <Link to={`/tasks/${task.id}`} className="font-medium text-blue-600 hover:underline">{task.title}</Link>
                   <span className={`text-xs px-2 py-0.5 rounded-full ${priorityColors[task.priority] || ''}`}>{task.priority}</span>
                   {task.effort && <span className="text-xs text-gray-500 bg-gray-50 px-2 py-0.5 rounded">{task.effort.toUpperCase()}</span>}
                 </div>

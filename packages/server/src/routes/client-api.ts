@@ -13,6 +13,8 @@ import { recordFileEvents } from '../db/queries/tracking.js';
 import { recordAppTracking } from '../db/queries/tracking.js';
 import { updateUser } from '../db/queries/users.js';
 import { getProjectById } from '../db/queries/projects.js';
+import { getLatestUsageSnapshot } from '../db/queries/credentials.js';
+import { generateStatuslineConfig } from '../services/statusline.js';
 
 export const clientRouter: RouterType = Router();
 
@@ -107,6 +109,14 @@ clientRouter.get('/status', async (req: Request, res: Response) => {
       credential = await getSubscriptionCredentialById(assignment.credentialId);
     }
 
+    const snapshot = assignment ? await getLatestUsageSnapshot(assignment.credentialId) : null;
+    const statusline = snapshot ? generateStatuslineConfig({
+      fiveHourUtilization: snapshot.fiveHourUtilization || 0,
+      sevenDayUtilization: snapshot.sevenDayUtilization || 0,
+      subscriptionEmail: credential?.email || '',
+      watchStatus: heartbeat?.watchStatus || 'off',
+    }) : null;
+
     res.json({
       user: { id: user.id, name: user.name, email: user.email, status: user.status },
       watchStatus: heartbeat?.watchStatus || 'off',
@@ -117,6 +127,7 @@ clientRouter.get('/status', async (req: Request, res: Response) => {
         expiresAt: credential.expiresAt,
       } : null,
       heartbeat: heartbeat ? { lastPingAt: heartbeat.lastPingAt, platform: heartbeat.platform, clientVersion: heartbeat.clientVersion } : null,
+      statusline,
     });
   } catch (err) {
     console.error('[client-api] status error:', err);

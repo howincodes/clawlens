@@ -245,7 +245,7 @@ export async function getTasks(projectId: number, filters?: { status?: string; a
   return fetchClient(`/tasks?${params}`);
 }
 
-export async function createTaskApi(data: { projectId: number; title: string; description?: string; priority?: string; effort?: string; assigneeId?: number; milestoneId?: number }) {
+export async function createTaskApi(data: { projectId: number; title: string; description?: string; priority?: string; effort?: string; assigneeId?: number; milestoneId?: number; parentTaskId?: number }) {
   return fetchClient('/tasks', { method: 'POST', body: JSON.stringify(data) });
 }
 
