@@ -31,6 +31,23 @@ function formatReset(unixTs: number | null | undefined): string {
   return `Resets ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
 }
 
+function formatResetTime(isoOrTs: string | number | null | undefined): string {
+  if (!isoOrTs) return '';
+  const date = new Date(isoOrTs);
+  if (isNaN(date.getTime())) return '';
+  const now = new Date();
+  const diffMs = date.getTime() - now.getTime();
+  if (diffMs <= 0) return 'Resetting now';
+  const hours = Math.floor(diffMs / 3600000);
+  const mins = Math.floor((diffMs % 3600000) / 60000);
+  if (hours > 24) {
+    const days = Math.floor(hours / 24);
+    return `Resets in ${days}d ${hours % 24}h`;
+  }
+  if (hours > 0) return `Resets in ${hours}h ${mins}m`;
+  return `Resets in ${mins}m`;
+}
+
 function getSubStatus(activeUntil: string | null | undefined): { color: string; label: string } {
   if (!activeUntil) return { color: 'bg-gray-400', label: 'Unknown' };
   const until = new Date(activeUntil);
@@ -203,6 +220,8 @@ export default function SubscriptionsManager() {
               const credUsage = usage.find((u: any) => u.id === cred.id);
               const u5h = credUsage?.usage?.fiveHourUtilization || 0;
               const u7d = credUsage?.usage?.sevenDayUtilization || 0;
+              const reset5h = credUsage?.usage?.fiveHourResetsAt;
+              const reset7d = credUsage?.usage?.sevenDayResetsAt;
 
               // Per-model usage if available
               const modelBreakdown = credUsage?.usage?.modelBreakdown || credUsage?.usage?.perModel || null;
@@ -227,8 +246,14 @@ export default function SubscriptionsManager() {
 
                   {/* Usage Bars */}
                   <div className="p-4 space-y-3">
-                    <UsageBar value={u5h} max={1} label="5-Hour Window" size="md" />
-                    <UsageBar value={u7d} max={1} label="7-Day Window" size="md" />
+                    <div>
+                      <UsageBar value={u5h} max={1} label="5-Hour Window" size="md" />
+                      {reset5h && <p className="text-[10px] text-gray-400 mt-0.5">{formatResetTime(reset5h)}</p>}
+                    </div>
+                    <div>
+                      <UsageBar value={u7d} max={1} label="7-Day Window" size="md" />
+                      {reset7d && <p className="text-[10px] text-gray-400 mt-0.5">{formatResetTime(reset7d)}</p>}
+                    </div>
 
                     {/* Per-model usage */}
                     {modelBreakdown && (

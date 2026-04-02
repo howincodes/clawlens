@@ -18,6 +18,35 @@ export async function getProjectById(id: number) {
   return project;
 }
 
+/**
+ * Find a project by matching a git remote URL against project_repositories.
+ * Normalizes URLs (strips .git suffix, protocol) for flexible matching.
+ */
+export async function getProjectByRepoUrl(repoUrl: string) {
+  const db = getDb();
+  // Normalize: strip protocol, trailing .git, trailing slash
+  const normalized = repoUrl
+    .replace(/^(https?:\/\/|git@|ssh:\/\/)/, '')
+    .replace(/:/g, '/')
+    .replace(/\.git$/, '')
+    .replace(/\/$/, '')
+    .toLowerCase();
+
+  const repos = await db.select().from(projectRepositories);
+  for (const repo of repos) {
+    const repoNorm = repo.githubRepoUrl
+      .replace(/^(https?:\/\/|git@|ssh:\/\/)/, '')
+      .replace(/:/g, '/')
+      .replace(/\.git$/, '')
+      .replace(/\/$/, '')
+      .toLowerCase();
+    if (repoNorm === normalized) {
+      return getProjectById(repo.projectId);
+    }
+  }
+  return undefined;
+}
+
 export async function getAllProjects() {
   const db = getDb();
   return db.select().from(projects).orderBy(desc(projects.createdAt));

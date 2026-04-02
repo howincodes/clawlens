@@ -12,7 +12,7 @@ import { getProjectDirectories, linkProjectDirectory, getProjectDirectoryByPath 
 import { recordFileEvents } from '../db/queries/tracking.js';
 import { recordAppTracking } from '../db/queries/tracking.js';
 import { updateUser } from '../db/queries/users.js';
-import { getProjectById } from '../db/queries/projects.js';
+import { getProjectById, getProjectByRepoUrl } from '../db/queries/projects.js';
 import { getLatestUsageSnapshot } from '../db/queries/credentials.js';
 import { generateStatuslineConfig } from '../services/statusline.js';
 import { decrypt, isEncryptionConfigured } from '../services/encryption.js';
@@ -298,25 +298,41 @@ clientRouter.get('/project-directories', async (req: Request, res: Response) => 
 });
 
 // POST /project-directories — register a discovered project directory
+// Accepts either { projectId, localPath } or { localPath, remoteUrl, discoveredVia }
+// When remoteUrl is provided without projectId, auto-matches against project_repositories
 clientRouter.post('/project-directories', async (req: Request, res: Response) => {
   try {
     const user = req.user!;
-    const { projectId, localPath, discoveredVia } = req.body;
+    const { localPath, discoveredVia, remoteUrl } = req.body;
+    let { projectId } = req.body;
 
-    if (!projectId || !localPath) {
-      return res.status(400).json({ error: 'projectId and localPath required' });
-    }
-
-    // Verify project exists
-    const project = await getProjectById(projectId);
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
+    if (!localPath) {
+      return res.status(400).json({ error: 'localPath is required' });
     }
 
     // Check if already linked
     const existing = await getProjectDirectoryByPath(user.id, localPath);
     if (existing) {
       return res.json({ ok: true, directory: existing, existing: true });
+    }
+
+    // Auto-match by remoteUrl if projectId not provided
+    if (!projectId && remoteUrl) {
+      const matched = await getProjectByRepoUrl(remoteUrl);
+      if (matched) {
+        projectId = matched.id;
+      }
+    }
+
+    // If still no projectId, store as unlinked discovery (no project association)
+    if (!projectId) {
+      return res.json({ ok: true, matched: false, message: 'No matching project found for this repository' });
+    }
+
+    // Verify project exists
+    const project = await getProjectById(projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
     }
 
     const dir = await linkProjectDirectory({ userId: user.id, projectId, localPath, discoveredVia });

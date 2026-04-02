@@ -196,8 +196,8 @@ async function deliverPendingCommands(userId: number, ws: WebSocket): Promise<vo
 let wss: WebSocketServer | null = null;
 
 export function initWatcherWebSocket(server: Server): WebSocketServer {
-  wss = new WebSocketServer({ server, path: '/ws/watcher' });
-  debug(`WebSocket server created on path /ws/watcher`);
+  wss = new WebSocketServer({ noServer: true });
+  debug(`WebSocket server created on path /ws/watcher (noServer mode)`);
 
   wss.on('connection', (ws, req) => {
     // -- Authenticate via ?token= query param --

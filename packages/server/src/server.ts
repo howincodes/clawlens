@@ -143,8 +143,27 @@ if (process.env.NODE_ENV !== 'test') {
     await seedDatabase();
 
     const server = createServer(app);
-    initWebSocket(server);
-    initWatcherWebSocket(server);
+    const adminWss = initWebSocket(server);
+    const watcherWss = initWatcherWebSocket(server);
+
+    // Manual WebSocket upgrade routing — two WSS instances on one HTTP server
+    // require explicit path dispatch since ws library's built-in path matching
+    // only works for a single WSS per server.
+    server.removeAllListeners('upgrade');
+    server.on('upgrade', (request, socket, head) => {
+      const pathname = new URL(request.url || '', 'http://localhost').pathname;
+      if (pathname === '/ws/watcher') {
+        watcherWss.handleUpgrade(request, socket, head, (ws) => {
+          watcherWss.emit('connection', ws, request);
+        });
+      } else if (pathname === '/ws/admin' || pathname === '/ws') {
+        adminWss.handleUpgrade(request, socket, head, (ws) => {
+          adminWss.emit('connection', ws, request);
+        });
+      } else {
+        socket.destroy();
+      }
+    });
 
     let stopDeadman: (() => void) | undefined;
     let stopAICrons: (() => void) | undefined;

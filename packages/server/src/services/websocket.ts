@@ -13,7 +13,7 @@ let pingTimer: ReturnType<typeof setInterval> | null = null;
  * Initialize WebSocket server attached to the HTTP server.
  */
 export function initWebSocket(server: Server): WebSocketServer {
-  wss = new WebSocketServer({ server, path: '/ws' });
+  wss = new WebSocketServer({ noServer: true });
 
   wss.on('connection', (ws, req) => {
     const url = new URL(req.url || '', 'http://localhost');
