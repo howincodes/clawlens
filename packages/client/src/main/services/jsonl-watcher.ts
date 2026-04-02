@@ -53,33 +53,54 @@ export function startJsonlWatcher(config: HowinLensConfig): void {
   const projectDirs = discoverProjectDirs();
   console.log('[jsonl-watcher] %d project directories found', projectDirs.length);
 
+  // Chokidar 4.x change events are unreliable inside Electron (works outside
+  // Electron but fires zero change events inside). Instead of relying on
+  // chokidar events, we use direct file polling: discover all JSONL files,
+  // then check for new content every sync cycle.
+  //
+  // Chokidar is only used for discovering NEW files (add events work).
+
+  const hadOffsets = fileOffsets.size > 0;
+
+  // Discover existing JSONL files
+  const jsonlFiles = discoverJsonlFiles();
+  console.log('[jsonl-watcher] Found %d JSONL files', jsonlFiles.length);
+
+  if (!hadOffsets) {
+    // First run: skip history — set all offsets to current file size
+    for (const filePath of jsonlFiles) {
+      try {
+        const size = fs.statSync(filePath).size;
+        fileOffsets.set(filePath, size);
+      } catch {}
+    }
+    console.log('[jsonl-watcher] First run — skipped history for %d files', jsonlFiles.length);
+  }
+
+  // Use chokidar ONLY for discovering new files (add events)
   watcher = chokidar.watch(CLAUDE_PROJECTS_DIR, {
     persistent: true,
-    ignoreInitial: false,
+    ignoreInitial: true,  // we already discovered existing files above
     depth: 2,
-    ignored: (filePath: string, stats) => {
-      if (stats?.isDirectory()) return false;
-      return !filePath.endsWith('.jsonl');
-    },
-  });
-
-  watcher.on('change', (filePath: string) => {
-    if (filePath.endsWith('.jsonl')) {
-      readNewLines(filePath);
-      triggerDebouncedSync(config);
-    }
   });
 
   watcher.on('add', (filePath: string) => {
-    if (filePath.endsWith('.jsonl')) {
-      readNewLines(filePath);
+    if (!filePath.endsWith('.jsonl')) return;
+    if (!fileOffsets.has(filePath)) {
+      // New file appeared after startup — start tracking from beginning
+      console.log('[jsonl-watcher] New session file: %s', path.basename(filePath));
+      fileOffsets.set(filePath, 0);
     }
   });
 
-  // Periodic fallback sync
-  syncInterval = setInterval(() => sync(config), BASE_SYNC_INTERVAL_MS);
+  // Periodic poll: check ALL tracked files for new content + sync
+  syncInterval = setInterval(() => {
+    pollAllFiles();
+    sync(config);
+  }, BASE_SYNC_INTERVAL_MS);
 
-  console.log('[jsonl-watcher] Watching');
+  console.log('[jsonl-watcher] Watching (%d files, %ds poll interval)',
+    jsonlFiles.length, BASE_SYNC_INTERVAL_MS / 1000);
 }
 
 export function stopJsonlWatcher(): void {
@@ -96,16 +117,28 @@ export function stopJsonlWatcher(): void {
 
 function readNewLines(filePath: string): void {
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    // Use byte-based offsets (consistent with fs.statSync().size for first-run skip)
+    const stat = fs.statSync(filePath);
     const offset = fileOffsets.get(filePath) || 0;
 
-    if (content.length <= offset) return;
+    if (stat.size <= offset) return;
 
-    const lastNewline = content.lastIndexOf('\n');
-    if (lastNewline <= offset) return;
+    // Read only the new bytes from the file
+    const fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(stat.size - offset);
+    fs.readSync(fd, buf, 0, buf.length, offset);
+    fs.closeSync(fd);
 
-    const newContent = content.slice(offset, lastNewline + 1);
-    fileOffsets.set(filePath, lastNewline + 1);
+    const raw = buf.toString('utf-8');
+    const lastNewline = raw.lastIndexOf('\n');
+    if (lastNewline < 0) return; // no complete line yet
+
+    const newContent = raw.slice(0, lastNewline + 1);
+    // Store byte offset (not char offset) — accounts for the partial line we skipped
+    const bytesConsumed = Buffer.byteLength(newContent, 'utf-8');
+    fileOffsets.set(filePath, offset + bytesConsumed);
+    const fileName = path.basename(filePath);
+    console.log('[jsonl-watcher] Processing %s: offset=%d→%d, newBytes=%d', fileName, offset, offset + bytesConsumed, bytesConsumed);
 
     const lineCount = newContent.split('\n').filter(l => l.trim()).length;
     const sessionId = path.basename(filePath, '.jsonl');
@@ -237,4 +270,50 @@ function discoverProjectDirs(): string[] {
       .filter(e => e.isDirectory())
       .map(e => path.join(CLAUDE_PROJECTS_DIR, e.name));
   } catch { return []; }
+}
+
+/**
+ * Discover all .jsonl files across all project directories.
+ */
+function discoverJsonlFiles(): string[] {
+  const files: string[] = [];
+  for (const dir of discoverProjectDirs()) {
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+          files.push(path.join(dir, entry.name));
+        }
+      }
+    } catch {}
+  }
+  return files;
+}
+
+/**
+ * Poll all tracked files for new content. Called every sync cycle.
+ * This replaces unreliable chokidar change events inside Electron.
+ */
+function pollAllFiles(): void {
+  // Also check for newly created files
+  for (const dir of discoverProjectDirs()) {
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+          const filePath = path.join(dir, entry.name);
+          if (!fileOffsets.has(filePath)) {
+            // New file discovered — start tracking
+            console.log('[jsonl-watcher] New file: %s', entry.name);
+            fileOffsets.set(filePath, 0);
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // Read new content from all tracked files
+  for (const filePath of fileOffsets.keys()) {
+    readNewLines(filePath);
+  }
 }
