@@ -8,9 +8,14 @@ import {
   getAssignmentsByCredential, getLatestUsageSnapshot,
   getUsageSnapshots, releaseCredentialFromUser,
   getLeastUsedCredential, assignCredentialToUser,
+  createOAuthPendingFlow, getOAuthPendingFlowByState,
+  deleteOAuthPendingFlow, cleanExpiredOAuthFlows,
+  getCredentialByAccountUuid,
 } from '../db/queries/credentials.js';
 import { getUserById } from '../db/queries/users.js';
 import { sendToWatcher } from '../services/watcher-ws.js';
+import { generatePKCE, generateState, buildAuthUrl, exchangeCodeForTokens, refreshAccessToken, fetchSubscriptionInfo } from '../services/oauth.js';
+import { encrypt, decrypt, isEncryptionConfigured } from '../services/encryption.js';
 
 export const subscriptionRouter: RouterType = Router();
 
@@ -30,6 +35,9 @@ subscriptionRouter.get('/credentials', async (_req: Request, res: Response) => {
         ...c,
         accessToken: undefined, // don't expose tokens to dashboard
         refreshToken: undefined,
+        encryptedAccessToken: undefined,
+        encryptedRefreshToken: undefined,
+        encryptedRawResponse: undefined,
         usage: snapshot,
         activeUsers: activeAssignments.length,
         assignments: await Promise.all(activeAssignments.map(async (a) => {
@@ -157,6 +165,189 @@ subscriptionRouter.post('/rotate', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('[subscription-api] rotate error:', err);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// OAuth Credential Vault
+// ---------------------------------------------------------------------------
+
+// POST /oauth/start — generate auth URL for dashboard login
+subscriptionRouter.post('/oauth/start', async (_req: Request, res: Response) => {
+  try {
+    // Clean expired flows first
+    await cleanExpiredOAuthFlows();
+
+    const { codeVerifier, codeChallenge } = generatePKCE();
+    const state = generateState();
+    const authUrl = buildAuthUrl(codeChallenge, state);
+
+    // Store flow with 5-minute TTL
+    await createOAuthPendingFlow({
+      codeVerifier,
+      codeChallenge,
+      state,
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+    });
+
+    res.json({ authUrl, flowId: state });
+  } catch (err) {
+    console.error('[subscription-api] oauth start error:', err);
+    res.status(500).json({ error: 'Failed to start OAuth flow' });
+  }
+});
+
+// POST /oauth/exchange — exchange auth code for tokens
+subscriptionRouter.post('/oauth/exchange', async (req: Request, res: Response) => {
+  try {
+    const { flowId, code: rawCode } = req.body;
+    if (!flowId || !rawCode) {
+      return res.status(400).json({ error: 'flowId and code are required' });
+    }
+
+    // Strip #state suffix if present (callback page returns code#state)
+    const code = String(rawCode).split('#')[0].trim();
+
+    // Look up pending flow
+    const flow = await getOAuthPendingFlowByState(flowId);
+    if (!flow) {
+      return res.status(400).json({ error: 'Invalid or expired flow. Please start again.' });
+    }
+
+    // Exchange code for tokens
+    const tokenResponse = await exchangeCodeForTokens(code, flow.codeVerifier, flowId);
+
+    // Delete the pending flow
+    await deleteOAuthPendingFlow(flow.id);
+
+    // Compute expiresAt
+    const expiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000);
+    const email = tokenResponse.account?.email_address ?? 'unknown';
+    const accountUuid = tokenResponse.account?.uuid;
+    const orgId = tokenResponse.organization?.uuid;
+    const organizationName = tokenResponse.organization?.name;
+
+    // Encrypt tokens
+    if (!isEncryptionConfigured()) {
+      return res.status(500).json({ error: 'Encryption not configured. Set CREDENTIAL_ENCRYPTION_KEY.' });
+    }
+    const encryptedAccessToken = encrypt(tokenResponse.access_token);
+    const encryptedRefreshToken = encrypt(tokenResponse.refresh_token);
+    const encryptedRawResponse = encrypt(JSON.stringify(tokenResponse));
+
+    // Fetch subscription type + rate limit tier via a minimal API call
+    const subInfo = await fetchSubscriptionInfo(tokenResponse.access_token);
+    const subscriptionType = subInfo?.subscriptionType ?? null;
+    const rateLimitTier = subInfo?.rateLimitTier ?? null;
+
+    // Check if this account already exists (re-auth case)
+    const existing = accountUuid ? await getCredentialByAccountUuid(accountUuid) : undefined;
+
+    let credential;
+    if (existing) {
+      // Update existing credential (re-auth)
+      credential = await updateSubscriptionCredential(existing.id, {
+        email,
+        encryptedAccessToken,
+        encryptedRefreshToken,
+        encryptedRawResponse,
+        expiresAt,
+        orgId,
+        accountUuid,
+        organizationName,
+        scopes: tokenResponse.scope,
+        subscriptionType: subscriptionType ?? undefined,
+        rateLimitTier: rateLimitTier ?? undefined,
+        isActive: true,
+        needsReauth: false,
+        lastRefreshedAt: new Date(),
+      });
+    } else {
+      // Create new credential
+      credential = await createSubscriptionCredential({
+        email,
+        encryptedAccessToken,
+        encryptedRefreshToken,
+        encryptedRawResponse,
+        expiresAt,
+        orgId,
+        accountUuid,
+        displayName: email.split('@')[0],
+        organizationName,
+        scopes: tokenResponse.scope,
+        subscriptionType: subscriptionType ?? undefined,
+        rateLimitTier: rateLimitTier ?? undefined,
+      });
+    }
+
+    res.json({
+      success: true,
+      isReauth: !!existing,
+      credential: {
+        id: credential!.id,
+        email: credential!.email,
+        accountUuid: credential!.accountUuid,
+        organizationName: credential!.organizationName,
+        subscriptionType: credential!.subscriptionType ?? subscriptionType,
+        rateLimitTier: credential!.rateLimitTier ?? rateLimitTier,
+        expiresAt: credential!.expiresAt,
+      },
+    });
+  } catch (err) {
+    console.error('[subscription-api] oauth exchange error:', err);
+    const message = err instanceof Error ? err.message : 'Token exchange failed';
+    res.status(500).json({ error: message });
+  }
+});
+
+// POST /credentials/:id/refresh — manual token refresh
+subscriptionRouter.post('/credentials/:id/refresh', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id as string);
+    const credential = await getSubscriptionCredentialById(id);
+    if (!credential) return res.status(404).json({ error: 'Not found' });
+
+    // Decrypt the refresh token
+    const encRefresh = credential.encryptedRefreshToken;
+    if (!encRefresh) {
+      return res.status(400).json({ error: 'No encrypted refresh token stored' });
+    }
+    const refreshToken = decrypt(encRefresh);
+
+    // Refresh
+    const tokenResponse = await refreshAccessToken(refreshToken);
+
+    // Encrypt new tokens (refresh token rotates!)
+    const expiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000);
+    const encryptedAccessToken = encrypt(tokenResponse.access_token);
+    const encryptedRefreshToken = encrypt(tokenResponse.refresh_token);
+    const encryptedRawResponse = encrypt(JSON.stringify(tokenResponse));
+
+    // Update DB
+    const updated = await updateSubscriptionCredential(id, {
+      email: tokenResponse.account?.email_address ?? credential.email,
+      encryptedAccessToken,
+      encryptedRefreshToken,
+      encryptedRawResponse,
+      expiresAt,
+      isActive: true,
+      needsReauth: false,
+      lastRefreshedAt: new Date(),
+    });
+
+    res.json({
+      success: true,
+      credential: {
+        id: updated!.id,
+        email: updated!.email,
+        expiresAt: updated!.expiresAt,
+        lastRefreshedAt: updated!.lastRefreshedAt,
+      },
+    });
+  } catch (err) {
+    console.error('[subscription-api] manual refresh error:', err);
+    const message = err instanceof Error ? err.message : 'Token refresh failed';
+    res.status(500).json({ error: message });
   }
 });
 

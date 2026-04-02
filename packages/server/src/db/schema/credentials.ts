@@ -4,15 +4,34 @@ import { users } from './users.js';
 export const subscriptionCredentials = pgTable('subscription_credentials', {
   id: serial('id').primaryKey(),
   email: varchar('email', { length: 255 }).notNull(),
+  // DEPRECATED: use encryptedAccessToken/encryptedRefreshToken
   accessToken: text('access_token'),
   refreshToken: text('refresh_token'),
+  // Encrypted token storage (AES-256-GCM)
+  encryptedAccessToken: text('encrypted_access_token'),
+  encryptedRefreshToken: text('encrypted_refresh_token'),
+  encryptedRawResponse: text('encrypted_raw_response'),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
   orgId: varchar('org_id', { length: 255 }),
+  accountUuid: varchar('account_uuid', { length: 255 }),
+  displayName: varchar('display_name', { length: 255 }),
+  organizationName: varchar('organization_name', { length: 255 }),
+  scopes: text('scopes'),
   subscriptionType: varchar('subscription_type', { length: 50 }),
   rateLimitTier: varchar('rate_limit_tier', { length: 100 }),
   isActive: boolean('is_active').default(true),
+  needsReauth: boolean('needs_reauth').default(false),
   lastRefreshedAt: timestamp('last_refreshed_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const oauthPendingFlows = pgTable('oauth_pending_flows', {
+  id: serial('id').primaryKey(),
+  codeVerifier: text('code_verifier').notNull(),
+  codeChallenge: varchar('code_challenge', { length: 255 }).notNull(),
+  state: varchar('state', { length: 255 }).notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 });
 
 export const credentialAssignments = pgTable('credential_assignments', {

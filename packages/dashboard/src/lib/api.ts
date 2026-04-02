@@ -246,6 +246,22 @@ export async function getSubscriptionUsage() {
   return fetchClient('/subscriptions/usage');
 }
 
+// OAuth Credential Vault
+export async function startOAuthFlow() {
+  return fetchClient('/subscriptions/oauth/start', { method: 'POST' });
+}
+
+export async function exchangeOAuthCode(flowId: string, code: string) {
+  return fetchClient('/subscriptions/oauth/exchange', {
+    method: 'POST',
+    body: JSON.stringify({ flowId, code }),
+  });
+}
+
+export async function refreshCredential(id: number) {
+  return fetchClient(`/subscriptions/credentials/${id}/refresh`, { method: 'POST' });
+}
+
 export async function killUserCredential(userId: number) {
   return fetchClient(`/subscriptions/kill/${userId}`, { method: 'POST' });
 }

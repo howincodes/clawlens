@@ -11,9 +11,12 @@ import {
   getLeastUsedCredential,
   getLatestUsageSnapshot,
   updateSubscriptionCredential,
+  markCredentialNeedsReauth,
 } from '../db/queries/credentials.js';
 import { getAllUsers } from '../db/queries/users.js';
 import { broadcast } from './websocket.js';
+import { fetchUsage, refreshAccessToken } from './oauth.js';
+import { decrypt, encrypt, isEncryptionConfigured } from './encryption.js';
 
 const DEBUG = process.env.HOWINLENS_DEBUG === '1' || process.env.HOWINLENS_DEBUG === 'true';
 
@@ -21,11 +24,38 @@ function debug(msg: string) {
   if (DEBUG) console.log(`[usage-monitor] ${msg}`);
 }
 
-/**
- * Check usage for a single subscription credential by making a minimal API call
- * and reading rate limit headers (same technique as Claude Usage Tracker app).
- */
-async function checkSubscriptionUsage(accessToken: string): Promise<{
+// ---------------------------------------------------------------------------
+// Primary usage check via /api/oauth/usage endpoint
+// ---------------------------------------------------------------------------
+
+async function checkSubscriptionUsagePrimary(accessToken: string): Promise<{
+  fiveHourUtilization: number;
+  sevenDayUtilization: number;
+  fiveHourResetsAt: Date | null;
+  sevenDayResetsAt: Date | null;
+  opusWeeklyUtilization: number;
+  sonnetWeeklyUtilization: number;
+} | null> {
+  const usageData = await fetchUsage(accessToken);
+  if (!usageData) return null;
+
+  // Usage endpoint returns percentages (12.0 = 12%), normalize to fractions (0.12)
+  // for consistency with existing thresholds (0.85 for auto-rotate, etc.)
+  return {
+    fiveHourUtilization: (usageData.five_hour?.utilization ?? 0) / 100,
+    sevenDayUtilization: (usageData.seven_day?.utilization ?? 0) / 100,
+    fiveHourResetsAt: usageData.five_hour?.resets_at ? new Date(usageData.five_hour.resets_at) : null,
+    sevenDayResetsAt: usageData.seven_day?.resets_at ? new Date(usageData.seven_day.resets_at) : null,
+    opusWeeklyUtilization: (usageData.seven_day_opus?.utilization ?? 0) / 100,
+    sonnetWeeklyUtilization: (usageData.seven_day_sonnet?.utilization ?? 0) / 100,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Fallback: haiku method (reading rate-limit headers)
+// ---------------------------------------------------------------------------
+
+async function checkSubscriptionUsageFallback(accessToken: string): Promise<{
   fiveHourUtilization: number;
   sevenDayUtilization: number;
   fiveHourResetsAt: Date | null;
@@ -40,7 +70,7 @@ async function checkSubscriptionUsage(accessToken: string): Promise<{
       messages: [{ role: 'user', content: 'hi' }],
     });
 
-    const options = {
+    const req = https.request({
       hostname: 'api.anthropic.com',
       port: 443,
       path: '/v1/messages',
@@ -50,68 +80,186 @@ async function checkSubscriptionUsage(accessToken: string): Promise<{
         'Content-Type': 'application/json',
         'anthropic-version': '2023-06-01',
         'anthropic-beta': 'oauth-2025-04-20',
-        'User-Agent': 'claude-code/2.1.5',
         'Content-Length': Buffer.byteLength(body),
       },
-    };
-
-    const req = https.request(options, (res) => {
+    }, (res) => {
       const headers = res.headers;
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
         if (res.statusCode && (res.statusCode === 401 || res.statusCode === 403 || res.statusCode >= 500)) {
-          console.error(`[usage-monitor] API returned ${res.statusCode} for credential check`);
           resolve(null);
           return;
         }
-
-        const u5h = parseFloat(headers['anthropic-ratelimit-unified-5h-utilization'] as string || '0');
-        const u7d = parseFloat(headers['anthropic-ratelimit-unified-7d-utilization'] as string || '0');
-        const r5h = parseInt(headers['anthropic-ratelimit-unified-5h-reset'] as string || '0', 10);
-        const r7d = parseInt(headers['anthropic-ratelimit-unified-7d-reset'] as string || '0', 10);
-
-        // Per-model breakdown (Phase 1, Item 5)
-        const opusUtil = parseFloat(headers['anthropic-ratelimit-unified-opus-utilization'] as string || '0');
-        const sonnetUtil = parseFloat(headers['anthropic-ratelimit-unified-sonnet-utilization'] as string || '0');
-
         resolve({
-          fiveHourUtilization: u5h,
-          sevenDayUtilization: u7d,
-          fiveHourResetsAt: r5h ? new Date(r5h * 1000) : null,
-          sevenDayResetsAt: r7d ? new Date(r7d * 1000) : null,
-          opusWeeklyUtilization: opusUtil,
-          sonnetWeeklyUtilization: sonnetUtil,
+          fiveHourUtilization: parseFloat(headers['anthropic-ratelimit-unified-5h-utilization'] as string || '0'),
+          sevenDayUtilization: parseFloat(headers['anthropic-ratelimit-unified-7d-utilization'] as string || '0'),
+          fiveHourResetsAt: (() => { const v = parseInt(headers['anthropic-ratelimit-unified-5h-reset'] as string || '0', 10); return v ? new Date(v * 1000) : null; })(),
+          sevenDayResetsAt: (() => { const v = parseInt(headers['anthropic-ratelimit-unified-7d-reset'] as string || '0', 10); return v ? new Date(v * 1000) : null; })(),
+          opusWeeklyUtilization: parseFloat(headers['anthropic-ratelimit-unified-opus-utilization'] as string || '0'),
+          sonnetWeeklyUtilization: parseFloat(headers['anthropic-ratelimit-unified-sonnet-utilization'] as string || '0'),
         });
       });
     });
 
-    req.on('error', (err) => {
-      console.error('[usage-monitor] API request failed:', err.message);
-      resolve(null);
-    });
-
-    req.setTimeout(15000, () => {
-      req.destroy();
-      resolve(null);
-    });
-
+    req.on('error', () => resolve(null));
+    req.setTimeout(15000, () => { req.destroy(); resolve(null); });
     req.write(body);
     req.end();
   });
 }
 
 /**
- * Poll all active subscriptions and record usage snapshots.
+ * Check usage — primary endpoint with fallback to haiku method.
  */
+async function checkSubscriptionUsage(accessToken: string): Promise<{
+  fiveHourUtilization: number;
+  sevenDayUtilization: number;
+  fiveHourResetsAt: Date | null;
+  sevenDayResetsAt: Date | null;
+  opusWeeklyUtilization: number;
+  sonnetWeeklyUtilization: number;
+} | null> {
+  // Try primary (GET /api/oauth/usage)
+  const primary = await checkSubscriptionUsagePrimary(accessToken);
+  if (primary) {
+    debug('Usage fetched via primary endpoint (/api/oauth/usage)');
+    return primary;
+  }
+
+  // Fallback to haiku method
+  debug('Primary usage endpoint failed, falling back to haiku method');
+  const fallback = await checkSubscriptionUsageFallback(accessToken);
+  if (fallback) {
+    debug('Usage fetched via fallback (haiku headers)');
+  }
+  return fallback;
+}
+
+// ---------------------------------------------------------------------------
+// Get decrypted access token from credential
+// ---------------------------------------------------------------------------
+
+function getAccessToken(cred: any): string | null {
+  // Prefer encrypted token
+  if (cred.encryptedAccessToken && isEncryptionConfigured()) {
+    try { return decrypt(cred.encryptedAccessToken); } catch {}
+  }
+  // Fall back to plaintext (deprecated)
+  return cred.accessToken ?? null;
+}
+
+function getRefreshToken(cred: any): string | null {
+  if (cred.encryptedRefreshToken && isEncryptionConfigured()) {
+    try { return decrypt(cred.encryptedRefreshToken); } catch {}
+  }
+  return cred.refreshToken ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Token refresh
+// ---------------------------------------------------------------------------
+
+/**
+ * Refresh tokens that are expiring within 1 hour.
+ * CRITICAL: refresh_token rotates — must save the new one.
+ */
+async function refreshExpiredTokens() {
+  if (!isEncryptionConfigured()) {
+    debug('Encryption not configured, skipping token refresh');
+    return;
+  }
+
+  const credentials = await getActiveSubscriptionCredentials();
+  for (const cred of credentials) {
+    if (!cred.expiresAt) continue;
+
+    const expiresIn = cred.expiresAt.getTime() - Date.now();
+    if (expiresIn > 60 * 60 * 1000) continue; // More than 1 hour left, skip
+
+    const refreshToken = getRefreshToken(cred);
+    if (!refreshToken) {
+      debug(`Skipping refresh for ${cred.email}: no refresh token`);
+      continue;
+    }
+
+    debug(`Token for ${cred.email} expires in ${Math.round(expiresIn / 60000)} min, refreshing...`);
+
+    try {
+      const tokenResponse = await refreshAccessToken(refreshToken);
+
+      // Encrypt new tokens (refresh token has ROTATED)
+      const newExpiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000);
+      const encryptedAccessToken = encrypt(tokenResponse.access_token);
+      const encryptedRefreshToken = encrypt(tokenResponse.refresh_token);
+      const encryptedRawResponse = encrypt(JSON.stringify(tokenResponse));
+
+      await updateSubscriptionCredential(cred.id, {
+        encryptedAccessToken,
+        encryptedRefreshToken,
+        encryptedRawResponse,
+        expiresAt: newExpiresAt,
+        lastRefreshedAt: new Date(),
+        needsReauth: false,
+      });
+
+      debug(`Token refreshed for ${cred.email}, new expiry: ${newExpiresAt.toISOString()}`);
+
+      // Push updated credential to assigned users
+      const assignments = await getAssignmentsByCredential(cred.id);
+      for (const a of assignments) {
+        if (a.status !== 'active') continue;
+        try {
+          const { sendToWatcher } = await import('./watcher-ws.js');
+          sendToWatcher(a.userId, 'credential_update', {
+            claudeAiOauth: {
+              accessToken: tokenResponse.access_token,
+              refreshToken: tokenResponse.refresh_token,
+              expiresAt: Date.now() + tokenResponse.expires_in * 1000,
+              scopes: (tokenResponse.scope ?? '').split(' '),
+              subscriptionType: cred.subscriptionType,
+              rateLimitTier: cred.rateLimitTier,
+            },
+            oauthAccount: {
+              accountUuid: cred.accountUuid,
+              emailAddress: tokenResponse.account?.email_address ?? cred.email,
+              organizationUuid: cred.orgId,
+              displayName: cred.displayName,
+              organizationName: cred.organizationName,
+            },
+          });
+        } catch {}
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[usage-monitor] Token refresh FAILED for ${cred.email}: ${msg}`);
+
+      // If 401/403, mark as needs re-auth
+      if (msg.includes('401') || msg.includes('403') || msg.includes('revoked')) {
+        await markCredentialNeedsReauth(cred.id);
+        broadcast({
+          type: 'needs_reauth',
+          credentialId: cred.id,
+          email: cred.email,
+          reason: msg,
+        });
+        console.log(`[usage-monitor] Credential ${cred.email} marked as needs re-auth`);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Poll all subscriptions
+// ---------------------------------------------------------------------------
+
 async function pollAllSubscriptions() {
-  // Refresh any tokens that are about to expire (Phase 1, Item 1)
   await refreshExpiredTokens();
 
   const credentials = await getActiveSubscriptionCredentials();
   debug(`Polling ${credentials.length} active subscription(s)`);
 
-  // Check for expiring tokens — 24h warning (Phase 1, Item 4)
+  // Check for expiring tokens — 24h warning
   for (const cred of credentials) {
     if (!cred.expiresAt) continue;
     const hoursLeft = (cred.expiresAt.getTime() - Date.now()) / (60 * 60 * 1000);
@@ -126,19 +274,20 @@ async function pollAllSubscriptions() {
   }
 
   for (const cred of credentials) {
-    if (!cred.accessToken) {
+    const accessToken = getAccessToken(cred);
+    if (!accessToken) {
       debug(`Skipping credential ${cred.id} (${cred.email}): no access token`);
       continue;
     }
 
     try {
-      const usage = await checkSubscriptionUsage(cred.accessToken);
+      const usage = await checkSubscriptionUsage(accessToken);
       if (!usage) {
         debug(`Failed to get usage for credential ${cred.id} (${cred.email})`);
         continue;
       }
 
-      debug(`Credential ${cred.id} (${cred.email}): 5h=${(usage.fiveHourUtilization * 100).toFixed(0)}%, 7d=${(usage.sevenDayUtilization * 100).toFixed(0)}%, opus=${(usage.opusWeeklyUtilization * 100).toFixed(0)}%, sonnet=${(usage.sonnetWeeklyUtilization * 100).toFixed(0)}%`);
+      debug(`Credential ${cred.id} (${cred.email}): 5h=${(usage.fiveHourUtilization * 100).toFixed(0)}%, 7d=${(usage.sevenDayUtilization * 100).toFixed(0)}%`);
 
       await recordUsageSnapshot({
         credentialId: cred.id,
@@ -150,7 +299,6 @@ async function pollAllSubscriptions() {
         sonnetWeeklyUtilization: usage.sonnetWeeklyUtilization,
       });
 
-      // Record usage poll with assigned user IDs
       const assignments = await getAssignmentsByCredential(cred.id);
       const activeUserIds = assignments.filter(a => a.status === 'active').map(a => a.userId).join(',');
       await recordUsagePoll({
@@ -163,9 +311,6 @@ async function pollAllSubscriptions() {
         sevenDayResetsAt: usage.sevenDayResetsAt ?? undefined,
         assignedUserIds: activeUserIds,
       });
-
-      // Auto-start session reset if 5h drops to 0% (Phase 1, Item 7)
-      await autoStartSessionIfNeeded(cred, usage.fiveHourUtilization);
 
       // Alert if approaching limit (80%+)
       if (usage.fiveHourUtilization >= 0.8) {
@@ -185,15 +330,14 @@ async function pollAllSubscriptions() {
       }
     } catch (err) {
       console.error(`[usage-monitor] Error processing credential ${cred.id} (${cred.email}):`, err);
-      continue;
     }
   }
 }
 
-/**
- * Auto-rotate users off a subscription that's approaching its limit.
- * Move them to the least-used subscription.
- */
+// ---------------------------------------------------------------------------
+// Auto-rotation
+// ---------------------------------------------------------------------------
+
 async function autoRotateUsers(exhaustedCredentialId: number) {
   const leastUsed = await getLeastUsedCredential();
   if (!leastUsed || leastUsed.id === exhaustedCredentialId) {
@@ -201,7 +345,6 @@ async function autoRotateUsers(exhaustedCredentialId: number) {
     return;
   }
 
-  // Check that the target subscription is actually less used
   const targetSnapshot = await getLatestUsageSnapshot(leastUsed.id);
   if (targetSnapshot && targetSnapshot.fiveHourUtilization && targetSnapshot.fiveHourUtilization >= 0.7) {
     debug('Target subscription is also heavily used, skipping rotation');
@@ -227,9 +370,10 @@ async function autoRotateUsers(exhaustedCredentialId: number) {
   }
 }
 
-/**
- * Check Claude system status.
- */
+// ---------------------------------------------------------------------------
+// Claude status check
+// ---------------------------------------------------------------------------
+
 async function checkClaudeStatus(): Promise<{ status: string; description: string } | null> {
   return new Promise((resolve) => {
     const req = https.request({
@@ -243,27 +387,23 @@ async function checkClaudeStatus(): Promise<{ status: string; description: strin
       res.on('end', () => {
         try {
           const json = JSON.parse(data);
-          const indicator = json?.status?.indicator || 'unknown';
-          const description = json?.status?.description || 'Unknown';
-          resolve({ status: indicator, description });
-        } catch {
-          resolve(null);
-        }
+          resolve({ status: json?.status?.indicator || 'unknown', description: json?.status?.description || 'Unknown' });
+        } catch { resolve(null); }
       });
     });
-
     req.on('error', () => resolve(null));
     req.setTimeout(10000, () => { req.destroy(); resolve(null); });
     req.end();
   });
 }
 
-let cronTask: cron.ScheduledTask | null = null;
+// ---------------------------------------------------------------------------
+// Cron setup
+// ---------------------------------------------------------------------------
 
-/**
- * Start the usage monitoring cron job.
- * Runs every 60 seconds.
- */
+let cronTask: cron.ScheduledTask | null = null;
+let refreshCronTask: cron.ScheduledTask | null = null;
+
 export function startUsageMonitor(): () => void {
   console.log('[usage-monitor] Starting subscription usage monitor');
 
@@ -272,55 +412,34 @@ export function startUsageMonitor(): () => void {
     console.error('[usage-monitor] Initial poll failed:', err);
   });
 
-  // Then every 60 seconds
+  // Usage poll: every 60 seconds
   cronTask = cron.schedule('* * * * *', async () => {
-    try {
-      await pollAllSubscriptions();
-    } catch (err) {
+    try { await pollAllSubscriptions(); } catch (err) {
       console.error('[usage-monitor] Poll failed:', err);
     }
   });
 
-  return () => {
-    if (cronTask) {
-      cronTask.stop();
-      cronTask = null;
+  // Proactive token refresh: every 6 hours
+  refreshCronTask = cron.schedule('0 */6 * * *', async () => {
+    try {
+      debug('Running proactive token refresh (6h cycle)');
+      await refreshExpiredTokens();
+    } catch (err) {
+      console.error('[usage-monitor] Proactive refresh failed:', err);
     }
+  });
+
+  return () => {
+    if (cronTask) { cronTask.stop(); cronTask = null; }
+    if (refreshCronTask) { refreshCronTask.stop(); refreshCronTask = null; }
     console.log('[usage-monitor] Stopped');
   };
 }
 
 // ---------------------------------------------------------------------------
-// Token refresh flow (Phase 1, Item 1)
+// Pace projection — 6-tier
 // ---------------------------------------------------------------------------
 
-/**
- * Check all credentials for tokens expiring within 30 minutes and log warnings.
- * Actual OAuth token refresh will be implemented when testing with real credentials.
- */
-async function refreshExpiredTokens() {
-  const credentials = await getActiveSubscriptionCredentials();
-  for (const cred of credentials) {
-    if (!cred.expiresAt || !cred.refreshToken) continue;
-    const expiresIn = cred.expiresAt.getTime() - Date.now();
-    if (expiresIn > 30 * 60 * 1000) continue; // More than 30 min left, skip
-
-    debug(`Token for ${cred.email} expires in ${Math.round(expiresIn / 60000)} min, refreshing...`);
-    // Note: Actual OAuth refresh requires knowing the token endpoint
-    // For now, log the warning. Real refresh will be implemented when we test with real tokens.
-    console.log(`[usage-monitor] WARNING: Token for ${cred.email} is expiring soon. Manual refresh needed.`);
-    // TODO: Implement actual OAuth token refresh when testing with real credentials
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Pace projection — 6-tier (Phase 1, Item 6)
-// ---------------------------------------------------------------------------
-
-/**
- * Calculate projected usage pace based on current utilization and elapsed
- * fraction of the rate-limit window.
- */
 export function calculatePace(utilization: number, elapsedFraction: number): {
   tier: 'comfortable' | 'on_track' | 'warming' | 'pressing' | 'critical' | 'runaway';
   projectedEndUsage: number;
@@ -335,25 +454,6 @@ export function calculatePace(utilization: number, elapsedFraction: number): {
   if (projected < 1.0) return { tier: 'pressing', projectedEndUsage: projected };
   if (projected < 1.2) return { tier: 'critical', projectedEndUsage: projected };
   return { tier: 'runaway', projectedEndUsage: projected };
-}
-
-// ---------------------------------------------------------------------------
-// Auto-start session reset (Phase 1, Item 7)
-// ---------------------------------------------------------------------------
-
-/**
- * When the 5h utilization drops to 0%, the checkSubscriptionUsage call already
- * sends a haiku message which starts a new session window. Log the event.
- */
-async function autoStartSessionIfNeeded(cred: any, utilization: number) {
-  if (utilization > 0) return; // Not at 0%, no need to reset
-  if (!cred.accessToken) return;
-
-  debug(`Credential ${cred.email}: 5h at 0%, auto-starting session...`);
-  // The usage check itself already sends a minimal message (haiku, 1 token)
-  // which starts a new session window. So this is already handled by the
-  // checkSubscriptionUsage call. Log it.
-  console.log(`[usage-monitor] Session auto-started for ${cred.email} (5h window reset)`);
 }
 
 export { checkClaudeStatus, checkSubscriptionUsage, pollAllSubscriptions };

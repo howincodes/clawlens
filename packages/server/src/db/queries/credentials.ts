@@ -1,4 +1,4 @@
-import { eq, and, desc, lte, sql } from 'drizzle-orm';
+import { eq, and, desc, lte, gt, sql } from 'drizzle-orm';
 import { getDb } from '../index.js';
 import {
   subscriptionCredentials,
@@ -9,6 +9,7 @@ import {
   watchEvents,
   conversationMessages,
   sessionRawJsonl,
+  oauthPendingFlows,
 } from '../schema/index.js';
 
 // ---------------------------------------------------------------------------
@@ -19,8 +20,15 @@ export async function createSubscriptionCredential(params: {
   email: string;
   accessToken?: string;
   refreshToken?: string;
+  encryptedAccessToken?: string;
+  encryptedRefreshToken?: string;
+  encryptedRawResponse?: string;
   expiresAt?: Date;
   orgId?: string;
+  accountUuid?: string;
+  displayName?: string;
+  organizationName?: string;
+  scopes?: string;
   subscriptionType?: string;
   rateLimitTier?: string;
 }) {
@@ -71,6 +79,64 @@ export async function getActiveSubscriptionCredentials() {
     .select()
     .from(subscriptionCredentials)
     .where(eq(subscriptionCredentials.isActive, true));
+}
+
+export async function getCredentialByAccountUuid(accountUuid: string) {
+  const db = getDb();
+  const [credential] = await db
+    .select()
+    .from(subscriptionCredentials)
+    .where(eq(subscriptionCredentials.accountUuid, accountUuid));
+  return credential;
+}
+
+export async function markCredentialNeedsReauth(id: number) {
+  const db = getDb();
+  const [credential] = await db
+    .update(subscriptionCredentials)
+    .set({ needsReauth: true, isActive: false })
+    .where(eq(subscriptionCredentials.id, id))
+    .returning();
+  return credential;
+}
+
+// ---------------------------------------------------------------------------
+// OAuth Pending Flows (PKCE state for dashboard login)
+// ---------------------------------------------------------------------------
+
+export async function createOAuthPendingFlow(params: {
+  codeVerifier: string;
+  codeChallenge: string;
+  state: string;
+  expiresAt: Date;
+}) {
+  const db = getDb();
+  const [flow] = await db.insert(oauthPendingFlows).values(params).returning();
+  return flow;
+}
+
+export async function getOAuthPendingFlowByState(state: string) {
+  const db = getDb();
+  const [flow] = await db
+    .select()
+    .from(oauthPendingFlows)
+    .where(
+      and(
+        eq(oauthPendingFlows.state, state),
+        gt(oauthPendingFlows.expiresAt, new Date()),
+      ),
+    );
+  return flow;
+}
+
+export async function deleteOAuthPendingFlow(id: number) {
+  const db = getDb();
+  await db.delete(oauthPendingFlows).where(eq(oauthPendingFlows.id, id));
+}
+
+export async function cleanExpiredOAuthFlows() {
+  const db = getDb();
+  await db.delete(oauthPendingFlows).where(lte(oauthPendingFlows.expiresAt, new Date()));
 }
 
 // ---------------------------------------------------------------------------

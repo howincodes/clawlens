@@ -18,6 +18,8 @@ import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
 import ActivitySummary from './pages/ActivitySummary'
 import Roles from './pages/Roles'
+import Credentials from './pages/Credentials'
+import CredentialAdd from './pages/CredentialAdd'
 
 export default function App() {
   const token = useAuthStore((s) => s.token)
@@ -34,6 +36,8 @@ export default function App() {
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/tasks/:id" element={<TaskDetail />} />
         <Route path="/subscriptions" element={<SubscriptionsManager />} />
+        <Route path="/credentials" element={<Credentials />} />
+        <Route path="/credentials/add" element={<CredentialAdd />} />
         <Route path="/subscriptions-manager" element={<Navigate to="/subscriptions" replace />} />
         <Route path="/activity" element={<ActivitySummary />} />
         <Route path="/analytics" element={<Analytics />} />
