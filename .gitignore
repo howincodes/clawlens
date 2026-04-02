@@ -38,7 +38,7 @@ package-lock.json
 yarn.lock
 
 # Docs (specs, plans — local only)
-docs/
+
 
 # Release bundle
 release/
