@@ -205,8 +205,11 @@ clientRouter.post('/conversations', async (req: Request, res: Response) => {
       return res.json({ ok: true, synced: 0 });
     }
 
-    // Only process messages that have a uuid (user/assistant lines)
-    const withUuid = msgs.filter((m: any) => m.uuid && m.type && typeof m.type === 'string');
+    // Only process user/assistant messages with a uuid — other types (system, attachment,
+    // permission-mode, etc.) are captured by the raw JSONL sync, not as structured messages
+    const withUuid = msgs.filter((m: any) =>
+      m.uuid && m.type && (m.type === 'user' || m.type === 'assistant'),
+    );
     if (withUuid.length === 0) {
       return res.json({ ok: true, synced: 0 });
     }
