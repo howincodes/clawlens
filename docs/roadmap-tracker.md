@@ -56,26 +56,26 @@ Status: `[ ]` = Not Started | `[~]` = In Progress | `[x]` = Done
 - [x] Credential delivery: push credentials to client on punch-in
 - [x] Credential revocation: delete credentials from client on punch-out
 - [x] Short-lived tokens: write only accessToken (1-2h expiry), not refreshToken
-- [ ] Token refresh flow: server refreshes accessToken using refreshToken
+- [x] Token refresh flow: server refreshes accessToken using refreshToken
 - [x] Credential rotation: periodically rotate tokens, invalidate old ones
-- [ ] Instant kill: push "delete credentials" command via WebSocket
-- [ ] Embedded WebView auth: Electron app embeds claude.ai login for credential capture
+- [x] Instant kill: push "delete credentials" command via WebSocket
+- [x] Embedded WebView auth: Electron app embeds claude.ai login for credential capture
 - [x] Cross-platform credential management: macOS Keychain / Linux libsecret / Windows Credential Manager
-- [ ] API key expiry alerts: notify 24h before OAuth token expires
+- [x] API key expiry alerts: notify 24h before OAuth token expires
 
 ### 1.3 — Subscription Monitoring
 - [x] Subscription usage polling: server polls usage API per subscription
 - [x] Usage dashboard: all subscriptions with live usage %
 - [x] Usage dashboard: which dev is on which subscription right now
-- [ ] Per-model breakdown: track Opus vs Sonnet usage per dev per subscription
-- [ ] Pace projection (6-tier): project end-of-period usage per subscription
+- [x] Per-model breakdown: track Opus vs Sonnet usage per dev per subscription
+- [x] Pace projection (6-tier): project end-of-period usage per subscription
 - [x] Threshold alerts: admin notified at 75/90/95% per subscription
 - [x] Smart rotation: auto-rotate devs to least-used subscription at ~80%
 - [x] Usage snapshots: periodic recording every 10 min for trend charts
-- [ ] Auto-start session reset: server triggers dummy message when 5h window hits 0%
+- [x] Auto-start session reset: server triggers dummy message when 5h window hits 0%
 - [x] Claude system status: poll status.claude.com, show in dashboard
-- [ ] Statusline integration: push usage %, model, reset time to dev's terminal
-- [ ] Subscription efficiency report: "Dev A uses 92%, Dev E uses 12%"
+- [x] Statusline integration: push usage %, model, reset time to dev's terminal
+- [x] Subscription efficiency report: "Dev A uses 92%, Dev E uses 12%"
 
 ### 1.4 — JSONL Conversation Tracking
 - [x] JSONL conversation watcher: track all prompts/responses from ~/.claude/projects/ files
@@ -100,7 +100,7 @@ Status: `[ ]` = Not Started | `[~]` = In Progress | `[x]` = Done
 - [x] File watcher: ignore node_modules, .git, build output
 - [x] File watcher: batch sync to server
 - [x] Project directory discovery: auto from hooks (cwd + git remote matching)
-- [ ] Project directory discovery: background scan of dev directories
+- [x] Project directory discovery: background scan of dev directories
 - [x] Project directory discovery: manual link fallback
 - [x] App tracking: active window + app name
 - [x] App tracking: window title capture (context, not work measurement)
@@ -121,29 +121,29 @@ Status: `[ ]` = Not Started | `[~]` = In Progress | `[x]` = Done
 - [x] Dashboard: project list page
 - [x] Dashboard: project detail page
 - [x] Dashboard: task board / list view
-- [ ] Dashboard: task detail page
+- [x] Dashboard: task detail page
 
 ### 2.3 — AI Task Generation
 - [x] AI: generate tasks from pasted text (meeting notes / requirements)
-- [ ] AI: generate tasks from uploaded documents (PDF, docs)
+- [x] AI: generate tasks from uploaded documents (PDF, docs)
 - [x] AI: suggest priority and effort
 - [x] AI: suggest assignee from project members
 - [x] Human review gate: approve / edit / reject AI suggestions
 
 ### 2.4 — Task ↔ Activity Correlation
 - [x] Manual active task selection (client)
-- [ ] AI inference from cwd + prompt content
+- [x] AI inference from cwd + prompt content
 
 ### 2.5 — Client Task Management
 - [x] My Tasks tab: view assigned tasks
 - [x] Set active task (what I'm working on now)
 - [x] Quick status update: in-progress / done / blocked
-- [ ] View task details
-- [ ] Create sub-tasks or comments
+- [x] View task details
+- [x] Create sub-tasks or comments
 - [x] All served from server via webview
 
 ### 2.6 — Client Webview Enhancements
-- [ ] Webview: today's activity summary
+- [x] Webview: today's activity summary
 - [x] Webview: active task selector
 - [x] Webview: personal stats
 - [x] Webview: settings / preferences
@@ -300,7 +300,7 @@ Status: `[ ]` = Not Started | `[~]` = In Progress | `[x]` = Done
 |---|---|---|---|
 | Phase 0 | 15 | 15 | 0 |
 | Phase 1 | 38 | 38 | 0 |
-| Phase 2 | 41 | 38 | 3 |
+| Phase 2 | 41 | 41 | 0 |
 | Phase 3 | 41 | 0 | 41 |
 | Phase 4 | 45 | 0 | 45 |
-| **Total** | **180** | **91** | **89** |
+| **Total** | **180** | **94** | **86** |
