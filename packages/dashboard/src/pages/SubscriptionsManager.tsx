@@ -272,7 +272,7 @@ export default function SubscriptionsManager() {
 
                     {expandedId === cred.id && historyData.length > 0 && (
                       <div className="mt-3 pt-3 border-t">
-                        <div className="text-xs text-gray-500 mb-2">Usage History (last {historyData.length} snapshots)</div>
+                        <div className="text-xs text-gray-500 mb-2">Recent Usage</div>
                         <div className="overflow-x-auto">
                           <table className="w-full text-xs">
                             <thead><tr className="text-gray-500">
@@ -281,7 +281,7 @@ export default function SubscriptionsManager() {
                               <th className="text-right py-1">7d</th>
                             </tr></thead>
                             <tbody>
-                              {historyData.slice(0, 20).map((s: any, i: number) => (
+                              {historyData.slice(0, 5).map((s: any, i: number) => (
                                 <tr key={i} className="border-t border-gray-100">
                                   <td className="py-1">{new Date(s.recordedAt).toLocaleString()}</td>
                                   <td className="text-right">{((s.fiveHourUtilization || 0) * 100).toFixed(0)}%</td>
