@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { getTeam, updateTeam, getModelCredits, updateModelCredit } from '@/lib/api'
+import { getMe, getTeam, updateTeam, getModelCredits, updateModelCredit } from '@/lib/api'
+import { useAuthStore } from '@/store/authStore'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2, Save, AlertTriangle, CheckCircle2, Brain } from 'lucide-react'
+import { Loader2, Save, AlertTriangle, CheckCircle2, Brain, LogOut, User, Shield } from 'lucide-react'
 
 interface TeamSettings {
   collection_level?: string
@@ -31,12 +32,22 @@ interface TeamSettings {
 }
 
 export function Settings() {
+  const { logout } = useAuthStore()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  // Local form state
-  const [name, setName] = useState('')
+  // Profile state
+  const [me, setMe] = useState<any>(null)
+  const [profileName, setProfileName] = useState('')
+  const [profileEmail, setProfileEmail] = useState('')
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileMessage, setProfileMessage] = useState('')
+
+  // Team settings state
+  const [teamName, setTeamName] = useState('')
   const [settings, setSettings] = useState<TeamSettings>({})
   const [ccCredits, setCcCredits] = useState<any[]>([])
   const [codexCredits, setCodexCredits] = useState<any[]>([])
@@ -53,15 +64,24 @@ export function Settings() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await getTeam()
-        if (res) {
-          setName(res.name || '')
-          // Settings may come as a JSON string or an object
+        const [meData, teamData] = await Promise.all([
+          getMe().catch(() => null),
+          getTeam().catch(() => null),
+        ])
+
+        if (meData) {
+          setMe(meData)
+          setProfileName(meData.user?.name || '')
+          setProfileEmail(meData.user?.email || '')
+        }
+
+        if (teamData) {
+          setTeamName(teamData.name || '')
           let parsed: TeamSettings = {}
-          if (typeof res.settings === 'string') {
-            try { parsed = JSON.parse(res.settings) } catch { parsed = {} }
-          } else if (res.settings && typeof res.settings === 'object') {
-            parsed = res.settings as TeamSettings
+          if (typeof teamData.settings === 'string') {
+            try { parsed = JSON.parse(teamData.settings) } catch { parsed = {} }
+          } else if (teamData.settings && typeof teamData.settings === 'object') {
+            parsed = teamData.settings as TeamSettings
           }
           setSettings(parsed)
         }
@@ -84,12 +104,44 @@ export function Settings() {
     }).finally(() => setCreditsLoading(false))
   }, [])
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSaveProfile = async () => {
+    setProfileSaving(true)
+    setProfileMessage('')
+    try {
+      const res = await fetch('/api/admin/auth/update-profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${useAuthStore.getState().token}`,
+        },
+        body: JSON.stringify({
+          name: profileName,
+          email: profileEmail,
+          currentPassword: currentPassword || undefined,
+          newPassword: newPassword || undefined,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        setProfileMessage(err.error || 'Failed to update')
+      } else {
+        setProfileMessage('Profile updated')
+        setCurrentPassword('')
+        setNewPassword('')
+      }
+    } catch {
+      setProfileMessage('Error updating profile')
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
+  const handleSaveTeam = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     setSaveMsg(null)
     try {
-      await updateTeam({ name, settings })
+      await updateTeam({ name: teamName, settings })
       setSaveMsg({ type: 'success', text: 'Settings saved successfully.' })
       setTimeout(() => setSaveMsg(null), 5000)
     } catch (_err) {
@@ -119,10 +171,77 @@ export function Settings() {
     <div className="space-y-8 max-w-4xl mx-auto pb-10">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground">Configure data collection, limits, and integrations.</p>
+        <p className="text-muted-foreground">Manage your profile, team configuration, and integrations.</p>
       </div>
 
-      {/* Save message */}
+      {/* Profile Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <User className="w-5 h-5" />
+            Profile
+          </CardTitle>
+          <CardDescription>Update your personal information and password.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input value={profileName} onChange={e => setProfileName(e.target.value)} placeholder="Your name" />
+            </div>
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input type="email" value={profileEmail} onChange={e => setProfileEmail(e.target.value)} placeholder="your@email.com" />
+            </div>
+          </div>
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-medium text-muted-foreground mb-3">Change Password</h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input type="password" placeholder="Current password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} />
+              <Input type="password" placeholder="New password" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+            </div>
+          </div>
+          {profileMessage && (
+            <div className={`text-sm font-medium flex items-center gap-2 ${profileMessage.includes('Error') || profileMessage.includes('Failed') || profileMessage.includes('incorrect') || profileMessage.includes('required') ? 'text-red-600' : 'text-green-600'}`}>
+              {profileMessage.includes('Error') || profileMessage.includes('Failed') ? <AlertTriangle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+              {profileMessage}
+            </div>
+          )}
+          <Button onClick={handleSaveProfile} disabled={profileSaving} size="sm">
+            {profileSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+            {profileSaving ? 'Saving...' : 'Save Profile'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Account Info */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="w-5 h-5" />
+            Account
+          </CardTitle>
+          <CardDescription>Your account details and permissions.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between items-center py-2 border-b">
+              <span className="text-muted-foreground">Role</span>
+              <span className="font-medium">{me?.roles?.[0]?.roles?.name || me?.roles?.[0]?.roleName || 'User'}</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b">
+              <span className="text-muted-foreground">Permissions</span>
+              <span className="font-medium">{me?.permissions?.length || 0}</span>
+            </div>
+            <div className="flex justify-between items-center py-2">
+              <span className="text-muted-foreground">User ID</span>
+              <span className="font-mono text-xs text-muted-foreground">{me?.user?.id || '—'}</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Team Settings Save Message */}
       {saveMsg && (
         <div className={`p-3 rounded-lg text-sm font-medium flex items-center gap-2 ${
           saveMsg.type === 'success'
@@ -134,7 +253,7 @@ export function Settings() {
         </div>
       )}
 
-      <form onSubmit={handleSave} className="grid gap-6">
+      <form onSubmit={handleSaveTeam} className="grid gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Team Profile</CardTitle>
@@ -144,8 +263,8 @@ export function Settings() {
             <div className="space-y-2">
               <Label>Team Name</Label>
               <Input
-                value={name}
-                onChange={e => setName(e.target.value)}
+                value={teamName}
+                onChange={e => setTeamName(e.target.value)}
                 placeholder="Engineering Team"
               />
             </div>
@@ -339,7 +458,7 @@ export function Settings() {
         </div>
       </form>
 
-      {/* AI Intelligence Settings (display-only for now) */}
+      {/* AI Intelligence Settings */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -506,6 +625,26 @@ export function Settings() {
         </CardContent>
       </Card>
 
+      {/* Danger Zone */}
+      <Card className="border-red-200">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-red-600">
+            <LogOut className="w-5 h-5" />
+            Danger Zone
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">Sign Out</div>
+              <div className="text-xs text-muted-foreground">Log out of the dashboard</div>
+            </div>
+            <Button variant="outline" size="sm" className="border-red-300 text-red-600 hover:bg-red-50" onClick={logout}>
+              Sign Out
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

@@ -121,6 +121,41 @@ adminRouter.get('/auth/me', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// PUT /auth/update-profile — update current user's profile/password
+// ---------------------------------------------------------------------------
+
+adminRouter.put('/auth/update-profile', async (req: Request, res: Response) => {
+  try {
+    const userId = req.admin!.sub;
+    const { name, email, currentPassword, newPassword } = req.body;
+
+    const user = await getUserById(userId);
+    if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+    const updates: Record<string, unknown> = {};
+    if (name) updates.name = name;
+    if (email) updates.email = email;
+
+    if (newPassword) {
+      if (!currentPassword) { res.status(400).json({ error: 'Current password required' }); return; }
+      const bcrypt = await import('bcryptjs');
+      const valid = user.passwordHash ? await bcrypt.default.compare(currentPassword, user.passwordHash) : false;
+      if (!valid) { res.status(400).json({ error: 'Current password is incorrect' }); return; }
+      updates.passwordHash = await bcrypt.default.hash(newPassword, 12);
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await updateUser(userId, updates);
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[admin-api] update profile error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /users
 // ---------------------------------------------------------------------------
 

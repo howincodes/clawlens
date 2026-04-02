@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { getAnalytics, getLeaderboard, getProjectAnalytics, getCosts } from '@/lib/api'
+import { getAnalytics, getLeaderboard, getProjectAnalytics, getCosts, getProjects, getTasks, getSubscriptionUsage, getSubscriptionCredentials } from '@/lib/api'
+import UsageBar from '@/components/UsageBar'
 import { SourceFilter } from '@/components/SourceFilter'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -46,6 +47,9 @@ export function Analytics() {
   const [projects, setProjects] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [taskStats, setTaskStats] = useState<{ total: number; open: number; inProgress: number; done: number; blocked: number }>({ total: 0, open: 0, inProgress: 0, done: 0, blocked: 0 })
+  const [subUsage, setSubUsage] = useState<any[]>([])
+  const [subCredentials, setSubCredentials] = useState<any[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -69,6 +73,35 @@ export function Analytics() {
   }, [days, sortBy, source])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    getProjects().then(async (projects: any[]) => {
+      let total = 0, open = 0, inProgress = 0, done = 0, blocked = 0
+      for (const p of projects) {
+        try {
+          const tasks = await getTasks(p.id)
+          total += tasks.length
+          for (const t of tasks) {
+            if (t.status === 'open') open++
+            else if (t.status === 'in_progress') inProgress++
+            else if (t.status === 'done') done++
+            else if (t.status === 'blocked') blocked++
+          }
+        } catch {}
+      }
+      setTaskStats({ total, open, inProgress, done, blocked })
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    Promise.all([
+      getSubscriptionUsage().catch(() => []),
+      getSubscriptionCredentials().catch(() => []),
+    ]).then(([u, c]) => {
+      setSubUsage(u)
+      setSubCredentials(c)
+    })
+  }, [])
 
   const handleSort = (field: SortField) => {
     setSortBy(field)
@@ -502,6 +535,65 @@ export function Analytics() {
               )}
             </CardContent>
           </Card>
+
+          {/* Section 8: Task Metrics */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Task Metrics</CardTitle>
+              <CardDescription>Aggregate task status across all projects</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-5 gap-4">
+                <div className="text-center p-3 bg-muted/30 rounded-lg">
+                  <div className="text-2xl font-bold">{taskStats.total}</div>
+                  <div className="text-xs text-muted-foreground">Total</div>
+                </div>
+                <div className="text-center p-3 bg-blue-500/10 rounded-lg">
+                  <div className="text-2xl font-bold text-blue-600">{taskStats.open}</div>
+                  <div className="text-xs text-muted-foreground">Open</div>
+                </div>
+                <div className="text-center p-3 bg-yellow-500/10 rounded-lg">
+                  <div className="text-2xl font-bold text-yellow-600">{taskStats.inProgress}</div>
+                  <div className="text-xs text-muted-foreground">In Progress</div>
+                </div>
+                <div className="text-center p-3 bg-green-500/10 rounded-lg">
+                  <div className="text-2xl font-bold text-green-600">{taskStats.done}</div>
+                  <div className="text-xs text-muted-foreground">Done</div>
+                </div>
+                <div className="text-center p-3 bg-red-500/10 rounded-lg">
+                  <div className="text-2xl font-bold text-red-600">{taskStats.blocked}</div>
+                  <div className="text-xs text-muted-foreground">Blocked</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Section 9: Subscription Usage */}
+          {subCredentials.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Subscription Usage</CardTitle>
+                <CardDescription>Utilization across subscription credentials</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {subCredentials.map((cred: any) => {
+                    const usage = subUsage.find((u: any) => u.id === cred.id)
+                    return (
+                      <div key={cred.id} className="flex items-center gap-4">
+                        <div className="w-40 truncate text-sm font-medium">{cred.email}</div>
+                        <div className="flex-1 grid grid-cols-2 gap-3">
+                          <UsageBar value={usage?.usage?.fiveHourUtilization || 0} label="5h" size="sm" />
+                          <UsageBar value={usage?.usage?.sevenDayUtilization || 0} label="7d" size="sm" />
+                        </div>
+                        <div className="text-xs text-muted-foreground">{cred.activeUsers || 0} users</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
     </div>
