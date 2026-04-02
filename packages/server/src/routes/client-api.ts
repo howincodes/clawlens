@@ -205,18 +205,39 @@ clientRouter.post('/conversations', async (req: Request, res: Response) => {
       return res.json({ ok: true, synced: 0 });
     }
 
-    // Only process user/assistant messages with a uuid — other types (system, attachment,
-    // permission-mode, etc.) are captured by the raw JSONL sync, not as structured messages
-    const withUuid = msgs.filter((m: any) =>
-      m.uuid && m.type && (m.type === 'user' || m.type === 'assistant'),
-    );
-    if (withUuid.length === 0) {
+    // ── Server-side filtering ──
+    // Only store real user prompts and assistant responses with actual text.
+    // Reject: meta messages, slash commands, system XML, thinking-only assistants.
+    const valid = msgs.filter((m: any) => {
+      if (!m.uuid || !m.type) return false;
+
+      const content = (m.messageContent || m.content || '').trim();
+
+      if (m.type === 'user') {
+        // Skip meta messages (slash commands, system caveats, command stdout)
+        if (m.isMeta) return false;
+        if (content.startsWith('<local-command')) return false;
+        if (content.startsWith('<command-name')) return false;
+        if (!content) return false;
+        return true;
+      }
+
+      if (m.type === 'assistant') {
+        // Skip thinking-only assistants (no text content)
+        if (!content) return false;
+        return true;
+      }
+
+      return false;
+    });
+
+    if (valid.length === 0) {
       return res.json({ ok: true, synced: 0 });
     }
 
     let synced = 0;
-    for (const m of withUuid) {
-      // Calculate credit cost for rate-limiting (assistant messages carry the model+tokens)
+    for (const m of valid) {
+      const content = (m.messageContent || m.content || '').trim();
       const model = m.model || m.rawModel;
       const creditCost = model ? await getCreditCostFromDb(model, m.provider || 'claude-code') : 0;
 
@@ -227,7 +248,7 @@ clientRouter.post('/conversations', async (req: Request, res: Response) => {
         sessionId: m.sessionId,
         userId: user.id,
         type: m.type,
-        content: m.messageContent || m.content,
+        content,
         model,
         rawModel: m.rawModel,
         inputTokens: m.inputTokens,
