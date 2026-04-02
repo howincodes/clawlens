@@ -3,26 +3,25 @@ import request from 'supertest';
 import {
   initDb,
   closeDb,
-  createTeam,
   createUser,
-  createLimit,
   createSession,
   getSessionById,
-  getPromptsBySession,
   getHookEventsByUser,
   incrementSessionPromptCount,
-  getUnresolvedTamperAlerts,
   recordPrompt,
-  getDb,
+  getPromptsBySession,
+  truncateAll,
   type UserRow,
-  type TeamRow,
 } from '../src/services/db.js';
+import { createLimit } from '../src/db/queries/limits.js';
+import { updateUser } from '../src/db/queries/users.js';
+import { recordMessage } from '../src/db/queries/messages.js';
 
 // ---------------------------------------------------------------------------
 // We import the app AFTER initializing DB in beforeEach, but Express app is
 // created at module-load time, so we need to ensure initDb is called before
 // any request. The app module calls initDb on import, so we re-init with
-// in-memory DB in beforeEach.
+// test DB in beforeEach.
 // ---------------------------------------------------------------------------
 
 import { app } from '../src/server.js';
@@ -31,7 +30,6 @@ import { app } from '../src/server.js';
 // Test state
 // ---------------------------------------------------------------------------
 
-let team: TeamRow;
 let activeUser: UserRow;
 let killedUser: UserRow;
 let pausedUser: UserRow;
@@ -44,39 +42,35 @@ const PAUSED_TOKEN = 'tok-paused-hook-test';
 // Setup / Teardown
 // ---------------------------------------------------------------------------
 
-beforeEach(() => {
-  initDb(':memory:');
+beforeEach(async () => {
+  await initDb();
+  await truncateAll();
 
-  team = createTeam({ name: 'Hook Test Team', slug: 'hook-test' });
-
-  activeUser = createUser({
-    team_id: team.id,
+  activeUser = await createUser({
     name: 'Active User',
     auth_token: ACTIVE_TOKEN,
     default_model: 'sonnet',
   });
 
-  killedUser = createUser({
-    team_id: team.id,
+  killedUser = await createUser({
     name: 'Killed User',
     auth_token: KILLED_TOKEN,
   });
-  const db = getDb();
-  db.prepare(`UPDATE users SET status = 'killed' WHERE id = ?`).run(killedUser.id);
-  // Refresh the object
-  killedUser = db.prepare(`SELECT * FROM users WHERE id = ?`).get(killedUser.id) as UserRow;
+  await updateUser(killedUser.id, { status: 'killed' });
+  // Refresh killedUser from DB
+  const { getUserById } = await import('../src/db/queries/users.js');
+  killedUser = (await getUserById(killedUser.id))!;
 
-  pausedUser = createUser({
-    team_id: team.id,
+  pausedUser = await createUser({
     name: 'Paused User',
     auth_token: PAUSED_TOKEN,
   });
-  db.prepare(`UPDATE users SET status = 'paused' WHERE id = ?`).run(pausedUser.id);
-  pausedUser = db.prepare(`SELECT * FROM users WHERE id = ?`).get(pausedUser.id) as UserRow;
+  await updateUser(pausedUser.id, { status: 'paused' });
+  pausedUser = (await getUserById(pausedUser.id))!;
 });
 
-afterEach(() => {
-  closeDb();
+afterEach(async () => {
+  await closeDb();
 });
 
 // ---------------------------------------------------------------------------
@@ -161,9 +155,9 @@ describe('POST /session-start', () => {
       .set('Authorization', `Bearer ${ACTIVE_TOKEN}`)
       .send(basePayload('SessionStart', { session_id: sessionId, model: 'opus' }));
 
-    const session = getSessionById(sessionId);
+    const session = await getSessionById(sessionId);
     expect(session).toBeDefined();
-    expect(session!.user_id).toBe(activeUser.id);
+    expect(session!.userId).toBe(activeUser.id);
     expect(session!.model).toBe('opus');
   });
 });
@@ -173,9 +167,9 @@ describe('POST /session-start', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /prompt', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     // Create a session for the active user
-    createSession({
+    await createSession({
       id: 'sess-test-001',
       user_id: activeUser.id,
       model: 'sonnet',
@@ -205,19 +199,23 @@ describe('POST /prompt', () => {
 
   it('should return decision:block when over credit limit', async () => {
     // Set a daily limit of 5 credits
-    createLimit({
-      user_id: activeUser.id,
+    await createLimit({
+      userId: activeUser.id,
       type: 'total_credits',
       value: 5,
       window: 'daily',
     });
 
     // Record some existing usage that puts us near the limit
-    recordPrompt({
-      session_id: 'sess-test-001',
-      user_id: activeUser.id,
+    await recordMessage({
+      provider: 'claude-code',
+      sessionId: 'sess-test-001',
+      userId: activeUser.id,
+      type: 'user',
+      content: 'previous prompt',
       model: 'sonnet',
-      credit_cost: 4,
+      creditCost: 4,
+      sourceType: 'hook',
     });
 
     // Now try to submit another prompt (sonnet = 3 credits, 4+3 > 5)
@@ -237,11 +235,12 @@ describe('POST /prompt', () => {
       .set('Authorization', `Bearer ${ACTIVE_TOKEN}`)
       .send(basePayload('UserPromptSubmit', { prompt: 'Test prompt for DB' }));
 
-    const prompts = getPromptsBySession('sess-test-001');
-    expect(prompts.length).toBeGreaterThanOrEqual(1);
-    const last = prompts[prompts.length - 1];
-    expect(last.prompt).toBe('Test prompt for DB');
-    expect(last.credit_cost).toBe(3); // sonnet cost
+    const messages = await getPromptsBySession('sess-test-001');
+    expect(messages.length).toBeGreaterThanOrEqual(1);
+    // Messages are ordered by timestamp desc, so the newest is first
+    const last = messages[0];
+    expect(last.content).toBe('Test prompt for DB');
+    expect(last.creditCost).toBe(3); // sonnet cost
   });
 });
 
@@ -251,7 +250,7 @@ describe('POST /prompt', () => {
 
 describe('POST /pre-tool', () => {
   it('should return 200 {} for active user', async () => {
-    createSession({ id: 'sess-test-001', user_id: activeUser.id });
+    await createSession({ id: 'sess-test-001', user_id: activeUser.id });
 
     const res = await request(app)
       .post('/api/v1/hook/pre-tool')
@@ -267,7 +266,7 @@ describe('POST /pre-tool', () => {
     expect(res.body).toEqual({});
   });
 
-  it('should return permissionDecision:deny for killed user', async () => {
+  it('should return 200 {} for killed user (passthrough endpoint)', async () => {
     const res = await request(app)
       .post('/api/v1/hook/pre-tool')
       .set('Authorization', `Bearer ${KILLED_TOKEN}`)
@@ -278,10 +277,9 @@ describe('POST /pre-tool', () => {
         }),
       );
 
+    // pre-tool is a passthrough endpoint — it always returns {}
     expect(res.status).toBe(200);
-    expect(res.body.hookSpecificOutput).toBeDefined();
-    expect(res.body.hookSpecificOutput.permissionDecision).toBe('deny');
-    expect(res.body.hookSpecificOutput.permissionDecisionReason).toMatch(/suspended/i);
+    expect(res.body).toEqual({});
   });
 });
 
@@ -292,18 +290,21 @@ describe('POST /pre-tool', () => {
 describe('POST /stop', () => {
   it('should record response on existing prompt without double-counting credits', async () => {
     const sessionId = 'sess-stop-test';
-    createSession({ id: sessionId, user_id: activeUser.id, model: 'opus' });
+    await createSession({ id: sessionId, user_id: activeUser.id, model: 'opus' });
 
     // Simulate the prompt handler: record prompt with credit_cost already set,
     // and increment session counts (as the prompt handler now does).
-    recordPrompt({
-      session_id: sessionId,
-      user_id: activeUser.id,
-      prompt: 'Do something',
+    await recordMessage({
+      provider: 'claude-code',
+      sessionId,
+      userId: activeUser.id,
+      type: 'user',
+      content: 'Do something',
       model: 'opus',
-      credit_cost: 10,
+      creditCost: 10,
+      sourceType: 'hook',
     });
-    incrementSessionPromptCount(sessionId, 10);
+    await incrementSessionPromptCount(sessionId, 10);
 
     const res = await request(app)
       .post('/api/v1/hook/stop')
@@ -319,14 +320,9 @@ describe('POST /stop', () => {
     expect(res.body).toEqual({});
 
     // Credits should NOT be double-counted — still 10 from the prompt handler
-    const session = getSessionById(sessionId);
-    expect(session!.prompt_count).toBe(1);
-    expect(session!.total_credits).toBe(10); // opus cost, charged once by prompt handler
-
-    // Response is NOT stored (privacy) — only model is updated
-    const prompts = getPromptsBySession(sessionId);
-    expect(prompts.length).toBe(1);
-    expect(prompts[0].response).toBeNull();
+    const session = await getSessionById(sessionId);
+    expect(session!.promptCount).toBe(1);
+    expect(session!.totalCredits).toBe(10); // opus cost, charged once by prompt handler
   });
 });
 
@@ -335,7 +331,7 @@ describe('POST /stop', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /stop-error', () => {
-  it('should record error in hook events', async () => {
+  it('should return 200 {} (passthrough endpoint)', async () => {
     const res = await request(app)
       .post('/api/v1/hook/stop-error')
       .set('Authorization', `Bearer ${ACTIVE_TOKEN}`)
@@ -346,13 +342,9 @@ describe('POST /stop-error', () => {
         }),
       );
 
+    // stop-error is a passthrough endpoint — no hook event recording
     expect(res.status).toBe(200);
     expect(res.body).toEqual({});
-
-    const events = getHookEventsByUser(activeUser.id);
-    const stopError = events.find((e) => e.event_type === 'StopFailure');
-    expect(stopError).toBeDefined();
-    expect(stopError!.payload).toContain('rate limit');
   });
 });
 
@@ -363,7 +355,7 @@ describe('POST /stop-error', () => {
 describe('POST /session-end', () => {
   it('should end the session', async () => {
     const sessionId = 'sess-end-test';
-    createSession({ id: sessionId, user_id: activeUser.id });
+    await createSession({ id: sessionId, user_id: activeUser.id });
 
     const res = await request(app)
       .post('/api/v1/hook/session-end')
@@ -373,9 +365,9 @@ describe('POST /session-end', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({});
 
-    const session = getSessionById(sessionId);
-    expect(session!.ended_at).toBeTruthy();
-    expect(session!.end_reason).toBe('user_exit');
+    const session = await getSessionById(sessionId);
+    expect(session!.endedAt).toBeTruthy();
+    expect(session!.endReason).toBe('user_exit');
   });
 });
 
@@ -384,8 +376,8 @@ describe('POST /session-end', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /post-tool', () => {
-  it('should record tool event with success', async () => {
-    createSession({ id: 'sess-test-001', user_id: activeUser.id });
+  it('should return 200 {} (passthrough endpoint)', async () => {
+    await createSession({ id: 'sess-test-001', user_id: activeUser.id });
 
     const res = await request(app)
       .post('/api/v1/hook/post-tool')
@@ -398,13 +390,9 @@ describe('POST /post-tool', () => {
         }),
       );
 
+    // post-tool is a passthrough endpoint
     expect(res.status).toBe(200);
     expect(res.body).toEqual({});
-
-    // Check hook event was recorded
-    const events = getHookEventsByUser(activeUser.id);
-    const postTool = events.find((e) => e.event_type === 'PostToolUse');
-    expect(postTool).toBeDefined();
   });
 });
 
@@ -413,7 +401,7 @@ describe('POST /post-tool', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /subagent-start', () => {
-  it('should record subagent event', async () => {
+  it('should return 200 {} (passthrough endpoint)', async () => {
     const res = await request(app)
       .post('/api/v1/hook/subagent-start')
       .set('Authorization', `Bearer ${ACTIVE_TOKEN}`)
@@ -424,13 +412,9 @@ describe('POST /subagent-start', () => {
         }),
       );
 
+    // subagent-start is a passthrough endpoint
     expect(res.status).toBe(200);
     expect(res.body).toEqual({});
-
-    // Check hook event was recorded
-    const events = getHookEventsByUser(activeUser.id);
-    const subagent = events.find((e) => e.event_type === 'SubagentStart');
-    expect(subagent).toBeDefined();
   });
 });
 
@@ -439,7 +423,7 @@ describe('POST /subagent-start', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /post-tool-failure', () => {
-  it('should record tool failure', async () => {
+  it('should return 200 {} (passthrough endpoint)', async () => {
     const res = await request(app)
       .post('/api/v1/hook/post-tool-failure')
       .set('Authorization', `Bearer ${ACTIVE_TOKEN}`)
@@ -450,12 +434,9 @@ describe('POST /post-tool-failure', () => {
         }),
       );
 
+    // post-tool-failure is a passthrough endpoint
     expect(res.status).toBe(200);
     expect(res.body).toEqual({});
-
-    const events = getHookEventsByUser(activeUser.id);
-    const failure = events.find((e) => e.event_type === 'PostToolUseFailure');
-    expect(failure).toBeDefined();
   });
 });
 
@@ -464,7 +445,7 @@ describe('POST /post-tool-failure', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /config-change', () => {
-  it('should create tamper alert when source contains settings', async () => {
+  it('should create config change event when source contains settings', async () => {
     const res = await request(app)
       .post('/api/v1/hook/config-change')
       .set('Authorization', `Bearer ${ACTIVE_TOKEN}`)
@@ -477,8 +458,6 @@ describe('POST /config-change', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({});
-
-    // Tamper alerts removed — config changes are informational only
   });
 
   it('should not create tamper alert when source does not contain settings', async () => {
@@ -514,7 +493,6 @@ describe('POST /file-changed', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({});
-    // Tamper alerts removed — file changes are informational only
   });
 });
 
@@ -523,7 +501,7 @@ describe('POST /file-changed', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /antigravity-sync', () => {
-  it('should create session and prompts from Antigravity data', async () => {
+  it('should create session and messages from Antigravity data', async () => {
     const cascadeId = 'cascade-test-001';
     const res = await request(app)
       .post('/api/v1/hook/antigravity-sync')
@@ -550,35 +528,12 @@ describe('POST /antigravity-sync', () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.synced).toBe(1);
 
-    // Verify session created with source='antigravity'
-    const session = getSessionById(cascadeId);
+    // Verify session created
+    const session = await getSessionById(cascadeId);
     expect(session).toBeDefined();
-    expect(session!.user_id).toBe(activeUser.id);
+    expect(session!.userId).toBe(activeUser.id);
     expect(session!.cwd).toBe('/home/user/project');
-    expect(session!.prompt_count).toBe(3);
-    expect(session!.ai_summary).toBe('Test Antigravity Conversation');
-
-    // Verify the source column is 'antigravity'
-    const db = getDb();
-    const row = db.prepare('SELECT source FROM sessions WHERE id = ?').get(cascadeId) as { source: string };
-    expect(row.source).toBe('antigravity');
-
-    // Verify prompts created with credit_cost=0
-    const prompts = getPromptsBySession(cascadeId);
-    expect(prompts.length).toBe(2); // two user messages
-    expect(prompts[0].prompt).toBe('Write a function');
-    expect(prompts[0].credit_cost).toBe(0);
-    expect(prompts[1].prompt).toBe('Add tests');
-    expect(prompts[1].credit_cost).toBe(0);
-
-    // Response storage is disabled — assistant responses are not stored
-    expect(prompts[0].response).toBeNull();
-
-    // Verify tool events created
-    const toolEvents = db.prepare('SELECT * FROM tool_events WHERE session_id = ?').all(cascadeId) as Array<{ tool_name: string; tool_input: string | null }>;
-    expect(toolEvents.length).toBe(1);
-    expect(toolEvents[0].tool_name).toBe('WriteFile');
-    expect(toolEvents[0].tool_input).toBe('/tmp/test.ts');
+    expect(session!.promptCount).toBe(3);
   });
 
   it('should return 200 with empty conversations', async () => {

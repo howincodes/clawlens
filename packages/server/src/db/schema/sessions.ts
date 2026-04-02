@@ -6,7 +6,7 @@ export const sessions = pgTable('sessions', {
   userId: integer('user_id').notNull().references(() => users.id),
   model: varchar('model', { length: 100 }),
   cwd: text('cwd'),
-  source: varchar('source', { length: 50 }).default('claude_code'),
+  source: varchar('source', { length: 50 }).default('claude-code'),
   startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
   endedAt: timestamp('ended_at', { withTimezone: true }),
   endReason: varchar('end_reason', { length: 100 }),

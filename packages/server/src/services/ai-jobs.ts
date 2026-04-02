@@ -1,10 +1,10 @@
 import cron from 'node-cron';
 import {
   getSessionById,
-  getPromptsBySession,
+  getMessagesBySession,
   getUserProfile,
   upsertUserProfile,
-  getUserPromptCount,
+  getUserMessageCount,
   updateSessionAI,
   getAllUsers,
   getAllUserProfiles,
@@ -12,7 +12,7 @@ import {
   getUserCreditUsage,
 } from '../db/queries/index.js';
 import { getDb } from '../db/index.js';
-import { toolEvents, prompts, sessions } from '../db/schema/index.js';
+import { toolEvents, messages, sessions } from '../db/schema/index.js';
 import { eq, and, gte, sql, desc } from 'drizzle-orm';
 import { runClaude, isClaudeAvailable } from './claude-ai.js';
 import { z } from 'zod';
@@ -71,7 +71,7 @@ async function analyzeSession(sessionId: string, userId: number): Promise<void> 
   if (!session) return;
   if (session.aiAnalyzedAt) return; // already analyzed
 
-  const sessionPrompts = await getPromptsBySession(sessionId);
+  const sessionPrompts = await getMessagesBySession(sessionId);
   if (sessionPrompts.length < 2) return; // not worth analyzing
 
   // Get tool events for this session
@@ -93,7 +93,7 @@ async function analyzeSession(sessionId: string, userId: number): Promise<void> 
   const toolSummary = tools.map(t => `${t.toolName}(${t.count}${t.success === false ? ' failed' : ''})`).join(', ');
 
   const promptList = sessionPrompts
-    .map((p, i) => `${i + 1}. ${p.prompt?.slice(0, 200) || '(empty)'}`)
+    .map((p: any, i: number) => `${i + 1}. ${p.content?.slice(0, 200) || '(empty)'}`)
     .join('\n');
 
   const { data } = await runClaude({
@@ -159,7 +159,7 @@ export async function updateUserProfile(userId: number): Promise<void> {
   if (!available) return;
 
   const currentProfile = await getUserProfile(userId);
-  const currentPromptCount = await getUserPromptCount(userId);
+  const currentPromptCount = await getUserMessageCount(userId);
 
   // Skip if no new prompts
   if (currentProfile && currentProfile.promptCountAtUpdate !== null && currentProfile.promptCountAtUpdate >= currentPromptCount) return;
@@ -170,20 +170,20 @@ export async function updateUserProfile(userId: number): Promise<void> {
   // Get new prompts since last update
   const newPrompts = await db
     .select({
-      prompt: prompts.prompt,
-      model: prompts.model,
-      createdAt: prompts.createdAt,
+      prompt: messages.content,
+      model: messages.model,
+      createdAt: messages.timestamp,
     })
-    .from(prompts)
+    .from(messages)
     .where(
       and(
-        eq(prompts.userId, userId),
-        gte(prompts.createdAt, since),
-        eq(prompts.blocked, false),
-        sql`${prompts.prompt} IS NOT NULL`,
+        eq(messages.userId, userId),
+        gte(messages.timestamp, since),
+        eq(messages.blocked, false),
+        sql`${messages.content} IS NOT NULL`,
       ),
     )
-    .orderBy(desc(prompts.createdAt))
+    .orderBy(desc(messages.timestamp))
     .limit(100);
 
   if (newPrompts.length === 0) return;
@@ -296,14 +296,14 @@ export async function generateTeamPulse(): Promise<void> {
     const todayStats = await db
       .select({
         promptsCount: sql<number>`count(*)::int`,
-        credits: sql<number>`coalesce(sum(${prompts.creditCost}), 0)::real`,
+        credits: sql<number>`coalesce(sum(${messages.creditCost}), 0)::real`,
       })
-      .from(prompts)
+      .from(messages)
       .where(
         and(
-          eq(prompts.userId, u.id),
-          gte(prompts.createdAt, todayStart),
-          eq(prompts.blocked, false),
+          eq(messages.userId, u.id),
+          gte(messages.timestamp, todayStart),
+          eq(messages.blocked, false),
         ),
       );
 
@@ -316,13 +316,13 @@ export async function generateTeamPulse(): Promise<void> {
   const totalToday = await db
     .select({
       promptsCount: sql<number>`count(*)::int`,
-      credits: sql<number>`coalesce(sum(${prompts.creditCost}), 0)::real`,
+      credits: sql<number>`coalesce(sum(${messages.creditCost}), 0)::real`,
     })
-    .from(prompts)
+    .from(messages)
     .where(
       and(
-        gte(prompts.createdAt, todayStart),
-        eq(prompts.blocked, false),
+        gte(messages.timestamp, todayStart),
+        eq(messages.blocked, false),
       ),
     );
 

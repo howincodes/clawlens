@@ -1,5 +1,5 @@
 import { getDb } from './index.js';
-import { roles, permissions, rolePermissions, userRoles, users, modelCredits } from './schema/index.js';
+import { roles, permissions, rolePermissions, userRoles, users, modelCredits, providers } from './schema/index.js';
 import { eq } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 
@@ -30,6 +30,8 @@ const DEFAULT_PERMISSIONS = [
   { key: 'reports.generate', name: 'Generate Reports', category: 'reports' },
   { key: 'subscriptions.manage', name: 'Manage Subscriptions', category: 'subscriptions' },
   { key: 'subscriptions.view', name: 'View Subscriptions', category: 'subscriptions' },
+  { key: 'providers.manage', name: 'Manage Providers', category: 'providers' },
+  { key: 'providers.view', name: 'View Providers', category: 'providers' },
 ];
 
 const DEFAULT_ROLES: Array<{ name: string; description: string; isSystem: boolean; permissionKeys: string[] }> = [
@@ -108,15 +110,15 @@ const DEFAULT_ROLES: Array<{ name: string; description: string; isSystem: boolea
     isSystem: true,
     permissionKeys: [
       'users.view', 'projects.view', 'tasks.view',
-      'reports.view', 'attendance.view', 'subscriptions.view', 'config.view',
+      'reports.view', 'attendance.view', 'subscriptions.view', 'config.view', 'providers.view',
     ],
   },
 ];
 
 const DEFAULT_MODEL_CREDITS = [
-  { source: 'claude_code', model: 'opus', credits: 10, tier: 'flagship' },
-  { source: 'claude_code', model: 'sonnet', credits: 3, tier: 'mid' },
-  { source: 'claude_code', model: 'haiku', credits: 1, tier: 'mini' },
+  { source: 'claude-code', model: 'opus', credits: 10, tier: 'flagship' },
+  { source: 'claude-code', model: 'sonnet', credits: 3, tier: 'mid' },
+  { source: 'claude-code', model: 'haiku', credits: 1, tier: 'mini' },
   { source: 'codex', model: 'gpt-5.4', credits: 10, tier: 'flagship' },
   { source: 'codex', model: 'gpt-5.2', credits: 7, tier: 'mid' },
   { source: 'codex', model: 'gpt-5.1', credits: 5, tier: 'mid' },
@@ -163,6 +165,17 @@ export async function seedDatabase() {
   if (existingCredits.length === 0) {
     await db.insert(modelCredits).values(DEFAULT_MODEL_CREDITS);
     console.log(`Seeded ${DEFAULT_MODEL_CREDITS.length} model credits`);
+  }
+
+  // Seed providers (skip if already exist)
+  const existingProviders = await db.select().from(providers);
+  if (existingProviders.length === 0) {
+    await db.insert(providers).values([
+      { slug: 'claude-code', name: 'Claude Code', type: 'hook', hasHooks: true, hasBlocking: true, hasCredentials: true, hasUsagePolling: true, hasLocalFiles: true, hasEnforcedMode: true },
+      { slug: 'codex', name: 'Codex', type: 'hook', hasHooks: true, hasBlocking: true },
+      { slug: 'antigravity', name: 'Antigravity', type: 'extension' },
+    ]);
+    console.log('Seeded 3 providers');
   }
 
   // Create admin user if none exists

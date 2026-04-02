@@ -1,6 +1,6 @@
 import { eq, and, gte, sql } from 'drizzle-orm';
 import { getDb } from '../index.js';
-import { users, prompts } from '../schema/index.js';
+import { users, messages } from '../schema/index.js';
 
 export async function createUser(params: {
   name: string;
@@ -68,12 +68,12 @@ export async function getUserCreditUsage(
   else if (window === 'daily') since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   else since = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const conditions = [eq(prompts.userId, userId), gte(prompts.createdAt, since)];
-  if (source) conditions.push(eq(prompts.source, source));
+  const conditions = [eq(messages.userId, userId), gte(messages.timestamp, since)];
+  if (source) conditions.push(eq(messages.provider, source));
 
   const result = await db
-    .select({ total: sql<number>`coalesce(sum(${prompts.creditCost}), 0)::real` })
-    .from(prompts)
+    .select({ total: sql<number>`coalesce(sum(${messages.creditCost}), 0)::real` })
+    .from(messages)
     .where(and(...conditions));
   return result[0]?.total ?? 0;
 }
@@ -91,13 +91,13 @@ export async function getUserModelCreditUsage(
   else since = new Date(now.getFullYear(), now.getMonth(), 1);
 
   const result = await db
-    .select({ total: sql<number>`coalesce(sum(${prompts.creditCost}), 0)::real` })
-    .from(prompts)
+    .select({ total: sql<number>`coalesce(sum(${messages.creditCost}), 0)::real` })
+    .from(messages)
     .where(
       and(
-        eq(prompts.userId, userId),
-        eq(prompts.model, model),
-        gte(prompts.createdAt, since),
+        eq(messages.userId, userId),
+        eq(messages.model, model),
+        gte(messages.timestamp, since),
       ),
     );
   return result[0]?.total ?? 0;

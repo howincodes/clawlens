@@ -3,18 +3,17 @@ import request from 'supertest';
 import {
   initDb,
   closeDb,
-  createTeam,
   createUser,
-  createLimit,
+  createSession,
   createWatcherCommand,
   getLatestWatcherLogs,
   getPendingWatcherCommands,
-  recordPrompt,
-  createSession,
-  getDb,
+  truncateAll,
   type UserRow,
-  type TeamRow,
 } from '../src/services/db.js';
+import { createLimit } from '../src/db/queries/limits.js';
+import { recordMessage } from '../src/db/queries/messages.js';
+import { updateUser, getUserById } from '../src/db/queries/users.js';
 
 import { app } from '../src/server.js';
 
@@ -22,7 +21,6 @@ import { app } from '../src/server.js';
 // Test state
 // ---------------------------------------------------------------------------
 
-let team: TeamRow;
 let user: UserRow;
 
 const TOKEN = 'tok-watcher-test';
@@ -31,21 +29,19 @@ const TOKEN = 'tok-watcher-test';
 // Setup / Teardown
 // ---------------------------------------------------------------------------
 
-beforeEach(() => {
-  initDb(':memory:');
+beforeEach(async () => {
+  await initDb();
+  await truncateAll();
 
-  team = createTeam({ name: 'Watcher Test Team', slug: 'watcher-test' });
-
-  user = createUser({
-    team_id: team.id,
+  user = await createUser({
     name: 'Watcher User',
     auth_token: TOKEN,
     default_model: 'sonnet',
   });
 });
 
-afterEach(() => {
-  closeDb();
+afterEach(async () => {
+  await closeDb();
 });
 
 // ---------------------------------------------------------------------------
@@ -55,8 +51,8 @@ afterEach(() => {
 describe('POST /api/v1/watcher/sync', () => {
   it('should return config with status and limits', async () => {
     // Create a daily limit for the user
-    createLimit({
-      user_id: user.id,
+    await createLimit({
+      userId: user.id,
       type: 'total_credits',
       value: 200,
       window: 'daily',
@@ -82,12 +78,12 @@ describe('POST /api/v1/watcher/sync', () => {
 
   it('should deliver pending commands and mark them delivered', async () => {
     // Create two pending commands
-    createWatcherCommand({
-      user_id: user.id,
+    await createWatcherCommand({
+      userId: user.id,
       command: 'upload_logs',
     });
-    createWatcherCommand({
-      user_id: user.id,
+    await createWatcherCommand({
+      userId: user.id,
       command: 'notify',
       payload: JSON.stringify({ message: 'hello' }),
     });
@@ -100,16 +96,22 @@ describe('POST /api/v1/watcher/sync', () => {
     expect(res.status).toBe(200);
     expect(res.body.commands).toHaveLength(2);
 
-    // First command: upload_logs with no payload
-    expect(res.body.commands[0].type).toBe('upload_logs');
-    expect(res.body.commands[0].id).toBeDefined();
+    // Commands may arrive in any order (DB-dependent)
+    const types = res.body.commands.map((c: any) => c.type).sort();
+    expect(types).toEqual(['notify', 'upload_logs']);
 
-    // Second command: notify with parsed payload spread
-    expect(res.body.commands[1].type).toBe('notify');
-    expect(res.body.commands[1].message).toBe('hello');
+    // Verify upload_logs command
+    const uploadCmd = res.body.commands.find((c: any) => c.type === 'upload_logs');
+    expect(uploadCmd).toBeDefined();
+    expect(uploadCmd.id).toBeDefined();
+
+    // Verify notify command with parsed payload
+    const notifyCmd = res.body.commands.find((c: any) => c.type === 'notify');
+    expect(notifyCmd).toBeDefined();
+    expect(notifyCmd.message).toBe('hello');
 
     // Verify commands are now marked as delivered
-    const pending = getPendingWatcherCommands(user.id);
+    const pending = await getPendingWatcherCommands(user.id);
     expect(pending).toHaveLength(0);
   });
 
@@ -122,26 +124,29 @@ describe('POST /api/v1/watcher/sync', () => {
     expect(res.status).toBe(200);
 
     // Verify user was updated
-    const db = getDb();
-    const updated = db.prepare('SELECT default_model FROM users WHERE id = ?').get(user.id) as { default_model: string };
-    expect(updated.default_model).toBe('opus');
+    const updated = await getUserById(user.id);
+    expect(updated!.defaultModel).toBe('opus');
   });
 
   it('should return credit usage when credits have been used', async () => {
-    createLimit({
-      user_id: user.id,
+    await createLimit({
+      userId: user.id,
       type: 'total_credits',
       value: 200,
       window: 'daily',
     });
 
     // Create a session and record some credit usage
-    createSession({ id: 'sess-credit-test', user_id: user.id, model: 'opus' });
-    recordPrompt({
-      session_id: 'sess-credit-test',
-      user_id: user.id,
+    await createSession({ id: 'sess-credit-test', user_id: user.id, model: 'opus' });
+    await recordMessage({
+      provider: 'claude-code',
+      sessionId: 'sess-credit-test',
+      userId: user.id,
+      type: 'user',
+      content: 'test prompt',
       model: 'opus',
-      credit_cost: 150,
+      creditCost: 150,
+      sourceType: 'hook',
     });
 
     const res = await request(app)
@@ -156,15 +161,17 @@ describe('POST /api/v1/watcher/sync', () => {
   });
 
   it('should update email only if user has no email', async () => {
+    // Remove the auto-generated email by setting it to empty
+    await updateUser(user.id, { email: '' });
+
     // First sync: should set the email
     await request(app)
       .post('/api/v1/watcher/sync')
       .set('Authorization', `Bearer ${TOKEN}`)
       .send({ heartbeat: true, subscription_email: 'first@example.com' });
 
-    const db = getDb();
-    let updated = db.prepare('SELECT email FROM users WHERE id = ?').get(user.id) as { email: string | null };
-    expect(updated.email).toBe('first@example.com');
+    let updated = await getUserById(user.id);
+    expect(updated!.email).toBe('first@example.com');
 
     // Second sync: should NOT overwrite existing email
     await request(app)
@@ -172,10 +179,8 @@ describe('POST /api/v1/watcher/sync', () => {
       .set('Authorization', `Bearer ${TOKEN}`)
       .send({ heartbeat: true, subscription_email: 'second@example.com' });
 
-    // Need to re-read. But since hookAuth re-reads the user from DB on each request,
-    // the user object will have the email set, so the condition (!user.email) is false.
-    updated = db.prepare('SELECT email FROM users WHERE id = ?').get(user.id) as { email: string | null };
-    expect(updated.email).toBe('first@example.com');
+    updated = await getUserById(user.id);
+    expect(updated!.email).toBe('first@example.com');
   });
 
   it('should return 401 without auth', async () => {
@@ -206,10 +211,10 @@ describe('POST /api/v1/watcher/logs', () => {
     expect(res.body.ok).toBe(true);
 
     // Verify logs were saved
-    const logs = getLatestWatcherLogs(user.id);
+    const logs = await getLatestWatcherLogs(user.id);
     expect(logs).toBeDefined();
-    expect(logs!.hook_log).toBe('hook log content here');
-    expect(logs!.watcher_log).toBe('watcher log content here');
+    expect(logs!.hookLog).toBe('hook log content here');
+    expect(logs!.watcherLog).toBe('watcher log content here');
   });
 
   it('should return 401 without auth', async () => {
@@ -233,10 +238,10 @@ describe('POST /api/v1/watcher/logs', () => {
     expect(res.body.ok).toBe(true);
 
     // Logs saved with null values
-    const logs = getLatestWatcherLogs(user.id);
+    const logs = await getLatestWatcherLogs(user.id);
     expect(logs).toBeDefined();
-    expect(logs!.hook_log).toBeNull();
-    expect(logs!.watcher_log).toBeNull();
+    expect(logs!.hookLog).toBeNull();
+    expect(logs!.watcherLog).toBeNull();
   });
 
   it('should truncate logs exceeding 512KB', async () => {
@@ -252,9 +257,9 @@ describe('POST /api/v1/watcher/logs', () => {
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
 
-    const logs = getLatestWatcherLogs(user.id);
+    const logs = await getLatestWatcherLogs(user.id);
     expect(logs).toBeDefined();
-    expect(logs!.hook_log!.length).toBe(512 * 1024);
+    expect(logs!.hookLog!.length).toBe(512 * 1024);
   });
 
   it('should ignore non-string log fields', async () => {
@@ -270,9 +275,9 @@ describe('POST /api/v1/watcher/logs', () => {
     expect(res.body.ok).toBe(true);
 
     // Non-string values are treated as not provided
-    const logs = getLatestWatcherLogs(user.id);
+    const logs = await getLatestWatcherLogs(user.id);
     expect(logs).toBeDefined();
-    expect(logs!.hook_log).toBeNull();
-    expect(logs!.watcher_log).toBeNull();
+    expect(logs!.hookLog).toBeNull();
+    expect(logs!.watcherLog).toBeNull();
   });
 });

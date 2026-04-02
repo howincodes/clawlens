@@ -73,8 +73,8 @@ export const getUser = (id: string) => fetchClient(`/users/${id}`)
 export const updateUser = (id: string, data: Record<string, unknown>) =>
   fetchClient(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 export const deleteUser = (id: string) => fetchClient(`/users/${id}`, { method: 'DELETE' })
-export const getUserPrompts = (id: string, params?: Record<string, string>) =>
-  fetchClient(`/users/${id}/prompts${params ? '?' + new URLSearchParams(params).toString() : ''}`)
+export const getUserMessages = (id: string, params?: Record<string, string>) =>
+  fetchClient(`/users/${id}/messages${params ? '?' + new URLSearchParams(params).toString() : ''}`)
 export const getUserSessions = (id: string, params?: Record<string, string>) =>
   fetchClient(`/users/${id}/sessions${params ? '?' + new URLSearchParams(params).toString() : ''}`)
 export const rotateToken = (id: string) =>
@@ -94,9 +94,9 @@ export const getProjectAnalytics = (days: number, source?: string) =>
 export const getCosts = (days: number, source?: string) =>
   fetchClient(`/analytics/costs?days=${days}${source ? `&source=${source}` : ''}`)
 
-// ── Prompts (aggregate) ──────────────────────────────────
-export const getAllPrompts = (params?: Record<string, string>) =>
-  fetchClient(`/prompts${params ? '?' + new URLSearchParams(params).toString() : ''}`)
+// ── Messages (aggregate) ─────────────────────────────────
+export const getAllMessages = (params?: Record<string, string>) =>
+  fetchClient(`/messages${params ? '?' + new URLSearchParams(params).toString() : ''}`)
 
 // ── Summaries ─────────────────────────────────────────────
 export const getSummaries = (params?: Record<string, string>) =>

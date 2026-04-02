@@ -11,5 +11,5 @@ export const limits = pgTable('limits', {
   startHour: integer('start_hour'),
   endHour: integer('end_hour'),
   timezone: varchar('timezone', { length: 50 }).default('UTC'),
-  source: varchar('source', { length: 50 }).default('claude_code'),
+  source: varchar('source', { length: 50 }).default('claude-code'),
 });

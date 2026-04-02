@@ -6,7 +6,7 @@ export const hookEvents = pgTable('hook_events', {
   sessionId: varchar('session_id', { length: 255 }),
   eventType: varchar('event_type', { length: 50 }).notNull(),
   payload: text('payload'),
-  source: varchar('source', { length: 50 }).default('claude_code'),
+  source: varchar('source', { length: 50 }).default('claude-code'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -18,7 +18,7 @@ export const toolEvents = pgTable('tool_events', {
   toolInput: text('tool_input'),
   toolOutput: text('tool_output'),
   success: boolean('success'),
-  source: varchar('source', { length: 50 }).default('claude_code'),
+  source: varchar('source', { length: 50 }).default('claude-code'),
   toolUseId: varchar('tool_use_id', { length: 255 }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });

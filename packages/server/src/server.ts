@@ -12,11 +12,11 @@ import { initWatcherWebSocket } from './services/watcher-ws.js';
 import { startDeadmanSwitch } from './services/deadman.js';
 import { hookAuth } from './middleware/hook-auth.js';
 import { adminRouter } from './routes/admin-api.js';
-import { hookRouter } from './routes/hook-api.js';
-import { codexRouter } from './routes/codex-api.js';
+import { providerRouter } from './routes/provider-api.js';
 import { watcherRouter } from './routes/watcher-api.js';
 import { clientRouter } from './routes/client-api.js';
 import { subscriptionRouter } from './routes/subscription-api.js';
+import type { Request, Response, NextFunction } from 'express';
 import { startAICrons } from './services/ai-jobs.js';
 import { startUsageMonitor } from './services/usage-monitor.js';
 
@@ -57,11 +57,27 @@ app.get('/api/v1/health', (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Hook API routes (Claude Code hook endpoints)
+// Provider API routes (unified hook endpoints for all providers)
 // ---------------------------------------------------------------------------
 
-app.use('/api/v1/hook', hookAuth, hookRouter);
-app.use('/api/v1/codex', hookAuth, codexRouter);
+// Helper: pre-set provider slug for backward-compat aliases.
+// Express Routers reset req.params on entry, so we stash the slug on a
+// custom property that the providerRouter middleware reads as fallback.
+function setProvider(slug: string) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    (req as any)._providerSlug = slug;
+    next();
+  };
+}
+
+// New unified route
+app.use('/api/v1/providers/:provider', hookAuth, providerRouter);
+
+// Backward compat aliases (existing hook scripts + clients still use these)
+app.use('/api/v1/hook', hookAuth, setProvider('claude-code'), providerRouter);
+app.use('/api/v1/codex', hookAuth, setProvider('codex'), providerRouter);
+
+// Client + watcher routes (not provider-specific)
 app.use('/api/v1/watcher', hookAuth, watcherRouter);
 app.use('/api/v1/client', hookAuth, clientRouter);
 
@@ -137,7 +153,7 @@ if (process.env.NODE_ENV !== 'test') {
     server.listen(port, () => {
       console.log(`[howinlens] Server running on port ${port}`);
       console.log(`[howinlens] Dashboard: http://localhost:${port}`);
-      console.log(`[howinlens] Hook API:  http://localhost:${port}/api/v1/hook/`);
+      console.log(`[howinlens] Provider API: http://localhost:${port}/api/v1/providers/:provider/`);
       console.log(`[howinlens] Admin API: http://localhost:${port}/api/admin/`);
       console.log(`[howinlens] Database:  PostgreSQL`);
 

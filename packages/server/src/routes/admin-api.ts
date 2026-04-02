@@ -6,7 +6,7 @@ import {
   createUser, getUserById, getUserByEmail, getAllUsers, updateUser, deleteUser,
 } from '../db/queries/users.js';
 import { getSessionsByUser, getSessionById } from '../db/queries/sessions.js';
-import { getPromptsByUser } from '../db/queries/prompts.js';
+import { getMessagesByUser } from '../db/queries/messages.js';
 import { getLimitsByUser, createLimit, deleteLimitsByUser } from '../db/queries/limits.js';
 import { createSummary, getSummaries, getUserProfile, getAllUserProfiles, getLatestTeamPulse, getTeamPulseHistory } from '../db/queries/ai.js';
 import { getUnresolvedTamperAlerts, resolveTamperAlert } from '../db/queries/alerts.js';
@@ -172,7 +172,7 @@ adminRouter.get('/users', async (_req: Request, res: Response) => {
         const [ccStats] = await db.execute<{ prompt_count: number; total_credits: number }>(sql`
           SELECT COUNT(*) as prompt_count,
                  COALESCE(SUM(credit_cost), 0) as total_credits
-          FROM prompts
+          FROM messages
           WHERE user_id = ${user.id} AND blocked = false
           AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')
         `);
@@ -180,7 +180,7 @@ adminRouter.get('/users', async (_req: Request, res: Response) => {
         // Antigravity only
         const [agStats] = await db.execute<{ ag_prompt_count: number }>(sql`
           SELECT COUNT(*) as ag_prompt_count
-          FROM prompts
+          FROM messages
           WHERE user_id = ${user.id} AND blocked = false
           AND session_id IN (SELECT id FROM sessions WHERE source = 'antigravity')
         `);
@@ -188,7 +188,7 @@ adminRouter.get('/users', async (_req: Request, res: Response) => {
         // Codex only
         const [codexStats] = await db.execute<{ prompts: number; credits: number }>(sql`
           SELECT COUNT(*) as prompts, COALESCE(SUM(credit_cost), 0) as credits
-          FROM prompts WHERE user_id = ${user.id} AND source = 'codex' AND blocked = false
+          FROM messages WHERE user_id = ${user.id} AND provider = 'codex' AND blocked = false
         `);
 
         const [sessionStats] = await db.execute<{ session_count: number }>(sql`
@@ -197,7 +197,7 @@ adminRouter.get('/users', async (_req: Request, res: Response) => {
 
         // Get most-used model
         const topModelResults = await db.execute<{ model: string; cnt: number }>(sql`
-          SELECT model, COUNT(*) as cnt FROM prompts
+          SELECT model, COUNT(*) as cnt FROM messages
           WHERE user_id = ${user.id} AND blocked = false AND model IS NOT NULL
           GROUP BY model ORDER BY cnt DESC LIMIT 1
         `);
@@ -325,7 +325,7 @@ adminRouter.get('/users/:id', async (req: Request, res: Response) => {
     }
 
     const limits = await getLimitsByUser(user.id);
-    const prompts = await getPromptsByUser(user.id, 20);
+    const messages = await getMessagesByUser(user.id, 20);
     const sessions = await getSessionsByUser(user.id);
     const tamperStatus = await getUserTamperStatus(user.id);
 
@@ -334,7 +334,7 @@ adminRouter.get('/users/:id', async (req: Request, res: Response) => {
     const [stats] = await db.execute<{ prompt_count: number; total_credits: number }>(sql`
       SELECT COUNT(*) as prompt_count,
              COALESCE(SUM(credit_cost), 0) as total_credits
-      FROM prompts
+      FROM messages
       WHERE user_id = ${user.id} AND blocked = false
       AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')
     `);
@@ -342,7 +342,7 @@ adminRouter.get('/users/:id', async (req: Request, res: Response) => {
     // Antigravity only
     const [agStats] = await db.execute<{ ag_prompt_count: number }>(sql`
       SELECT COUNT(*) as ag_prompt_count
-      FROM prompts
+      FROM messages
       WHERE user_id = ${user.id} AND blocked = false
       AND session_id IN (SELECT id FROM sessions WHERE source = 'antigravity')
     `);
@@ -350,7 +350,7 @@ adminRouter.get('/users/:id', async (req: Request, res: Response) => {
     // Codex only
     const [codexStats] = await db.execute<{ prompts: number; credits: number }>(sql`
       SELECT COUNT(*) as prompts, COALESCE(SUM(credit_cost), 0) as credits
-      FROM prompts WHERE user_id = ${user.id} AND source = 'codex' AND blocked = false
+      FROM messages WHERE user_id = ${user.id} AND provider = 'codex' AND blocked = false
     `);
 
     // Get unique devices from hook events (SessionStart sends hostname + platform)
@@ -381,7 +381,7 @@ adminRouter.get('/users/:id', async (req: Request, res: Response) => {
       ...safeUser,
       devices,
       limits,
-      recent_prompts: prompts,
+      recent_messages: messages,
       sessions,
       tamper_status: tamperStatus,
       prompt_count: Number(stats?.prompt_count ?? 0),
@@ -480,7 +480,7 @@ adminRouter.delete('/users/:id', async (req: Request, res: Response) => {
     await db.execute(sql`DELETE FROM alerts WHERE user_id = ${userId}`);
     await db.execute(sql`DELETE FROM summaries WHERE user_id = ${userId}`);
     await db.execute(sql`DELETE FROM limits WHERE user_id = ${userId}`);
-    await db.execute(sql`DELETE FROM prompts WHERE user_id = ${userId}`);
+    await db.execute(sql`DELETE FROM messages WHERE user_id = ${userId}`);
     await db.execute(sql`DELETE FROM sessions WHERE user_id = ${userId}`);
     await db.execute(sql`DELETE FROM hook_events WHERE user_id = ${userId}`);
     await db.execute(sql`DELETE FROM tool_events WHERE user_id = ${userId}`);
@@ -498,10 +498,10 @@ adminRouter.delete('/users/:id', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /users/:id/prompts
+// GET /users/:id/messages
 // ---------------------------------------------------------------------------
 
-adminRouter.get('/users/:id/prompts', async (req: Request, res: Response) => {
+adminRouter.get('/users/:id/messages', async (req: Request, res: Response) => {
   try {
     const userId = parseInt(req.params.id as string, 10);
     if (isNaN(userId)) { res.status(400).json({ error: 'Invalid user ID' }); return; }
@@ -515,41 +515,41 @@ adminRouter.get('/users/:id/prompts', async (req: Request, res: Response) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = (page - 1) * limit;
-    const source = req.query.source as string | undefined;
+    const provider = req.query.provider as string | undefined;
 
     const db = getDb();
 
     let totalResult;
     let data;
 
-    if (source) {
+    if (provider) {
       totalResult = await db.execute<{ count: number }>(sql`
-        SELECT COUNT(*) as count FROM prompts WHERE user_id = ${user.id} AND source = ${source}
+        SELECT COUNT(*) as count FROM messages WHERE user_id = ${user.id} AND provider = ${provider}
       `);
       data = await db.execute(sql`
-        SELECT id, session_id, user_id, prompt, model, credit_cost,
-               blocked, block_reason, created_at, turn_id,
-               input_tokens, output_tokens, cached_tokens, reasoning_tokens, source
-        FROM prompts WHERE user_id = ${user.id} AND source = ${source}
-        ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
+        SELECT id, session_id, user_id, content, model, credit_cost,
+               blocked, block_reason, timestamp, turn_id,
+               input_tokens, output_tokens, cached_tokens, reasoning_tokens, provider
+        FROM messages WHERE user_id = ${user.id} AND provider = ${provider}
+        ORDER BY timestamp DESC LIMIT ${limit} OFFSET ${offset}
       `);
     } else {
       totalResult = await db.execute<{ count: number }>(sql`
-        SELECT COUNT(*) as count FROM prompts WHERE user_id = ${user.id}
+        SELECT COUNT(*) as count FROM messages WHERE user_id = ${user.id}
       `);
       data = await db.execute(sql`
-        SELECT id, session_id, user_id, prompt, model, credit_cost,
-               blocked, block_reason, created_at, turn_id,
-               input_tokens, output_tokens, cached_tokens, reasoning_tokens, source
-        FROM prompts WHERE user_id = ${user.id}
-        ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
+        SELECT id, session_id, user_id, content, model, credit_cost,
+               blocked, block_reason, timestamp, turn_id,
+               input_tokens, output_tokens, cached_tokens, reasoning_tokens, provider
+        FROM messages WHERE user_id = ${user.id}
+        ORDER BY timestamp DESC LIMIT ${limit} OFFSET ${offset}
       `);
     }
 
     const total = Number(totalResult[0]?.count ?? 0);
     res.json({ data, total, page, limit });
   } catch (err) {
-    console.error('[admin-api] get user prompts error:', err);
+    console.error('[admin-api] get user messages error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -623,14 +623,14 @@ adminRouter.get('/subscriptions', async (req: Request, res: Response) => {
         SELECT id, name, email, status, default_model FROM users WHERE email = ${sub.email}
       `) as any[];
 
-      // Build source-aware prompt filter
-      let promptSourceFilter;
+      // Build provider-aware message filter
+      let messageProviderFilter;
       if (subSource === 'codex') {
-        promptSourceFilter = sql`AND source = 'codex'`;
+        messageProviderFilter = sql`AND provider = 'codex'`;
       } else if (subSource === 'antigravity') {
-        promptSourceFilter = sql`AND source = 'antigravity'`;
+        messageProviderFilter = sql`AND provider = 'antigravity'`;
       } else {
-        promptSourceFilter = sql`AND (source IS NULL OR source = 'claude_code')`;
+        messageProviderFilter = sql`AND (provider IS NULL OR provider = 'claude-code')`;
       }
 
       const userIds = linkedUsers.map((u: any) => u.id);
@@ -641,7 +641,7 @@ adminRouter.get('/subscriptions', async (req: Request, res: Response) => {
         // Build IN clause for user IDs
         const [aggStats] = await db.execute<{ prompt_count: number; total_credits: number }>(sql`
           SELECT COUNT(*) as prompt_count, COALESCE(SUM(credit_cost), 0) as total_credits
-          FROM prompts WHERE user_id = ANY(${userIds}) AND blocked = false ${promptSourceFilter}
+          FROM messages WHERE user_id = ANY(${userIds}) AND blocked = false ${messageProviderFilter}
         `);
         totalPrompts = Number(aggStats?.prompt_count ?? 0);
         totalCredits = Number(aggStats?.total_credits ?? 0);
@@ -650,7 +650,7 @@ adminRouter.get('/subscriptions', async (req: Request, res: Response) => {
         for (const u of linkedUsers) {
           const [uStats] = await db.execute<{ prompts: number; credits: number }>(sql`
             SELECT COUNT(*) as prompts, COALESCE(SUM(credit_cost), 0) as credits
-            FROM prompts WHERE user_id = ${u.id} AND blocked = false ${promptSourceFilter}
+            FROM messages WHERE user_id = ${u.id} AND blocked = false ${messageProviderFilter}
           `);
           u.prompt_count = Number(uStats?.prompts ?? 0);
           u.total_credits = Number(uStats?.credits ?? 0);
@@ -683,6 +683,7 @@ adminRouter.get('/analytics', async (req: Request, res: Response) => {
     const source = req.query.source as string | undefined;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString();
 
     const db = getDb();
 
@@ -692,17 +693,17 @@ adminRouter.get('/analytics', async (req: Request, res: Response) => {
       [overview] = await db.execute<{ total_prompts: number; total_credits: number }>(sql`
         SELECT COUNT(*) as total_prompts,
                COALESCE(SUM(credit_cost), 0) as total_credits
-        FROM prompts
-        WHERE created_at >= ${startDate}
+        FROM messages
+        WHERE timestamp >= ${startDateStr}
         AND blocked = false
-        AND source = ${source}
+        AND provider = ${source}
       `);
     } else {
       [overview] = await db.execute<{ total_prompts: number; total_credits: number }>(sql`
         SELECT COUNT(*) as total_prompts,
                COALESCE(SUM(credit_cost), 0) as total_credits
-        FROM prompts
-        WHERE created_at >= ${startDate}
+        FROM messages
+        WHERE timestamp >= ${startDateStr}
         AND blocked = false
         AND session_id NOT IN (SELECT id FROM sessions WHERE source = 'antigravity')
       `);
@@ -711,8 +712,8 @@ adminRouter.get('/analytics', async (req: Request, res: Response) => {
     // Antigravity prompts
     const [agOverview] = await db.execute<{ ag_prompts: number }>(sql`
       SELECT COUNT(*) as ag_prompts
-      FROM prompts
-      WHERE created_at >= ${startDate}
+      FROM messages
+      WHERE timestamp >= ${startDateStr}
       AND blocked = false
       AND session_id IN (SELECT id FROM sessions WHERE source = 'antigravity')
     `);
@@ -723,14 +724,14 @@ adminRouter.get('/analytics', async (req: Request, res: Response) => {
       [sessionCount] = await db.execute<{ total_sessions: number }>(sql`
         SELECT COUNT(*) as total_sessions
         FROM sessions
-        WHERE started_at >= ${startDate}
+        WHERE started_at >= ${startDateStr}
         AND source = ${source}
       `);
     } else {
       [sessionCount] = await db.execute<{ total_sessions: number }>(sql`
         SELECT COUNT(*) as total_sessions
         FROM sessions
-        WHERE started_at >= ${startDate}
+        WHERE started_at >= ${startDateStr}
       `);
     }
 
@@ -739,16 +740,16 @@ adminRouter.get('/analytics', async (req: Request, res: Response) => {
     if (source) {
       [activeUsersResult] = await db.execute<{ active_users: number }>(sql`
         SELECT COUNT(DISTINCT user_id) as active_users
-        FROM prompts
-        WHERE created_at >= ${startDate}
+        FROM messages
+        WHERE timestamp >= ${startDateStr}
         AND blocked = false
-        AND source = ${source}
+        AND provider = ${source}
       `);
     } else {
       [activeUsersResult] = await db.execute<{ active_users: number }>(sql`
         SELECT COUNT(DISTINCT user_id) as active_users
-        FROM prompts
-        WHERE created_at >= ${startDate}
+        FROM messages
+        WHERE timestamp >= ${startDateStr}
         AND blocked = false
       `);
     }
@@ -757,24 +758,24 @@ adminRouter.get('/analytics', async (req: Request, res: Response) => {
     let daily;
     if (source) {
       daily = await db.execute(sql`
-        SELECT created_at::date as date,
+        SELECT timestamp::date as date,
                COUNT(*) as prompts,
                COALESCE(SUM(credit_cost), 0) as credits
-        FROM prompts
-        WHERE created_at >= ${startDate}
+        FROM messages
+        WHERE timestamp >= ${startDateStr}
         AND blocked = false
-        AND source = ${source}
-        GROUP BY created_at::date ORDER BY date
+        AND provider = ${source}
+        GROUP BY timestamp::date ORDER BY date
       `);
     } else {
       daily = await db.execute(sql`
-        SELECT created_at::date as date,
+        SELECT timestamp::date as date,
                COUNT(*) as prompts,
                COALESCE(SUM(credit_cost), 0) as credits
-        FROM prompts
-        WHERE created_at >= ${startDate}
+        FROM messages
+        WHERE timestamp >= ${startDateStr}
         AND blocked = false
-        GROUP BY created_at::date ORDER BY date
+        GROUP BY timestamp::date ORDER BY date
       `);
     }
 
@@ -785,10 +786,10 @@ adminRouter.get('/analytics', async (req: Request, res: Response) => {
         SELECT model,
                COUNT(*) as count,
                COALESCE(SUM(credit_cost), 0) as credits
-        FROM prompts
-        WHERE created_at >= ${startDate}
+        FROM messages
+        WHERE timestamp >= ${startDateStr}
         AND blocked = false
-        AND source = ${source}
+        AND provider = ${source}
         GROUP BY model
       `);
     } else {
@@ -796,8 +797,8 @@ adminRouter.get('/analytics', async (req: Request, res: Response) => {
         SELECT model,
                COUNT(*) as count,
                COALESCE(SUM(credit_cost), 0) as credits
-        FROM prompts
-        WHERE created_at >= ${startDate}
+        FROM messages
+        WHERE timestamp >= ${startDateStr}
         AND blocked = false
         GROUP BY model
       `);
@@ -831,6 +832,7 @@ adminRouter.get('/analytics/users', async (req: Request, res: Response) => {
     const source = req.query.source as string | undefined;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString();
 
     const db = getDb();
 
@@ -841,32 +843,32 @@ adminRouter.get('/analytics/users', async (req: Request, res: Response) => {
     if (source) {
       data = await db.execute(sql`
         SELECT u.id, u.name, u.email, u.status, u.default_model,
-               COUNT(CASE WHEN p.source IS NULL OR p.source = 'claude_code' THEN p.id END) as prompts,
-               COALESCE(SUM(CASE WHEN p.source IS NULL OR p.source = 'claude_code' THEN p.credit_cost ELSE 0 END), 0) as credits,
-               COUNT(CASE WHEN p.source = 'antigravity' THEN p.id END) as ag_prompts,
-               COUNT(CASE WHEN p.source = 'codex' THEN p.id END) as codex_prompts,
-               COALESCE(SUM(CASE WHEN p.source = 'codex' THEN p.credit_cost ELSE 0 END), 0) as codex_credits,
-               (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.started_at >= ${startDate}) as sessions,
-               COALESCE(SUM(CASE WHEN p.source IS NULL OR p.source = 'claude_code' THEN p.credit_cost ELSE 0 END), 0) as cost_usd,
-               (SELECT model FROM prompts WHERE user_id = u.id AND blocked = false AND model IS NOT NULL GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1) as top_model
+               COUNT(CASE WHEN p.provider IS NULL OR p.provider = 'claude-code' THEN p.id END) as prompts,
+               COALESCE(SUM(CASE WHEN p.provider IS NULL OR p.provider = 'claude-code' THEN p.credit_cost ELSE 0 END), 0) as credits,
+               COUNT(CASE WHEN p.provider = 'antigravity' THEN p.id END) as ag_prompts,
+               COUNT(CASE WHEN p.provider = 'codex' THEN p.id END) as codex_prompts,
+               COALESCE(SUM(CASE WHEN p.provider = 'codex' THEN p.credit_cost ELSE 0 END), 0) as codex_credits,
+               (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.started_at >= ${startDateStr}) as sessions,
+               COALESCE(SUM(CASE WHEN p.provider IS NULL OR p.provider = 'claude-code' THEN p.credit_cost ELSE 0 END), 0) as cost_usd,
+               (SELECT model FROM messages WHERE user_id = u.id AND blocked = false AND model IS NOT NULL GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1) as top_model
         FROM users u
-        LEFT JOIN prompts p ON p.user_id = u.id AND p.created_at >= ${startDate} AND p.blocked = false AND p.source = ${source}
+        LEFT JOIN messages p ON p.user_id = u.id AND p.timestamp >= ${startDateStr} AND p.blocked = false AND p.provider = ${source}
         GROUP BY u.id
         ORDER BY ${sql.raw(orderColumn)} DESC
       `);
     } else {
       data = await db.execute(sql`
         SELECT u.id, u.name, u.email, u.status, u.default_model,
-               COUNT(CASE WHEN p.source IS NULL OR p.source = 'claude_code' THEN p.id END) as prompts,
-               COALESCE(SUM(CASE WHEN p.source IS NULL OR p.source = 'claude_code' THEN p.credit_cost ELSE 0 END), 0) as credits,
-               COUNT(CASE WHEN p.source = 'antigravity' THEN p.id END) as ag_prompts,
-               COUNT(CASE WHEN p.source = 'codex' THEN p.id END) as codex_prompts,
-               COALESCE(SUM(CASE WHEN p.source = 'codex' THEN p.credit_cost ELSE 0 END), 0) as codex_credits,
-               (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.started_at >= ${startDate}) as sessions,
-               COALESCE(SUM(CASE WHEN p.source IS NULL OR p.source = 'claude_code' THEN p.credit_cost ELSE 0 END), 0) as cost_usd,
-               (SELECT model FROM prompts WHERE user_id = u.id AND blocked = false AND model IS NOT NULL GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1) as top_model
+               COUNT(CASE WHEN p.provider IS NULL OR p.provider = 'claude-code' THEN p.id END) as prompts,
+               COALESCE(SUM(CASE WHEN p.provider IS NULL OR p.provider = 'claude-code' THEN p.credit_cost ELSE 0 END), 0) as credits,
+               COUNT(CASE WHEN p.provider = 'antigravity' THEN p.id END) as ag_prompts,
+               COUNT(CASE WHEN p.provider = 'codex' THEN p.id END) as codex_prompts,
+               COALESCE(SUM(CASE WHEN p.provider = 'codex' THEN p.credit_cost ELSE 0 END), 0) as codex_credits,
+               (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.started_at >= ${startDateStr}) as sessions,
+               COALESCE(SUM(CASE WHEN p.provider IS NULL OR p.provider = 'claude-code' THEN p.credit_cost ELSE 0 END), 0) as cost_usd,
+               (SELECT model FROM messages WHERE user_id = u.id AND blocked = false AND model IS NOT NULL GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1) as top_model
         FROM users u
-        LEFT JOIN prompts p ON p.user_id = u.id AND p.created_at >= ${startDate} AND p.blocked = false
+        LEFT JOIN messages p ON p.user_id = u.id AND p.timestamp >= ${startDateStr} AND p.blocked = false
         GROUP BY u.id
         ORDER BY ${sql.raw(orderColumn)} DESC
       `);
@@ -889,6 +891,7 @@ adminRouter.get('/analytics/projects', async (req: Request, res: Response) => {
     const source = req.query.source as string | undefined;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString();
 
     const db = getDb();
 
@@ -898,11 +901,11 @@ adminRouter.get('/analytics/projects', async (req: Request, res: Response) => {
         SELECT s.cwd as project,
                COUNT(p.id) as prompts,
                COALESCE(SUM(p.credit_cost), 0) as credits
-        FROM prompts p
+        FROM messages p
         JOIN sessions s ON s.id = p.session_id
-        WHERE p.created_at >= ${startDate}
+        WHERE p.timestamp >= ${startDateStr}
         AND p.blocked = false
-        AND p.source = ${source}
+        AND p.provider = ${source}
         GROUP BY s.cwd
         ORDER BY prompts DESC
       `);
@@ -911,9 +914,9 @@ adminRouter.get('/analytics/projects', async (req: Request, res: Response) => {
         SELECT s.cwd as project,
                COUNT(p.id) as prompts,
                COALESCE(SUM(p.credit_cost), 0) as credits
-        FROM prompts p
+        FROM messages p
         JOIN sessions s ON s.id = p.session_id
-        WHERE p.created_at >= ${startDate}
+        WHERE p.timestamp >= ${startDateStr}
         AND p.blocked = false
         GROUP BY s.cwd
         ORDER BY prompts DESC
@@ -937,6 +940,7 @@ adminRouter.get('/analytics/costs', async (req: Request, res: Response) => {
     const source = req.query.source as string | undefined;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString();
 
     const db = getDb();
 
@@ -947,10 +951,10 @@ adminRouter.get('/analytics/costs', async (req: Request, res: Response) => {
                COALESCE(SUM(credit_cost), 0) as credits,
                COUNT(*) as prompts,
                COALESCE(SUM(credit_cost), 0) as cost_usd
-        FROM prompts
-        WHERE created_at >= ${startDate}
+        FROM messages
+        WHERE timestamp >= ${startDateStr}
         AND blocked = false
-        AND source = ${source}
+        AND provider = ${source}
         GROUP BY model
         ORDER BY credits DESC
       `);
@@ -960,8 +964,8 @@ adminRouter.get('/analytics/costs', async (req: Request, res: Response) => {
                COALESCE(SUM(credit_cost), 0) as credits,
                COUNT(*) as prompts,
                COALESCE(SUM(credit_cost), 0) as cost_usd
-        FROM prompts
-        WHERE created_at >= ${startDate}
+        FROM messages
+        WHERE timestamp >= ${startDateStr}
         AND blocked = false
         GROUP BY model
         ORDER BY credits DESC
@@ -976,17 +980,17 @@ adminRouter.get('/analytics/costs', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /prompts
+// GET /messages
 // ---------------------------------------------------------------------------
 
-adminRouter.get('/prompts', async (req: Request, res: Response) => {
+adminRouter.get('/messages', async (req: Request, res: Response) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = (page - 1) * limit;
     const userId = req.query.user_id as string | undefined;
     const search = req.query.search as string | undefined;
-    const source = req.query.source as string | undefined;
+    const provider = req.query.provider as string | undefined;
 
     const db = getDb();
 
@@ -996,10 +1000,10 @@ adminRouter.get('/prompts', async (req: Request, res: Response) => {
       conditions.push(sql`p.user_id = ${parseInt(userId, 10)}`);
     }
     if (search) {
-      conditions.push(sql`p.prompt ILIKE ${'%' + search + '%'}`);
+      conditions.push(sql`p.content ILIKE ${'%' + search + '%'}`);
     }
-    if (source) {
-      conditions.push(sql`p.source = ${source}`);
+    if (provider) {
+      conditions.push(sql`p.provider = ${provider}`);
     }
 
     const whereClause = conditions.length > 0
@@ -1007,19 +1011,19 @@ adminRouter.get('/prompts', async (req: Request, res: Response) => {
       : sql``;
 
     const totalResult = await db.execute<{ count: number }>(sql`
-      SELECT COUNT(*) as count FROM prompts p ${whereClause}
+      SELECT COUNT(*) as count FROM messages p ${whereClause}
     `);
 
     const data = await db.execute(sql`
-      SELECT p.id, p.session_id, p.user_id, p.prompt, p.model, p.credit_cost,
-             p.blocked, p.block_reason, p.created_at, p.turn_id,
-             p.input_tokens, p.output_tokens, p.cached_tokens, p.reasoning_tokens, p.source
-      FROM prompts p ${whereClause} ORDER BY p.created_at DESC LIMIT ${limit} OFFSET ${offset}
+      SELECT p.id, p.session_id, p.user_id, p.content, p.model, p.credit_cost,
+             p.blocked, p.block_reason, p.timestamp, p.turn_id,
+             p.input_tokens, p.output_tokens, p.cached_tokens, p.reasoning_tokens, p.provider
+      FROM messages p ${whereClause} ORDER BY p.timestamp DESC LIMIT ${limit} OFFSET ${offset}
     `);
 
     res.json({ data, total: Number(totalResult[0]?.count ?? 0), page, limit });
   } catch (err) {
-    console.error('[admin-api] list prompts error:', err);
+    console.error('[admin-api] list messages error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1052,7 +1056,7 @@ adminRouter.post('/summaries/generate', async (req: Request, res: Response) => {
     }
 
     const db = getDb();
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const targetUserId = req.body.user_id as string | undefined;
 
     let recentPrompts;
@@ -1063,24 +1067,24 @@ adminRouter.post('/summaries/generate', async (req: Request, res: Response) => {
       const targetUser = await getUserById(parsedId);
       if (!targetUser) { res.status(404).json({ error: 'User not found' }); return; }
       summaryUserId = parsedId;
-      recentPrompts = await db.execute<{ prompt: string; model: string; created_at: string }>(sql`
-        SELECT prompt, model, created_at
-        FROM prompts
+      recentPrompts = await db.execute<{ content: string; model: string; timestamp: string }>(sql`
+        SELECT content, model, timestamp
+        FROM messages
         WHERE user_id = ${parsedId}
-        AND created_at >= ${since}
+        AND timestamp >= ${since}
         AND blocked = false
-        AND prompt IS NOT NULL
-        ORDER BY created_at DESC
+        AND content IS NOT NULL
+        ORDER BY timestamp DESC
         LIMIT 200
       `);
     } else {
-      recentPrompts = await db.execute<{ prompt: string; model: string; created_at: string }>(sql`
-        SELECT prompt, model, created_at
-        FROM prompts
-        WHERE created_at >= ${since}
+      recentPrompts = await db.execute<{ content: string; model: string; timestamp: string }>(sql`
+        SELECT content, model, timestamp
+        FROM messages
+        WHERE timestamp >= ${since}
         AND blocked = false
-        AND prompt IS NOT NULL
-        ORDER BY created_at DESC
+        AND content IS NOT NULL
+        ORDER BY timestamp DESC
         LIMIT 200
       `);
     }
@@ -1454,7 +1458,7 @@ adminRouter.get('/sessions/analyzed', async (req: Request, res: Response) => {
     const userId = req.query.user_id as string | undefined;
     const minScore = parseInt(req.query.min_score as string) || 0;
     const limit = parseInt(req.query.limit as string) || 50;
-    const since = new Date(Date.now() - days * 86400000);
+    const since = new Date(Date.now() - days * 86400000).toISOString();
 
     const db = getDb();
 

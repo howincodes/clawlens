@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
 import {
   initDb,
-  getDb,
   closeDb,
+  getDb,
   createTeam,
   createUser,
+  truncateAll,
 } from '../src/services/db.js';
 import { hookAuth } from '../src/middleware/hook-auth.js';
 import {
@@ -55,103 +56,97 @@ function mockNext(): NextFunction & { called: boolean } {
 // ---------------------------------------------------------------------------
 
 describe('hookAuth', () => {
-  let teamId: string;
   let validToken: string;
 
-  beforeEach(() => {
-    initDb(':memory:');
-    const team = createTeam({ name: 'Auth Team', slug: 'auth-team' });
-    teamId = team.id;
+  beforeEach(async () => {
+    await initDb();
+    await truncateAll();
     validToken = 'tok-valid-hook';
-    createUser({
-      team_id: teamId,
+    await createUser({
       name: 'Hook User',
       auth_token: validToken,
     });
   });
 
-  afterEach(() => {
-    closeDb();
+  afterEach(async () => {
+    await closeDb();
   });
 
-  it('should pass with a valid token and attach user/team', () => {
+  it('should pass with a valid token and attach user', async () => {
     const req = mockReq({
       headers: { authorization: `Bearer ${validToken}` },
     });
     const res = mockRes();
     const next = mockNext();
 
-    hookAuth(req, res, next);
+    await hookAuth(req, res, next);
 
     expect(next.called).toBe(true);
     expect(req.user).toBeDefined();
     expect(req.user!.name).toBe('Hook User');
-    expect(req.team).toBeDefined();
-    expect(req.team!.id).toBe(teamId);
   });
 
-  it('should return 401 when Authorization header is missing', () => {
+  it('should return 401 when Authorization header is missing', async () => {
     const req = mockReq({ headers: {} });
     const res = mockRes();
     const next = mockNext();
 
-    hookAuth(req, res, next);
+    await hookAuth(req, res, next);
 
     expect(next.called).toBe(false);
     expect(res._status).toBe(401);
     expect((res._json as { error: string }).error).toMatch(/Missing/);
   });
 
-  it('should return 401 when Authorization header uses wrong scheme', () => {
+  it('should return 401 when Authorization header uses wrong scheme', async () => {
     const req = mockReq({
       headers: { authorization: `Basic ${validToken}` },
     });
     const res = mockRes();
     const next = mockNext();
 
-    hookAuth(req, res, next);
+    await hookAuth(req, res, next);
 
     expect(next.called).toBe(false);
     expect(res._status).toBe(401);
   });
 
-  it('should return 401 when token is empty', () => {
+  it('should return 401 when token is empty', async () => {
     const req = mockReq({
       headers: { authorization: 'Bearer ' },
     });
     const res = mockRes();
     const next = mockNext();
 
-    hookAuth(req, res, next);
+    await hookAuth(req, res, next);
 
     expect(next.called).toBe(false);
     expect(res._status).toBe(401);
     expect((res._json as { error: string }).error).toMatch(/Empty/);
   });
 
-  it('should return 401 when token is invalid', () => {
+  it('should return 401 when token is invalid', async () => {
     const req = mockReq({
       headers: { authorization: 'Bearer tok-does-not-exist' },
     });
     const res = mockRes();
     const next = mockNext();
 
-    hookAuth(req, res, next);
+    await hookAuth(req, res, next);
 
     expect(next.called).toBe(false);
     expect(res._status).toBe(401);
     expect((res._json as { error: string }).error).toMatch(/Invalid/);
   });
 
-  it('should pass through killed users (status checked in route handlers)', () => {
+  it('should pass through killed users (status checked in route handlers)', async () => {
     const killedToken = 'tok-killed';
-    const user = createUser({
-      team_id: teamId,
+    const user = await createUser({
       name: 'Killed User',
       auth_token: killedToken,
     });
-    const database = getDb();
-    database.prepare(`UPDATE users SET status = 'killed' WHERE id = ?`).run(user.id);
+    const { updateUser } = await import('../src/db/queries/users.js');
+    await updateUser(user.id, { status: 'killed' });
 
     const req = mockReq({
       headers: { authorization: `Bearer ${killedToken}` },
@@ -159,7 +154,7 @@ describe('hookAuth', () => {
     const res = mockRes();
     const next = mockNext();
 
-    hookAuth(req, res, next);
+    await hookAuth(req, res, next);
 
     expect(next.called).toBe(true);
     expect(req.user).toBeDefined();
@@ -173,9 +168,10 @@ describe('hookAuth', () => {
 
 describe('adminAuth', () => {
   const adminPayload = {
-    sub: 'admin-001',
+    sub: 1,
     email: 'admin@example.com',
     role: 'admin',
+    permissions: [] as string[],
   };
 
   it('should pass with a valid JWT and attach admin payload', () => {
@@ -190,7 +186,7 @@ describe('adminAuth', () => {
 
     expect(next.called).toBe(true);
     expect(req.admin).toBeDefined();
-    expect(req.admin!.sub).toBe('admin-001');
+    expect(req.admin!.sub).toBe(1);
     expect(req.admin!.email).toBe('admin@example.com');
     expect(req.admin!.role).toBe('admin');
   });
@@ -282,9 +278,10 @@ describe('adminAuth', () => {
 describe('token helpers', () => {
   it('generateToken should produce a valid JWT', () => {
     const token = generateToken({
-      sub: 'test-admin',
+      sub: 1,
       email: 'test@example.com',
       role: 'admin',
+      permissions: [],
     });
     expect(typeof token).toBe('string');
     expect(token.split('.')).toHaveLength(3);
@@ -292,12 +289,13 @@ describe('token helpers', () => {
 
   it('verifyToken should decode a valid JWT', () => {
     const token = generateToken({
-      sub: 'test-admin',
+      sub: 1,
       email: 'test@example.com',
       role: 'super_admin',
+      permissions: ['users.manage'],
     });
     const decoded = verifyToken(token);
-    expect(decoded.sub).toBe('test-admin');
+    expect(decoded.sub).toBe(1);
     expect(decoded.email).toBe('test@example.com');
     expect(decoded.role).toBe('super_admin');
     expect(decoded.iat).toBeDefined();
@@ -310,7 +308,7 @@ describe('token helpers', () => {
 
   it('verifyToken should throw for expired token', () => {
     const token = jwt.sign(
-      { sub: 'x', email: 'x@x.com', role: 'admin' },
+      { sub: 1, email: 'x@x.com', role: 'admin', permissions: [] },
       process.env.JWT_SECRET ?? 'test-jwt-secret',
       { expiresIn: '0s' },
     );

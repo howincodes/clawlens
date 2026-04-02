@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { getAllPrompts, getUsers } from '@/lib/api'
+import { getAllMessages, getUsers } from '@/lib/api'
 import { SourceFilter } from '@/components/SourceFilter'
 import { SourceBadge } from '@/components/SourceBadge'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -112,7 +112,7 @@ export function PromptsBrowser() {
       if (blocked) params.blocked = blocked
       if (source) params.source = source
 
-      const res = await getAllPrompts(params)
+      const res = await getAllMessages(params)
       setData({ items: res?.data || [], total: res?.total || 0 })
     } catch (err) {
       setError(String(err))

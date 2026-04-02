@@ -2,17 +2,19 @@ import type { Request, Response, NextFunction } from 'express';
 import { getUserByToken } from '../db/queries/index.js';
 import type { users } from '../db/schema/index.js';
 import type { InferSelectModel } from 'drizzle-orm';
+import type { ProviderAdapter } from '../providers/types.js';
 
 type UserRow = InferSelectModel<typeof users>;
 
 // ---------------------------------------------------------------------------
-// Augment Express Request to carry authenticated user
+// Augment Express Request to carry authenticated user + provider adapter
 // ---------------------------------------------------------------------------
 
 declare global {
   namespace Express {
     interface Request {
       user?: UserRow;
+      providerAdapter?: ProviderAdapter;
     }
   }
 }

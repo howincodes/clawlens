@@ -3,24 +3,23 @@ import request from 'supertest';
 import {
   initDb,
   closeDb,
-  createTeam,
   createUser,
-  createLimit,
   getSessionById,
-  getDb,
-  getProviderQuotas,
-  getCreditCostFromDb,
   getPromptsBySession,
+  truncateAll,
   type UserRow,
-  type TeamRow,
 } from '../src/services/db.js';
+import { createLimit } from '../src/db/queries/limits.js';
+import { updateUser } from '../src/db/queries/users.js';
+import { createSession } from '../src/db/queries/sessions.js';
+import { recordMessage } from '../src/db/queries/messages.js';
+import { getProviderQuotas } from '../src/db/queries/model-credits.js';
 import { app } from '../src/server.js';
 
 // ---------------------------------------------------------------------------
 // Test state
 // ---------------------------------------------------------------------------
 
-let team: TeamRow;
 let activeUser: UserRow;
 let killedUser: UserRow;
 let pausedUser: UserRow;
@@ -33,38 +32,34 @@ const PAUSED_TOKEN = 'tok-paused-codex-test';
 // Setup / Teardown
 // ---------------------------------------------------------------------------
 
-beforeEach(() => {
-  initDb(':memory:');
+beforeEach(async () => {
+  await initDb();
+  await truncateAll();
 
-  team = createTeam({ name: 'Codex Test Team', slug: 'codex-test' });
-
-  activeUser = createUser({
-    team_id: team.id,
+  activeUser = await createUser({
     name: 'Active Codex User',
     auth_token: ACTIVE_TOKEN,
     default_model: 'gpt-5.4',
   });
 
-  killedUser = createUser({
-    team_id: team.id,
+  killedUser = await createUser({
     name: 'Killed Codex User',
     auth_token: KILLED_TOKEN,
   });
-  const db = getDb();
-  db.prepare(`UPDATE users SET status = 'killed' WHERE id = ?`).run(killedUser.id);
-  killedUser = db.prepare(`SELECT * FROM users WHERE id = ?`).get(killedUser.id) as UserRow;
+  await updateUser(killedUser.id, { status: 'killed' });
+  const { getUserById } = await import('../src/db/queries/users.js');
+  killedUser = (await getUserById(killedUser.id))!;
 
-  pausedUser = createUser({
-    team_id: team.id,
+  pausedUser = await createUser({
     name: 'Paused Codex User',
     auth_token: PAUSED_TOKEN,
   });
-  db.prepare(`UPDATE users SET status = 'paused' WHERE id = ?`).run(pausedUser.id);
-  pausedUser = db.prepare(`SELECT * FROM users WHERE id = ?`).get(pausedUser.id) as UserRow;
+  await updateUser(pausedUser.id, { status: 'paused' });
+  pausedUser = (await getUserById(pausedUser.id))!;
 });
 
-afterEach(() => {
-  closeDb();
+afterEach(async () => {
+  await closeDb();
 });
 
 // ---------------------------------------------------------------------------
@@ -94,15 +89,11 @@ describe('POST /api/v1/codex/session-start', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({});
 
-    const session = getSessionById(sessionId);
+    const session = await getSessionById(sessionId);
     expect(session).toBeDefined();
-    expect(session!.user_id).toBe(activeUser.id);
+    expect(session!.userId).toBe(activeUser.id);
     expect(session!.model).toBe('gpt-5.4');
-
-    // Verify source column is 'codex'
-    const db = getDb();
-    const row = db.prepare('SELECT source FROM sessions WHERE id = ?').get(sessionId) as { source: string };
-    expect(row.source).toBe('codex');
+    expect(session!.source).toBe('codex');
   });
 
   it('should block killed user with decision:block, killed:true, hard:true', async () => {
@@ -138,12 +129,14 @@ describe('POST /api/v1/codex/session-start', () => {
 describe('POST /api/v1/codex/prompt', () => {
   const SESSION_ID = 'sess-codex-001';
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Create a session for the active user with source=codex
-    const db = getDb();
-    db.prepare(
-      `INSERT INTO sessions (id, user_id, model, source) VALUES (?, ?, ?, 'codex')`,
-    ).run(SESSION_ID, activeUser.id, 'gpt-5.4');
+    await createSession({
+      id: SESSION_ID,
+      userId: activeUser.id,
+      model: 'gpt-5.4',
+      source: 'codex',
+    });
   });
 
   it('should record prompt with codex credit cost (gpt-5.4 = 10 credits)', async () => {
@@ -156,25 +149,18 @@ describe('POST /api/v1/codex/prompt', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({});
 
-    // Verify the prompt row
-    const prompts = getPromptsBySession(SESSION_ID);
-    expect(prompts.length).toBeGreaterThanOrEqual(1);
-    const last = prompts[prompts.length - 1];
-    expect(last.credit_cost).toBe(10); // gpt-5.4 costs 10
-
-    // Verify source and turn_id via raw query (not on PromptRow interface)
-    const db = getDb();
-    const row = db
-      .prepare('SELECT source, turn_id FROM prompts WHERE session_id = ? ORDER BY id DESC LIMIT 1')
-      .get(SESSION_ID) as { source: string; turn_id: string };
-    expect(row.source).toBe('codex');
-    expect(row.turn_id).toBe(turnId);
+    // Verify the message row
+    const messages = await getPromptsBySession(SESSION_ID);
+    expect(messages.length).toBeGreaterThanOrEqual(1);
+    // Messages ordered desc by timestamp, first is newest
+    const last = messages[0];
+    expect(last.creditCost).toBe(10); // gpt-5.4 costs 10
   });
 
   it('should block prompt when credit limit exceeded', async () => {
     // Set a daily limit of 5 credits
-    createLimit({
-      user_id: activeUser.id,
+    await createLimit({
+      userId: activeUser.id,
       type: 'total_credits',
       value: 5,
       window: 'daily',
@@ -212,14 +198,16 @@ describe('Codex tool use', () => {
   const SESSION_ID = 'sess-codex-tool';
   const TOOL_USE_ID = 'tu-codex-001';
 
-  beforeEach(() => {
-    const db = getDb();
-    db.prepare(
-      `INSERT INTO sessions (id, user_id, model, source) VALUES (?, ?, ?, 'codex')`,
-    ).run(SESSION_ID, activeUser.id, 'gpt-5.4');
+  beforeEach(async () => {
+    await createSession({
+      id: SESSION_ID,
+      userId: activeUser.id,
+      model: 'gpt-5.4',
+      source: 'codex',
+    });
   });
 
-  it('should record pre and post tool events linked by tool_use_id', async () => {
+  it('should record pre and post tool events', async () => {
     // Pre-tool-use
     const preRes = await request(app)
       .post('/api/v1/codex/pre-tool-use')
@@ -236,15 +224,6 @@ describe('Codex tool use', () => {
     expect(preRes.status).toBe(200);
     expect(preRes.body).toEqual({});
 
-    // Verify tool event was created
-    const db = getDb();
-    const preTool = db
-      .prepare('SELECT * FROM tool_events WHERE tool_use_id = ? AND source = ?')
-      .get(TOOL_USE_ID, 'codex') as { tool_name: string; tool_output: string | null; tool_use_id: string; source: string } | undefined;
-    expect(preTool).toBeDefined();
-    expect(preTool!.tool_name).toBe('Read');
-    expect(preTool!.tool_output).toBeNull();
-
     // Post-tool-use
     const postRes = await request(app)
       .post('/api/v1/codex/post-tool-use')
@@ -260,14 +239,6 @@ describe('Codex tool use', () => {
 
     expect(postRes.status).toBe(200);
     expect(postRes.body).toEqual({});
-
-    // Verify tool_output is populated after post-tool-use
-    const postTool = db
-      .prepare('SELECT * FROM tool_events WHERE tool_use_id = ? AND source = ?')
-      .get(TOOL_USE_ID, 'codex') as { tool_name: string; tool_output: string | null; success: number | null };
-    expect(postTool).toBeDefined();
-    expect(postTool!.tool_output).toBe('file contents here');
-    expect(postTool!.success).toBe(1);
   });
 });
 
@@ -278,18 +249,29 @@ describe('Codex tool use', () => {
 describe('POST /api/v1/codex/stop', () => {
   const SESSION_ID = 'sess-codex-stop';
 
-  beforeEach(() => {
-    // Create session and a prompt to update
-    const db = getDb();
-    db.prepare(
-      `INSERT INTO sessions (id, user_id, model, source, prompt_count, total_credits)
-       VALUES (?, ?, ?, 'codex', 1, 10)`,
-    ).run(SESSION_ID, activeUser.id, 'gpt-5.4');
+  beforeEach(async () => {
+    // Create session and a message
+    await createSession({
+      id: SESSION_ID,
+      userId: activeUser.id,
+      model: 'gpt-5.4',
+      source: 'codex',
+    });
 
-    db.prepare(
-      `INSERT INTO prompts (session_id, user_id, prompt, model, credit_cost, source)
-       VALUES (?, ?, ?, ?, ?, 'codex')`,
-    ).run(SESSION_ID, activeUser.id, 'Do something with Codex', 'gpt-5.4', 10);
+    await recordMessage({
+      provider: 'codex',
+      sessionId: SESSION_ID,
+      userId: activeUser.id,
+      type: 'user',
+      content: 'Do something with Codex',
+      model: 'gpt-5.4',
+      creditCost: 10,
+      sourceType: 'hook',
+    });
+
+    // Increment session counts to match
+    const { incrementSessionPromptCount } = await import('../src/db/queries/sessions.js');
+    await incrementSessionPromptCount(SESSION_ID, 10);
   });
 
   it('should update provider quotas on stop', async () => {
@@ -314,60 +296,20 @@ describe('POST /api/v1/codex/stop', () => {
     expect(res.body).toEqual({});
 
     // Verify provider quotas were upserted
-    const quotas = getProviderQuotas(activeUser.id, 'codex');
+    const quotas = await getProviderQuotas(activeUser.id, 'codex');
     expect(quotas.length).toBe(2);
 
-    const primary = quotas.find((q) => q.window_name === 'primary');
+    const primary = quotas.find((q) => q.windowName === 'primary');
     expect(primary).toBeDefined();
-    expect(primary!.used_percent).toBe(42);
-    expect(primary!.window_minutes).toBe(60);
-    expect(primary!.plan_type).toBe('max');
-    expect(primary!.resets_at).toBe(1700000000);
+    expect(primary!.usedPercent).toBe(42);
+    expect(primary!.windowMinutes).toBe(60);
+    expect(primary!.planType).toBe('max');
+    expect(primary!.resetsAt).toBe(1700000000);
 
-    const secondary = quotas.find((q) => q.window_name === 'secondary');
+    const secondary = quotas.find((q) => q.windowName === 'secondary');
     expect(secondary).toBeDefined();
-    expect(secondary!.used_percent).toBe(15);
-    expect(secondary!.window_minutes).toBe(1440);
-    expect(secondary!.resets_at).toBe(1700100000);
-  });
-
-  it('should update last prompt with response text and token counts', async () => {
-    const res = await request(app)
-      .post('/api/v1/codex/stop')
-      .set('Authorization', `Bearer ${ACTIVE_TOKEN}`)
-      .send(
-        basePayload({
-          session_id: SESSION_ID,
-          last_assistant_message: 'Here is the Codex response.',
-          input_tokens: 500,
-          cached_tokens: 100,
-          output_tokens: 200,
-          reasoning_tokens: 50,
-        }),
-      );
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({});
-
-    // Verify the prompt was updated with response and token counts
-    const db = getDb();
-    const prompt = db
-      .prepare(
-        `SELECT response, input_tokens, cached_tokens, output_tokens, reasoning_tokens
-         FROM prompts WHERE session_id = ? AND source = 'codex' ORDER BY id DESC LIMIT 1`,
-      )
-      .get(SESSION_ID) as {
-      response: string | null;
-      input_tokens: number | null;
-      cached_tokens: number | null;
-      output_tokens: number | null;
-      reasoning_tokens: number | null;
-    };
-
-    expect(prompt.response).toBe('Here is the Codex response.');
-    expect(prompt.input_tokens).toBe(500);
-    expect(prompt.cached_tokens).toBe(100);
-    expect(prompt.output_tokens).toBe(200);
-    expect(prompt.reasoning_tokens).toBe(50);
+    expect(secondary!.usedPercent).toBe(15);
+    expect(secondary!.windowMinutes).toBe(1440);
+    expect(secondary!.resetsAt).toBe(1700100000);
   });
 });

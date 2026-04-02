@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions, getWatcherStatus, getWatcherLogs, getWatcherLogHistory, getWatcherLogEntry, sendWatcherCommand, updateUser, getUserProfile, updateUserProfile, getProviderQuotas, getUserActivity, getUserActivityWindows, getProjects, getProjectMembersApi, getTasks, killUserCredential, rotateUserCredential } from '@/lib/api'
+import { getUser, getUserMessages, getUserSessions, generateSummary, getSubscriptions, getWatcherStatus, getWatcherLogs, getWatcherLogHistory, getWatcherLogEntry, sendWatcherCommand, updateUser, getUserProfile, updateUserProfile, getProviderQuotas, getUserActivity, getUserActivityWindows, getProjects, getProjectMembersApi, getTasks, killUserCredential, rotateUserCredential } from '@/lib/api'
 import RoleBadge from '@/components/RoleBadge'
 import WatchStatusIndicator from '@/components/WatchStatusIndicator'
 import {
@@ -259,7 +259,7 @@ export function UserDetail() {
       }
       if (promptSearch) params.search = promptSearch
       if (promptSource) params.source = promptSource
-      const res = await getUserPrompts(id, params)
+      const res = await getUserMessages(id, params)
       setPrompts(res?.data || res?.prompts || [])
       setPromptsTotal(res?.total || 0)
     } catch (err) {
@@ -285,7 +285,7 @@ export function UserDetail() {
   const loadAllPromptsForCharts = useCallback(async () => {
     if (!id) return
     try {
-      const res = await getUserPrompts(id, { limit: '500', ...(promptSource ? { source: promptSource } : {}) })
+      const res = await getUserMessages(id, { limit: '500', ...(promptSource ? { source: promptSource } : {}) })
       setAllPrompts(res?.data || res?.prompts || [])
     } catch (_err) {
       // Chart data is nice-to-have, don't block on it
