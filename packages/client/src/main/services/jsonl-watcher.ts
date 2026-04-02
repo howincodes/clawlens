@@ -7,50 +7,25 @@ import { enqueue, hasQueuedEvents, flushQueue, loadQueue, type QueuedEvent } fro
 import type { HowinLensConfig } from '../utils/config';
 
 // ---------------------------------------------------------------------------
-// State
+// JSONL Watcher — watches Claude Code session files and sends raw content
+// to the server. NO parsing, NO filtering — server handles everything.
 // ---------------------------------------------------------------------------
 
 let watcher: FSWatcher | null = null;
 let syncInterval: ReturnType<typeof setInterval> | null = null;
 let debouncedSyncTimer: ReturnType<typeof setTimeout> | null = null;
-let retryCount = 0;
-const MAX_RETRY_DELAY_MS = 60_000;
-const BASE_SYNC_INTERVAL_MS = 5_000;      // 5s fallback (was 10s)
-const DEBOUNCE_SYNC_MS = 500;             // 500ms debounced sync on file change
 
-// Track read offsets per file so we only process new lines
+const BASE_SYNC_INTERVAL_MS = 5_000;
+const DEBOUNCE_SYNC_MS = 500;
+
+// Track read offsets per file (byte position)
 const fileOffsets = new Map<string, number>();
 const OFFSETS_PATH = path.join(os.homedir(), '.howinlens', 'offsets.json');
 
-// Batches waiting to be synced (in-memory, overflow goes to offline queue)
-let pendingMessages: ParsedMessage[] = [];
+// Pending raw syncs — one entry per file with accumulated new content
 let pendingRawSyncs = new Map<string, RawSyncEntry>();
 
 const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface ParsedMessage {
-  uuid?: string;
-  parentUuid?: string;
-  sessionId: string;
-  type: string;
-  messageContent?: string;
-  model?: string;
-  rawModel?: string;
-  inputTokens?: number;
-  outputTokens?: number;
-  cachedTokens?: number;
-  cacheCreationTokens?: number;
-  creditCost?: number;
-  cwd?: string;
-  gitBranch?: string;
-  timestamp?: string;
-  provider?: string;
-  sourceType?: string;
-}
 
 interface RawSyncEntry {
   sessionId: string;
@@ -68,107 +43,182 @@ export function startJsonlWatcher(config: HowinLensConfig): void {
   console.log('[jsonl-watcher] Starting to watch %s', CLAUDE_PROJECTS_DIR);
 
   if (!fs.existsSync(CLAUDE_PROJECTS_DIR)) {
-    console.log('[jsonl-watcher] ✗ %s does not exist, skipping initialization', CLAUDE_PROJECTS_DIR);
+    console.log('[jsonl-watcher] %s does not exist, skipping', CLAUDE_PROJECTS_DIR);
     return;
   }
 
-  // Load offline queue from disk (events from previous session)
   loadQueue();
-  console.log('[jsonl-watcher] Offline queue loaded');
+  loadOffsets();
 
-  // Watch each project hash directory directly instead of deep glob.
-  // This avoids the glob issue on some systems and is more efficient.
   const projectDirs = discoverProjectDirs();
-  console.log('[jsonl-watcher] Discovered %d project directories: %s', projectDirs.length, projectDirs.slice(0, 3).join(', ') + (projectDirs.length > 3 ? '...' : ''));
+  console.log('[jsonl-watcher] %d project directories found', projectDirs.length);
 
-  if (projectDirs.length === 0) {
-    console.log('[jsonl-watcher] ⚠ No project directories found, will re-scan periodically');
-  }
-
-  // Watch the projects root for new project directories
   watcher = chokidar.watch(CLAUDE_PROJECTS_DIR, {
     persistent: true,
     ignoreInitial: false,
-    depth: 2,                  // projects/<hash>/<session>.jsonl
+    depth: 2,
     ignored: (filePath: string, stats) => {
-      // Allow directories to be traversed
       if (stats?.isDirectory()) return false;
-      // Only watch .jsonl files
       return !filePath.endsWith('.jsonl');
     },
   });
 
-  // Load persisted offsets from last session
-  loadOffsets();
-
   watcher.on('change', (filePath: string) => {
     if (filePath.endsWith('.jsonl')) {
-      processJsonlFile(filePath);
+      readNewLines(filePath);
       triggerDebouncedSync(config);
     }
   });
 
   watcher.on('add', (filePath: string) => {
     if (filePath.endsWith('.jsonl')) {
-      processJsonlFile(filePath);
+      readNewLines(filePath);
     }
   });
 
-  // Periodic sync with adaptive interval (backs off on failures)
-  scheduleSyncCycle(config);
+  // Periodic fallback sync
+  syncInterval = setInterval(() => sync(config), BASE_SYNC_INTERVAL_MS);
 
-  console.log(`[jsonl-watcher] Watching ${CLAUDE_PROJECTS_DIR} (${projectDirs.length} project dirs)`);
+  console.log('[jsonl-watcher] Watching');
 }
 
 export function stopJsonlWatcher(): void {
-  if (watcher) {
-    watcher.close();
-    watcher = null;
-  }
-  if (syncInterval) {
-    clearInterval(syncInterval);
-    syncInterval = null;
-  }
-  if (debouncedSyncTimer) {
-    clearTimeout(debouncedSyncTimer);
-    debouncedSyncTimer = null;
-  }
-  // Persist offsets before shutdown
+  if (watcher) { watcher.close(); watcher = null; }
+  if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
+  if (debouncedSyncTimer) { clearTimeout(debouncedSyncTimer); debouncedSyncTimer = null; }
   saveOffsets();
   console.log('[jsonl-watcher] Stopped');
 }
 
 // ---------------------------------------------------------------------------
-// Debounced sync — triggers ~500ms after last file change
+// Read new lines from a JSONL file — just track raw content, no parsing
 // ---------------------------------------------------------------------------
 
-function triggerDebouncedSync(config: HowinLensConfig): void {
-  if (debouncedSyncTimer) return; // already scheduled
-  debouncedSyncTimer = setTimeout(async () => {
-    debouncedSyncTimer = null;
-    await syncMessages(config);
-    await syncRawFiles(config);
-    saveOffsets();
-  }, DEBOUNCE_SYNC_MS);
+function readNewLines(filePath: string): void {
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const offset = fileOffsets.get(filePath) || 0;
+
+    if (content.length <= offset) return;
+
+    const lastNewline = content.lastIndexOf('\n');
+    if (lastNewline <= offset) return;
+
+    const newContent = content.slice(offset, lastNewline + 1);
+    fileOffsets.set(filePath, lastNewline + 1);
+
+    const lineCount = newContent.split('\n').filter(l => l.trim()).length;
+    const sessionId = path.basename(filePath, '.jsonl');
+    const projectDir = path.basename(path.dirname(filePath));
+
+    // Accumulate raw content per file
+    const existing = pendingRawSyncs.get(filePath);
+    if (existing) {
+      existing.newContent += newContent;
+      existing.totalOffset = lastNewline + 1;
+      existing.totalLines += lineCount;
+    } else {
+      pendingRawSyncs.set(filePath, {
+        sessionId,
+        projectPath: projectDir,
+        newContent,
+        totalOffset: lastNewline + 1,
+        totalLines: lineCount,
+      });
+    }
+  } catch (err) {
+    console.error(`[jsonl-watcher] Error reading ${filePath}:`, err);
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Offset persistence — survive restarts without re-processing
+// Sync — send raw content to server (server parses + extracts messages)
+// ---------------------------------------------------------------------------
+
+function triggerDebouncedSync(config: HowinLensConfig): void {
+  if (debouncedSyncTimer) return;
+  debouncedSyncTimer = setTimeout(async () => {
+    debouncedSyncTimer = null;
+    await sync(config);
+  }, DEBOUNCE_SYNC_MS);
+}
+
+async function sync(config: HowinLensConfig): Promise<void> {
+  // Flush offline queue first
+  if (hasQueuedEvents()) {
+    await flushOfflineQueue(config);
+  }
+
+  // Send pending raw syncs
+  if (pendingRawSyncs.size === 0) return;
+
+  const entries = Array.from(pendingRawSyncs.entries());
+  pendingRawSyncs.clear();
+
+  for (const [, data] of entries) {
+    const payload = {
+      sessionId: data.sessionId,
+      projectPath: data.projectPath,
+      rawContent: data.newContent,
+      lineCount: data.totalLines,
+      lastOffset: data.totalOffset,
+    };
+
+    try {
+      const result = await apiRequest(config, '/api/v1/client/session-jsonl', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      if (result) {
+        console.log('[jsonl-watcher] Synced session %s (%d lines, %d messages extracted)',
+          data.sessionId.slice(0, 8), data.totalLines, result.extracted || 0);
+      } else {
+        enqueue({ type: 'session-jsonl', payload, timestamp: Date.now() });
+      }
+    } catch {
+      enqueue({ type: 'session-jsonl', payload, timestamp: Date.now() });
+    }
+  }
+
+  saveOffsets();
+}
+
+async function flushOfflineQueue(config: HowinLensConfig): Promise<number> {
+  return flushQueue(async (events: QueuedEvent[]) => {
+    let flushed = 0;
+    for (const event of events) {
+      if (event.type !== 'session-jsonl' && event.type !== 'file-events') {
+        flushed++; // skip obsolete event types
+        continue;
+      }
+      const apiPath = event.type === 'session-jsonl'
+        ? '/api/v1/client/session-jsonl'
+        : '/api/v1/client/file-events';
+      try {
+        const result = await apiRequest(config, apiPath, {
+          method: 'POST',
+          body: JSON.stringify(event.payload),
+        });
+        if (result) { flushed++; } else { break; }
+      } catch { break; }
+    }
+    return flushed;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Offset persistence
 // ---------------------------------------------------------------------------
 
 function loadOffsets(): void {
   try {
     if (fs.existsSync(OFFSETS_PATH)) {
-      const raw = fs.readFileSync(OFFSETS_PATH, 'utf-8');
-      const saved = JSON.parse(raw) as Record<string, number>;
-      for (const [filePath, offset] of Object.entries(saved)) {
-        fileOffsets.set(filePath, offset);
-      }
-      console.log('[jsonl-watcher] Loaded %d persisted offsets', Object.keys(saved).length);
+      const saved = JSON.parse(fs.readFileSync(OFFSETS_PATH, 'utf-8')) as Record<string, number>;
+      for (const [k, v] of Object.entries(saved)) fileOffsets.set(k, v);
+      console.log('[jsonl-watcher] Loaded %d offsets', Object.keys(saved).length);
     }
-  } catch {
-    console.log('[jsonl-watcher] No persisted offsets found, starting fresh');
-  }
+  } catch {}
 }
 
 function saveOffsets(): void {
@@ -176,328 +226,15 @@ function saveOffsets(): void {
     const dir = path.dirname(OFFSETS_PATH);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const obj: Record<string, number> = {};
-    for (const [filePath, offset] of fileOffsets.entries()) {
-      obj[filePath] = offset;
-    }
+    for (const [k, v] of fileOffsets.entries()) obj[k] = v;
     fs.writeFileSync(OFFSETS_PATH, JSON.stringify(obj));
   } catch {}
 }
 
-// ---------------------------------------------------------------------------
-// Directory discovery
-// ---------------------------------------------------------------------------
-
 function discoverProjectDirs(): string[] {
   try {
-    const entries = fs.readdirSync(CLAUDE_PROJECTS_DIR, { withFileTypes: true });
-    return entries
+    return fs.readdirSync(CLAUDE_PROJECTS_DIR, { withFileTypes: true })
       .filter(e => e.isDirectory())
       .map(e => path.join(CLAUDE_PROJECTS_DIR, e.name));
-  } catch {
-    return [];
-  }
-}
-
-// ---------------------------------------------------------------------------
-// JSONL file processing — handles ALL line types
-// ---------------------------------------------------------------------------
-
-function processJsonlFile(filePath: string): void {
-  try {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const offset = fileOffsets.get(filePath) || 0;
-
-    if (content.length <= offset) return;
-
-    // Only process up to the last complete line
-    const lastNewline = content.lastIndexOf('\n');
-    if (lastNewline <= offset) return;
-
-    const newContent = content.slice(offset, lastNewline + 1);
-    fileOffsets.set(filePath, lastNewline + 1);
-
-    const lines = newContent.split('\n').filter(l => l.trim());
-
-    // Extract session and project info from path
-    const sessionId = path.basename(filePath, '.jsonl');
-    const projectDir = path.basename(path.dirname(filePath));
-
-    // Queue raw content for bulk sync
-    queueRawSync(filePath, sessionId, projectDir, newContent, lastNewline + 1, lines.length);
-
-    // Parse individual lines — extract basic fields, send everything with a uuid.
-    // Server handles all filtering (meta, commands, thinking-only, etc.)
-    for (const line of lines) {
-      try {
-        const parsed = JSON.parse(line);
-        if (!parsed.uuid || !parsed.type) continue;
-
-        const msg = extractMessage(parsed, sessionId);
-        if (msg) pendingMessages.push(msg);
-      } catch {
-        // Malformed JSON line — raw sync still captures it
-      }
-    }
-  } catch (err) {
-    console.error(`[jsonl-watcher] Error processing ${filePath}:`, err);
-  }
-}
-
-/**
- * Extract basic fields from any JSONL line. No filtering — server decides what to keep.
- * Client just extracts content, model, tokens, and metadata.
- */
-function extractMessage(parsed: any, sessionId: string): ParsedMessage | null {
-  const msg: ParsedMessage = {
-    uuid: parsed.uuid,
-    parentUuid: parsed.parentUuid,
-    sessionId: parsed.sessionId || sessionId,
-    type: parsed.type,
-    cwd: parsed.cwd,
-    gitBranch: parsed.gitBranch,
-    timestamp: parsed.timestamp,
-    provider: 'claude-code',
-    sourceType: 'jsonl',
-  };
-
-  // Pass isMeta flag so server can filter
-  if (parsed.isMeta) (msg as any).isMeta = true;
-
-  // Extract content based on message structure
-  const messageContent = parsed.message?.content;
-  if (typeof messageContent === 'string') {
-    msg.messageContent = messageContent;
-  } else if (Array.isArray(messageContent)) {
-    // Assistant content blocks — extract text, skip thinking/tool_use
-    const textBlocks = messageContent.filter((b: any) => b.type === 'text');
-    msg.messageContent = textBlocks.map((b: any) => b.text).join('\n').trim();
-  }
-
-  // Model + tokens (from assistant messages)
-  if (parsed.message?.model) {
-    msg.model = parsed.message.model;
-    msg.rawModel = parsed.message.model;
-  }
-
-  const usage = parsed.message?.usage;
-  if (usage) {
-    msg.inputTokens = usage.input_tokens;
-    msg.outputTokens = usage.output_tokens;
-    msg.cachedTokens = usage.cache_read_input_tokens || 0;
-    msg.cacheCreationTokens = usage.cache_creation_input_tokens || 0;
-  }
-
-  return msg;
-}
-
-// ---------------------------------------------------------------------------
-// Raw sync queueing
-// ---------------------------------------------------------------------------
-
-function queueRawSync(
-  filePath: string,
-  sessionId: string,
-  projectPath: string,
-  newContent: string,
-  totalOffset: number,
-  lineCount: number,
-): void {
-  const existing = pendingRawSyncs.get(filePath);
-  if (existing) {
-    existing.newContent += newContent;
-    existing.totalOffset = totalOffset;
-    existing.totalLines += lineCount;
-  } else {
-    pendingRawSyncs.set(filePath, {
-      sessionId,
-      projectPath,
-      newContent,
-      totalOffset,
-      totalLines: lineCount,
-    });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Sync with retry + offline queue integration
-// ---------------------------------------------------------------------------
-
-function scheduleSyncCycle(config: HowinLensConfig): void {
-  const doSync = async () => {
-    let hadFailure = false;
-
-    // 1. Try to flush offline queue first (events from previous failures)
-    if (hasQueuedEvents()) {
-      const flushed = await flushOfflineQueue(config);
-      if (flushed === 0 && hasQueuedEvents()) {
-        hadFailure = true;
-      }
-    }
-
-    // 2. Sync current in-memory batches
-    const msgResult = await syncMessages(config);
-    const rawResult = await syncRawFiles(config);
-
-    if (!msgResult || !rawResult) {
-      hadFailure = true;
-    }
-
-    // Adaptive interval: back off on failures, reset on success
-    if (hadFailure) {
-      retryCount = Math.min(retryCount + 1, 6); // cap at ~64s
-    } else {
-      retryCount = 0;
-    }
-  };
-
-  syncInterval = setInterval(doSync, BASE_SYNC_INTERVAL_MS);
-}
-
-/**
- * Sync parsed messages. Returns true on success, false on failure.
- */
-async function syncMessages(config: HowinLensConfig): Promise<boolean> {
-  if (pendingMessages.length === 0) return true;
-
-  const batch = pendingMessages.splice(0, 100);
-
-  try {
-    const result = await apiRequest(config, '/api/v1/client/conversations', {
-      method: 'POST',
-      body: JSON.stringify({ messages: batch }),
-    });
-
-    if (result) {
-      console.log(`[jsonl-watcher] Synced ${batch.length} messages`);
-      return true;
-    }
-
-    // API returned null (HTTP error) — queue for retry
-    enqueueMessages(batch);
-    return false;
-  } catch {
-    // Network error — queue for offline retry
-    enqueueMessages(batch);
-    return false;
-  }
-}
-
-/**
- * Sync raw JSONL files. Returns true on success, false on failure.
- */
-async function syncRawFiles(config: HowinLensConfig): Promise<boolean> {
-  if (pendingRawSyncs.size === 0) return true;
-
-  const entries = Array.from(pendingRawSyncs.entries());
-  pendingRawSyncs.clear();
-
-  let allOk = true;
-
-  for (const [filePath, data] of entries) {
-    try {
-      const result = await apiRequest(config, '/api/v1/client/session-jsonl', {
-        method: 'POST',
-        body: JSON.stringify({
-          sessionId: data.sessionId,
-          projectPath: data.projectPath,
-          rawContent: data.newContent,
-          lineCount: data.totalLines,
-          lastOffset: data.totalOffset,
-        }),
-      });
-
-      if (result) {
-        console.log(`[jsonl-watcher] Synced raw JSONL for session ${data.sessionId} (${data.totalLines} lines)`);
-      } else {
-        // Queue for offline retry
-        enqueue({
-          type: 'session-jsonl',
-          payload: {
-            sessionId: data.sessionId,
-            projectPath: data.projectPath,
-            rawContent: data.newContent,
-            lineCount: data.totalLines,
-            lastOffset: data.totalOffset,
-          },
-          timestamp: Date.now(),
-        });
-        allOk = false;
-      }
-    } catch {
-      enqueue({
-        type: 'session-jsonl',
-        payload: {
-          sessionId: data.sessionId,
-          projectPath: data.projectPath,
-          rawContent: data.newContent,
-          lineCount: data.totalLines,
-          lastOffset: data.totalOffset,
-        },
-        timestamp: Date.now(),
-      });
-      allOk = false;
-    }
-  }
-
-  return allOk;
-}
-
-function enqueueMessages(batch: ParsedMessage[]): void {
-  enqueue({
-    type: 'conversations',
-    payload: { messages: batch },
-    timestamp: Date.now(),
-  });
-}
-
-/**
- * Flush offline queue events to the server.
- */
-async function flushOfflineQueue(config: HowinLensConfig): Promise<number> {
-  return flushQueue(async (events: QueuedEvent[]) => {
-    let flushed = 0;
-
-    for (const event of events) {
-      try {
-        let apiPath: string;
-        let body: string;
-
-        switch (event.type) {
-          case 'conversations':
-            apiPath = '/api/v1/client/conversations';
-            body = JSON.stringify(event.payload);
-            break;
-          case 'session-jsonl':
-            apiPath = '/api/v1/client/session-jsonl';
-            body = JSON.stringify(event.payload);
-            break;
-          case 'file-events':
-            apiPath = '/api/v1/client/file-events';
-            body = JSON.stringify(event.payload);
-            break;
-          default:
-            // Unknown event type — skip
-            flushed++;
-            continue;
-        }
-
-        const result = await apiRequest(config, apiPath, {
-          method: 'POST',
-          body,
-        });
-
-        if (result) {
-          flushed++;
-        } else {
-          // Server returned error — stop flushing to avoid repeated failures
-          break;
-        }
-      } catch {
-        // Network error — stop flushing
-        break;
-      }
-    }
-
-    return flushed;
-  });
+  } catch { return []; }
 }

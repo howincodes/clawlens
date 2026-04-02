@@ -427,7 +427,9 @@ clientRouter.put('/active-task', async (req: Request, res: Response) => {
   }
 });
 
-// POST /session-jsonl — sync raw JSONL session data (full session replay)
+// POST /session-jsonl — sync raw JSONL session data
+// Single endpoint: stores raw content for replay AND extracts messages for analytics.
+// Client just sends raw lines — all parsing/filtering happens here.
 clientRouter.post('/session-jsonl', async (req: Request, res: Response) => {
   try {
     const user = req.user!;
@@ -437,6 +439,7 @@ clientRouter.post('/session-jsonl', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'sessionId and rawContent required' });
     }
 
+    // 1. Store raw content for session replay
     const result = await upsertSessionRawJsonl({
       userId: user.id,
       sessionId,
@@ -446,9 +449,81 @@ clientRouter.post('/session-jsonl', async (req: Request, res: Response) => {
       lastOffset,
     });
 
-    res.json({ ok: true, id: result.id });
+    // 2. Parse lines and extract messages into the messages table
+    let extracted = 0;
+    const lines = rawContent.split('\n').filter((l: string) => l.trim());
+
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line);
+        if (!parsed.uuid || !parsed.type) continue;
+
+        const type = parsed.type as string;
+        const content = extractContent(parsed);
+
+        // ── Filter: only store real user prompts and assistant text responses ──
+        if (type === 'user') {
+          if (parsed.isMeta) continue;
+          if (!content) continue;
+          if (content.startsWith('<local-command')) continue;
+          if (content.startsWith('<command-name')) continue;
+        } else if (type === 'assistant') {
+          if (!content) continue; // thinking-only blocks
+        } else {
+          continue; // skip system, attachment, permission-mode, etc.
+        }
+
+        // Extract model and tokens
+        const model = parsed.message?.model || null;
+        const usage = parsed.message?.usage;
+        const creditCost = model ? await getCreditCostFromDb(model, 'claude-code') : 0;
+
+        await upsertMessageByUuid({
+          uuid: parsed.uuid,
+          parentUuid: parsed.parentUuid || null,
+          provider: 'claude-code',
+          sessionId: parsed.sessionId || sessionId,
+          userId: user.id,
+          type,
+          content,
+          model,
+          rawModel: model,
+          inputTokens: usage?.input_tokens,
+          outputTokens: usage?.output_tokens,
+          cachedTokens: usage?.cache_read_input_tokens || 0,
+          cacheCreationTokens: usage?.cache_creation_input_tokens || 0,
+          creditCost,
+          cwd: parsed.cwd,
+          gitBranch: parsed.gitBranch,
+          sourceType: 'jsonl',
+          timestamp: parsed.timestamp ? new Date(parsed.timestamp) : new Date(),
+        });
+        extracted++;
+      } catch {
+        // Malformed line — skip, raw content still stored
+      }
+    }
+
+    res.json({ ok: true, id: result.id, extracted });
   } catch (err) {
     console.error('[client-api] session-jsonl error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+/**
+ * Extract text content from a JSONL line's message field.
+ * Handles both string content (user) and content blocks array (assistant).
+ */
+function extractContent(parsed: any): string {
+  const messageContent = parsed.message?.content;
+  if (typeof messageContent === 'string') return messageContent.trim();
+  if (Array.isArray(messageContent)) {
+    return messageContent
+      .filter((b: any) => b.type === 'text')
+      .map((b: any) => b.text)
+      .join('\n')
+      .trim();
+  }
+  return '';
+}
