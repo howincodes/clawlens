@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions, getWatcherStatus, getWatcherLogs, getWatcherLogHistory, getWatcherLogEntry, sendWatcherCommand, updateUser, getUserProfile, updateUserProfile, getProviderQuotas } from '@/lib/api'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { getUser, getUserPrompts, getUserSessions, generateSummary, getSubscriptions, getWatcherStatus, getWatcherLogs, getWatcherLogHistory, getWatcherLogEntry, sendWatcherCommand, updateUser, getUserProfile, updateUserProfile, getProviderQuotas, getUserActivity, getUserActivityWindows, getProjects, getProjectMembersApi, getTasks, killUserCredential, rotateUserCredential } from '@/lib/api'
+import RoleBadge from '@/components/RoleBadge'
+import WatchStatusIndicator from '@/components/WatchStatusIndicator'
 import {
   Card,
   CardContent,
@@ -202,6 +204,22 @@ export function UserDetail() {
   const [providerQuotas, setProviderQuotas] = useState<any[]>([])
   const [promptSource, setPromptSource] = useState('')
 
+  // Tab navigation
+  const [activeTab, setActiveTab] = useState<'profile' | 'watch' | 'activity' | 'projects' | 'tasks' | 'prompts' | 'sessions' | 'limits'>('profile')
+
+  // Activity tab state
+  const [activityData, setActivityData] = useState<any[]>([])
+  const [activityWindows, setActivityWindows] = useState<any[]>([])
+  const [activityLoading, setActivityLoading] = useState(false)
+
+  // Projects tab state
+  const [userProjects, setUserProjects] = useState<any[]>([])
+  const [userProjectsLoading, setUserProjectsLoading] = useState(false)
+
+  // Tasks tab state
+  const [userTasks, setUserTasks] = useState<any[]>([])
+  const [userTasksLoading, setUserTasksLoading] = useState(false)
+
   const loadUser = useCallback(async () => {
     if (!id) return
     try {
@@ -331,6 +349,58 @@ export function UserDetail() {
       if (logPollRef.current) clearInterval(logPollRef.current)
     }
   }, [])
+
+  // Load activity data when Activity tab is selected
+  useEffect(() => {
+    if (activeTab !== 'activity' || !id) return
+    setActivityLoading(true)
+    Promise.all([
+      getUserActivity(parseInt(id)).catch(() => []),
+      getUserActivityWindows(parseInt(id)).catch(() => []),
+    ]).then(([act, wins]) => {
+      setActivityData(Array.isArray(act) ? act : act?.data || [])
+      setActivityWindows(Array.isArray(wins) ? wins : wins?.data || [])
+    }).finally(() => setActivityLoading(false))
+  }, [activeTab, id])
+
+  // Load projects data when Projects tab is selected
+  useEffect(() => {
+    if (activeTab !== 'projects' || !id) return
+    setUserProjectsLoading(true)
+    getProjects().then(async (projects: any) => {
+      const allProjects = Array.isArray(projects) ? projects : projects?.data || []
+      const userMemberships: any[] = []
+      await Promise.all(allProjects.map(async (proj: any) => {
+        try {
+          const members = await getProjectMembersApi(proj.id)
+          const memberList = Array.isArray(members) ? members : members?.data || []
+          const membership = memberList.find((m: any) => String(m.userId) === id)
+          if (membership) {
+            userMemberships.push({ ...proj, memberRole: membership.role || membership.roleName || 'member' })
+          }
+        } catch {}
+      }))
+      setUserProjects(userMemberships)
+    }).catch(() => setUserProjects([])).finally(() => setUserProjectsLoading(false))
+  }, [activeTab, id])
+
+  // Load tasks data when Tasks tab is selected
+  useEffect(() => {
+    if (activeTab !== 'tasks' || !id) return
+    setUserTasksLoading(true)
+    getProjects().then(async (projects: any) => {
+      const allProjects = Array.isArray(projects) ? projects : projects?.data || []
+      const allTasks: any[] = []
+      await Promise.all(allProjects.map(async (proj: any) => {
+        try {
+          const tasks = await getTasks(proj.id, { assigneeId: parseInt(id) })
+          const taskList = Array.isArray(tasks) ? tasks : tasks?.data || []
+          taskList.forEach((t: any) => allTasks.push({ ...t, projectName: proj.name, projectId: proj.id }))
+        } catch {}
+      }))
+      setUserTasks(allTasks)
+    }).catch(() => setUserTasks([])).finally(() => setUserTasksLoading(false))
+  }, [activeTab, id])
 
   // ── Chart data derived from prompts ───────────────────
   const dailyUsageData = useMemo(() => {
@@ -720,6 +790,77 @@ export function UserDetail() {
         </div>
       )}
 
+      {/* Tab Navigation */}
+      <div className="flex gap-1 border-b overflow-x-auto">
+        {([
+          ['profile', 'Profile'],
+          ['watch', 'Watch & Subscription'],
+          ['activity', 'Activity'],
+          ['projects', 'Projects'],
+          ['tasks', 'Tasks'],
+          ['prompts', 'Prompts'],
+          ['sessions', 'Sessions'],
+          ['limits', 'Limits'],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === key ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ═══ PROFILE TAB ═══ */}
+      {activeTab === 'profile' && (<>
+      {/* Profile Info */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">User Information</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Name</span>
+                <span className="font-medium">{user.name}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Email</span>
+                <span className="font-medium">{user.subscription_email || user.email || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Slug / GitHub ID</span>
+                <span className="font-mono text-sm">{user.slug}</span>
+              </div>
+              <div className="flex justify-between text-sm items-center">
+                <span className="text-muted-foreground">Role</span>
+                <RoleBadge role={user.role || 'user'} />
+              </div>
+            </div>
+            <div className="space-y-3">
+              <div className="flex justify-between text-sm items-center">
+                <span className="text-muted-foreground">Status</span>
+                <Badge variant={user.status === 'active' ? 'success' : user.status === 'paused' ? 'warning' : 'destructive'}>{user.status}</Badge>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Deployment Tier</span>
+                <span className="font-medium capitalize">{user.deployment_tier || user.tier || 'standard'}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Created</span>
+                <span className="text-sm">{user.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A'}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Devices</span>
+                <span className="font-medium">{deviceCount}</span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -975,6 +1116,50 @@ export function UserDetail() {
         )
       })()}
 
+      </>)}
+
+      {/* ═══ WATCH & SUBSCRIPTION TAB ═══ */}
+      {activeTab === 'watch' && (<>
+      {/* Watch Status */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Watch & Subscription</CardTitle>
+          <CardDescription>Current watch status, assigned subscription, and credential info.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-3">
+              <div className="flex justify-between text-sm items-center">
+                <span className="text-muted-foreground">Watch Status</span>
+                <WatchStatusIndicator status={watcherStatus?.connected ? 'on' : 'off'} />
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Subscription Email</span>
+                <span className="font-medium">{user.subscription_email || user.email || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Subscription Type</span>
+                <span className="font-medium capitalize">{user.subscription_type || 'N/A'}</span>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Poll Interval</span>
+                <span className="font-medium">{Math.round((user.poll_interval || 30000) / 1000)}s</span>
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <Button variant="outline" size="sm" onClick={() => id && rotateUserCredential(parseInt(id)).then(() => loadUser())}>
+                  <RefreshCw className="w-3 h-3 mr-1" /> Rotate Subscription
+                </Button>
+                <Button variant="destructive" size="sm" onClick={() => id && killUserCredential(parseInt(id)).then(() => loadUser())}>
+                  <Skull className="w-3 h-3 mr-1" /> Revoke Credential
+                </Button>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Watcher Status */}
       <Card>
         <CardHeader className="pb-3">
@@ -1214,6 +1399,10 @@ export function UserDetail() {
         </Card>
       )}
 
+      </>)}
+
+      {/* ═══ PROFILE TAB continued (Config, Summary, Charts) ═══ */}
+      {activeTab === 'profile' && (<>
       {/* User Configuration */}
       <Card>
         <CardHeader className="pb-3">
@@ -1768,6 +1957,10 @@ export function UserDetail() {
         </Card>
       </div>
 
+      </>)}
+
+      {/* ═══ PROMPTS TAB ═══ */}
+      {activeTab === 'prompts' && (<>
       {/* Recent Prompts */}
       <Card>
         <CardHeader>
@@ -1909,6 +2102,241 @@ export function UserDetail() {
           )}
         </CardContent>
       </Card>
+
+      </>)}
+
+      {/* ═══ ACTIVITY TAB ═══ */}
+      {activeTab === 'activity' && (
+        <div className="space-y-6">
+          {activityLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <>
+              {/* Work Windows */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Work Windows</CardTitle>
+                  <CardDescription>Active time windows detected from file events and app tracking.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {activityWindows.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-6">No work windows recorded yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {activityWindows.map((w: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between bg-muted/30 rounded-lg px-4 py-2 text-sm">
+                          <div className="flex items-center gap-3">
+                            <span className="font-medium">{w.date || new Date(w.startTime || w.start_time).toLocaleDateString()}</span>
+                            <span className="text-muted-foreground">{w.startTime || w.start_time ? new Date(w.startTime || w.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''} - {w.endTime || w.end_time ? new Date(w.endTime || w.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <span>{w.durationMinutes || w.duration_minutes ? `${w.durationMinutes || w.duration_minutes} min` : ''}</span>
+                            <span>{w.eventCount || w.event_count || 0} events</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Recent Activity Events */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Recent Activity</CardTitle>
+                  <CardDescription>File events, app tracking, and other activity signals.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {activityData.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-6">No activity data recorded yet.</p>
+                  ) : (
+                    <div className="space-y-1 max-h-96 overflow-y-auto">
+                      {activityData.slice(0, 100).map((evt: any, i: number) => (
+                        <div key={i} className="flex items-center gap-3 text-sm py-1.5 border-b last:border-0">
+                          <span className="text-xs text-muted-foreground w-20 flex-shrink-0">
+                            {evt.timestamp || evt.created_at ? new Date(evt.timestamp || evt.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
+                          </span>
+                          <Badge variant="outline" className="text-[10px]">{evt.type || evt.event_type || 'event'}</Badge>
+                          <span className="truncate text-sm">{evt.description || evt.path || evt.app_name || evt.details || JSON.stringify(evt.data || {}).slice(0, 100)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ═══ PROJECTS TAB ═══ */}
+      {activeTab === 'projects' && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Project Memberships</CardTitle>
+            <CardDescription>Projects this user belongs to and their role in each.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {userProjectsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : userProjects.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">This user is not a member of any projects.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Project</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {userProjects.map((proj: any) => (
+                    <TableRow key={proj.id}>
+                      <TableCell>
+                        <Link to={`/projects/${proj.id}`} className="font-medium text-blue-600 hover:underline">{proj.name}</Link>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="capitalize text-xs">{proj.memberRole}</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground max-w-xs truncate">{proj.description || '-'}</TableCell>
+                      <TableCell className="text-right">
+                        <Link to={`/projects/${proj.id}`} className="text-sm text-blue-600 hover:underline">View</Link>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══ TASKS TAB ═══ */}
+      {activeTab === 'tasks' && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Assigned Tasks</CardTitle>
+            <CardDescription>Tasks assigned to this user across all projects.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {userTasksLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : userTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No tasks assigned to this user.</p>
+            ) : (
+              <div className="space-y-2">
+                {userTasks.map((task: any) => (
+                  <div key={task.id} className="flex items-center justify-between bg-white border rounded-lg p-3">
+                    <div>
+                      <Link to={`/tasks/${task.id}`} className="font-medium text-blue-600 hover:underline">{task.title}</Link>
+                      <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${task.status === 'done' ? 'bg-green-100 text-green-700' : task.status === 'in_progress' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>{task.status}</span>
+                      <span className="ml-2 text-xs text-gray-500">{task.priority}</span>
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      <Link to={`/projects/${task.projectId}`} className="text-xs hover:underline">{task.projectName}</Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══ SESSIONS TAB ═══ */}
+      {activeTab === 'sessions' && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Zap className="w-5 h-5 text-muted-foreground" />
+              All Sessions
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {sessionsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : sessions.length > 0 ? (
+              <div className="space-y-4">
+                {sessions.map((session: any) => (
+                  <div key={session.id} className="border-b pb-3 last:border-0 last:pb-0">
+                    <div className="flex justify-between items-center">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-sm flex gap-2 items-center flex-wrap">
+                          <span className="truncate max-w-[200px]">
+                            {extractProjectName(session.cwd) || 'Unknown project'}
+                          </span>
+                          <Badge variant={modelBadgeVariant(session.model || '')} className="text-[10px] uppercase font-mono">
+                            {normalizeModel(session.model || '')}
+                          </Badge>
+                          {session.ai_productivity_score != null && (
+                            <Badge variant="outline" className={`text-[10px] ${session.ai_productivity_score >= 70 ? 'border-green-500 text-green-600' : session.ai_productivity_score >= 40 ? 'border-yellow-500 text-yellow-600' : 'border-red-500 text-red-600'}`}>
+                              {session.ai_productivity_score}/100
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {session.started_at ? formatDistanceToNow(parseServerDate(session.started_at), { addSuffix: true }) : 'Unknown time'} &bull; {formatDuration(session.duration_ms || session.duration || 0)}
+                        </div>
+                      </div>
+                      <div className="text-right text-sm ml-4">
+                        <div>{session.prompt_count || 0} prompts</div>
+                        <div className="text-xs text-muted-foreground">{Number(session.total_cost_usd || session.cost || 0)} credits</div>
+                      </div>
+                    </div>
+                    {session.ai_summary && (
+                      <div className="mt-1.5 text-xs text-muted-foreground italic pl-1">{session.ai_summary}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-center text-muted-foreground text-sm italic border border-dashed rounded py-4">
+                No sessions recorded.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══ LIMITS TAB ═══ */}
+      {activeTab === 'limits' && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex justify-between items-center">
+              <CardTitle className="text-lg">Rate Limits</CardTitle>
+              <Button variant="outline" size="sm" onClick={() => setShowLimits(true)}>
+                <Settings2 className="w-4 h-4 mr-2" /> Edit Limits
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {limits.length > 0 ? (
+              <div className="space-y-2">
+                {limits.map((lim: any, idx: number) => (
+                  <div key={idx} className="flex justify-between p-3 border rounded-lg text-sm">
+                    <span className="font-medium capitalize">{lim.type}</span>
+                    <span className="text-muted-foreground">{lim.value} per {lim.window}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm border border-dashed p-8 text-center rounded text-muted-foreground">
+                No limits active for this user. Click "Edit Limits" to configure rate limits.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Modals */}
       {showLimits && (
