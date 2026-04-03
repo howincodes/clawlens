@@ -1,31 +1,24 @@
 {
-  "name": "@howinlens/client",
-  "version": "0.3.0",
-  "description": "HowinLens Desktop Client",
+  "name": "@howinlens/cli",
+  "version": "1.0.0",
+  "description": "HowinLens CLI Daemon — AI team operations agent",
   "author": "Howincloud <dev@howincloud.com>",
   "homepage": "https://howinlens.howincloud.com",
-  "main": "dist/main/index.js",
   "bin": {
     "howinlens": "dist/cli/index.js"
   },
   "private": true,
   "scripts": {
-    "dev": "electron .",
     "build": "tsc",
-    "start": "electron dist/main/index.js",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "dev": "node dist/daemon.js",
+    "start": "node dist/daemon.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/ws": "^8.18.1",
-    "electron": "^34.0.0",
-    "electron-builder": "^26.0.0",
     "typescript": "~5.7.3"
   },
   "dependencies": {
-    "chokidar": "^4.0.0",
-    "electron-updater": "^6.0.0",
     "ws": "^8.20.0"
   }
 }

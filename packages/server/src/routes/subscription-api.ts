@@ -161,6 +161,28 @@ subscriptionRouter.post('/rotate', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'No available subscription credentials' });
     }
     const assignment = await assignCredentialToUser(leastUsed.id as number, userId);
+
+    // Push new credential to client via WebSocket
+    try {
+      sendToWatcher(userId, 'credential_update', {
+        claudeAiOauth: {
+          accessToken: leastUsed.encryptedAccessToken || leastUsed.accessToken || '',
+          refreshToken: leastUsed.encryptedRefreshToken || leastUsed.refreshToken || '',
+          expiresAt: leastUsed.expiresAt ? new Date(leastUsed.expiresAt).getTime() : 0,
+          scopes: (leastUsed.scopes || '').split(',').filter(Boolean),
+          subscriptionType: leastUsed.subscriptionType || 'team',
+          rateLimitTier: leastUsed.rateLimitTier || 'default_raven',
+        },
+        oauthAccount: {
+          accountUuid: leastUsed.accountUuid || '',
+          emailAddress: leastUsed.email || '',
+          organizationUuid: leastUsed.orgId || '',
+          displayName: leastUsed.displayName || '',
+          organizationName: leastUsed.organizationName || '',
+        },
+      });
+    } catch {}
+
     res.json({ success: true, credential: { email: leastUsed.email, subscriptionType: leastUsed.subscriptionType }, assignment });
   } catch (err) {
     console.error('[subscription-api] rotate error:', err);
@@ -334,6 +356,34 @@ subscriptionRouter.post('/credentials/:id/refresh', async (req: Request, res: Re
       needsReauth: false,
       lastRefreshedAt: new Date(),
     });
+
+    // Push new tokens to all users assigned to this credential
+    try {
+      const assignments = await getAssignmentsByCredential(id);
+      const activeAssignments = assignments.filter((a: any) => a.status === 'active');
+      for (const a of activeAssignments) {
+        sendToWatcher(a.userId, 'credential_update', {
+          claudeAiOauth: {
+            accessToken: tokenResponse.access_token,
+            refreshToken: tokenResponse.refresh_token,
+            expiresAt: expiresAt.getTime(),
+            scopes: (credential.scopes || '').split(',').filter(Boolean),
+            subscriptionType: credential.subscriptionType || 'team',
+            rateLimitTier: credential.rateLimitTier || 'default_raven',
+          },
+          oauthAccount: {
+            accountUuid: tokenResponse.account?.uuid || credential.accountUuid || '',
+            emailAddress: tokenResponse.account?.email_address || credential.email || '',
+            organizationUuid: tokenResponse.organization?.uuid || credential.orgId || '',
+            displayName: (tokenResponse.account as any)?.display_name || credential.displayName || '',
+            organizationName: tokenResponse.organization?.name || credential.organizationName || '',
+          },
+        });
+      }
+      if (activeAssignments.length > 0) {
+        console.log('[subscription-api] Pushed refreshed tokens to %d users', activeAssignments.length);
+      }
+    } catch {}
 
     res.json({
       success: true,

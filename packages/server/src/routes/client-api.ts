@@ -527,3 +527,68 @@ function extractContent(parsed: any): string {
   }
   return '';
 }
+
+// POST /codex-sessions — sync raw Codex JSONL session data
+// Parses event_msg lines and extracts user_message + agent_message
+clientRouter.post('/codex-sessions', async (req: Request, res: Response) => {
+  try {
+    const user = req.user!;
+    const { sessionId, rawContent, lineCount } = req.body;
+
+    if (!sessionId || !rawContent) {
+      return res.status(400).json({ error: 'sessionId and rawContent required' });
+    }
+
+    let extracted = 0;
+    let currentModel = 'gpt-5.4'; // default, updated from turn_context
+    const lines = rawContent.split('\n').filter((l: string) => l.trim());
+
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line);
+        const lineType = parsed.type;
+
+        // Extract model from turn_context events
+        if (lineType === 'turn_context' && parsed.payload?.model) {
+          currentModel = parsed.payload.model;
+          continue;
+        }
+
+        // Only process event_msg with user_message or agent_message
+        if (lineType !== 'event_msg') continue;
+
+        const eventType = parsed.payload?.type;
+        if (eventType !== 'user_message' && eventType !== 'agent_message') continue;
+
+        const content = parsed.payload?.message;
+        if (!content) continue;
+
+        const type = eventType === 'user_message' ? 'user' : 'assistant';
+        const model = type === 'assistant' ? currentModel : null;
+        const creditCost = model ? await getCreditCostFromDb(model, 'codex') : 0;
+
+        // Dedup by session + timestamp + type (Codex has no uuid)
+        const timestamp = parsed.timestamp ? new Date(parsed.timestamp) : new Date();
+
+        await upsertMessageByUuid({
+          uuid: `codex-${sessionId}-${timestamp.getTime()}-${type}`,
+          provider: 'codex',
+          sessionId,
+          userId: user.id,
+          type,
+          content,
+          model: model || undefined,
+          creditCost,
+          sourceType: 'jsonl',
+          timestamp,
+        });
+        extracted++;
+      } catch {}
+    }
+
+    res.json({ ok: true, extracted });
+  } catch (err) {
+    console.error('[client-api] codex-sessions error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
