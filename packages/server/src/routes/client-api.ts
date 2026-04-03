@@ -63,7 +63,7 @@ export const clientRouter: RouterType = Router();
 clientRouter.post('/heartbeat', async (req: Request, res: Response) => {
   try {
     const user = req.user!;
-    const { clientVersion, platform, watchStatus, activeTaskId } = req.body;
+    const { clientVersion, platform, watchStatus, activeTaskId, claudeAuth } = req.body;
     const heartbeat = await upsertHeartbeat({
       userId: user.id,
       clientVersion,
@@ -71,6 +71,15 @@ clientRouter.post('/heartbeat', async (req: Request, res: Response) => {
       watchStatus,
       activeTaskId,
     });
+
+    // Sync Claude auth status to user profile
+    if (claudeAuth?.email || claudeAuth?.subscriptionType) {
+      const updates: Record<string, any> = {};
+      if (claudeAuth.email) updates.email = claudeAuth.email;
+      if (claudeAuth.subscriptionType) updates.deploymentTier = claudeAuth.subscriptionType;
+      try { await updateUser(user.id, updates); } catch {}
+    }
+
     res.json({ ok: true, heartbeat });
   } catch (err) {
     console.error('[client-api] heartbeat error:', err);

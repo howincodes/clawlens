@@ -89,6 +89,116 @@ app.use('/api/admin', adminRouter);
 app.use('/api/admin/subscriptions', subscriptionRouter);
 
 // ---------------------------------------------------------------------------
+// Install script endpoints — for `curl | bash` client installation
+// ---------------------------------------------------------------------------
+
+app.get('/install', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/plain');
+  res.send(`#!/bin/bash
+set -e
+
+echo "HowinLens CLI Installer"
+echo "======================="
+
+# Check Node.js
+if ! command -v node &>/dev/null; then
+  echo "ERROR: Node.js is required (v18+). Install from https://nodejs.org"
+  exit 1
+fi
+
+NODE_VERSION=$(node -v | sed 's/v//' | cut -d. -f1)
+if [ "$NODE_VERSION" -lt 18 ]; then
+  echo "ERROR: Node.js v18+ required (found v$NODE_VERSION)"
+  exit 1
+fi
+
+# Create dirs
+INSTALL_DIR="$HOME/.howinlens/bin"
+mkdir -p "$INSTALL_DIR"
+
+# Download CLI
+echo "Downloading HowinLens CLI..."
+DOWNLOAD_URL="\${HOWINLENS_SERVER:-https://howinlens.howincloud.com}/download/client"
+curl -fsSL "$DOWNLOAD_URL" -o "$INSTALL_DIR/howinlens-cli.tar.gz" 2>/dev/null || {
+  echo "Download failed. Check your network connection."
+  exit 1
+}
+
+# Extract
+cd "$INSTALL_DIR"
+tar -xzf howinlens-cli.tar.gz 2>/dev/null && rm -f howinlens-cli.tar.gz
+
+# Create wrapper script
+cat > "$INSTALL_DIR/howinlens" << 'WRAPPER'
+#!/bin/bash
+exec node "$(dirname "$0")/cli.js" "$@"
+WRAPPER
+chmod +x "$INSTALL_DIR/howinlens"
+
+# Add to PATH
+SHELL_RC=""
+if [ -f "$HOME/.zshrc" ]; then SHELL_RC="$HOME/.zshrc"
+elif [ -f "$HOME/.bashrc" ]; then SHELL_RC="$HOME/.bashrc"
+elif [ -f "$HOME/.profile" ]; then SHELL_RC="$HOME/.profile"
+fi
+
+if [ -n "$SHELL_RC" ]; then
+  if ! grep -q '.howinlens/bin' "$SHELL_RC" 2>/dev/null; then
+    echo 'export PATH="$HOME/.howinlens/bin:$PATH"' >> "$SHELL_RC"
+    echo "Added ~/.howinlens/bin to PATH in $SHELL_RC"
+  fi
+fi
+
+export PATH="$HOME/.howinlens/bin:$PATH"
+
+echo ""
+echo "✓ HowinLens CLI installed!"
+echo ""
+echo "Next steps:"
+echo "  howinlens login    # authenticate with your server"
+echo "  howinlens start    # start the background daemon"
+echo "  howinlens status   # check connection status"
+`);
+});
+
+app.get('/install.ps1', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/plain');
+  res.send(`# HowinLens CLI Installer for Windows
+$ErrorActionPreference = "Stop"
+
+Write-Host "HowinLens CLI Installer" -ForegroundColor Cyan
+
+# Check Node.js
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    Write-Host "ERROR: Node.js is required (v18+). Install from https://nodejs.org" -ForegroundColor Red
+    exit 1
+}
+
+# Create dirs
+$InstallDir = "$env:USERPROFILE\\.howinlens\\bin"
+New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+
+# Download
+Write-Host "Downloading HowinLens CLI..."
+$Url = "https://howinlens.howincloud.com/download/client"
+Invoke-WebRequest -Uri $Url -OutFile "$InstallDir\\howinlens-cli.zip"
+Expand-Archive -Path "$InstallDir\\howinlens-cli.zip" -DestinationPath $InstallDir -Force
+Remove-Item "$InstallDir\\howinlens-cli.zip"
+
+# Add to PATH
+$CurrentPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($CurrentPath -notlike "*\\.howinlens\\bin*") {
+    [Environment]::SetEnvironmentVariable("Path", "$InstallDir;$CurrentPath", "User")
+    Write-Host "Added to PATH"
+}
+
+Write-Host ""
+Write-Host "HowinLens CLI installed!" -ForegroundColor Green
+Write-Host "Run: howinlens login"
+`);
+});
+
+// ---------------------------------------------------------------------------
 // Serve dashboard static files
 // ---------------------------------------------------------------------------
 
